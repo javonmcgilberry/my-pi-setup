@@ -1,0 +1,58 @@
+{
+  "lastChangelogVersion": "0.83.0",
+  "theme": "dark",
+  "defaultProvider": "openai-codex",
+  "defaultModel": "gpt-5.6-sol",
+  "packages": [
+    "npm:pi-mcp-adapter",
+    "npm:pi-web-access",
+    "npm:context-mode",
+    "npm:pi-subagents",
+    "npm:pi-intercom",
+    "npm:pi-anthropic-oauth",
+    "npm:pi-cursor-sdk",
+    "npm:@howaboua/pi-codex-conversion",
+    "npm:@howaboua/pi-explore-subagents",
+    "npm:@howaboua/pi-auto-trees",
+    "npm:@howaboua/pi-cache-hit-predictor",
+    "npm:@howaboua/pi-smart-btw",
+    "npm:@ff-labs/pi-fff",
+    "npm:pi-lens",
+    "npm:pi-agent-browser-native",
+    "npm:@pi-stef/atlassian",
+    "npm:@ayulab/pi-rewind",
+    "git:github.com/EveryInc/compound-engineering-plugin",
+    "npm:pi-ask-user",
+    "../pi-prework/prewalk",
+    "npm:@petechu/pi-extension-toggle"
+  ],
+  "enabledModels": [
+    "openai-codex/gpt-5.6-terra",
+    "openai-codex/gpt-5.6-sol",
+    "openai-codex/gpt-5.6-luna",
+    "anthropic/claude-sonnet-5",
+    "anthropic/claude-opus-5",
+    "anthropic/claude-opus-4-8",
+    "cursor/grok-4.5:fast",
+    "cursor/grok-4.5"
+  ],
+  "defaultThinkingLevel": "low",
+  "compaction": {
+    "enabled": true
+  },
+  "retry": {
+    "enabled": true
+  },
+  "subagents": {
+    "agentOverrides": {
+      "worker": {
+        "defaultContext": "fork",
+        "acceptanceRole": "writer"
+      },
+      "reviewer": {
+        "defaultContext": "fresh",
+        "acceptanceRole": "read-only"
+      }
+    }
+  }
+}

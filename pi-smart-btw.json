@@ -1,0 +1,13 @@
+{
+  "provider": "openai-codex",
+  "modelId": "gpt-5.6-luna",
+  "thinking": "low",
+  "command": "pi",
+  "composeShortcut": "alt+z",
+  "injectShortcut": "alt+c",
+  "dismissShortcut": "alt+x",
+  "foldShortcut": "alt+j",
+  "unfoldShortcut": "alt+k",
+  "previousShortcut": "alt+h",
+  "nextShortcut": "alt+l"
+}

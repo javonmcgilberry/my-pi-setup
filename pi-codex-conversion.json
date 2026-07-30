@@ -1,0 +1,56 @@
+{
+  "mode": "path",
+  "voiceFeaturesOnly": false,
+  "prompt": {
+    "heavySystemPromptOverwrite": true
+  },
+  "scope": {
+    "allProviders": "off",
+    "additionalProviders": []
+  },
+  "tools": {
+    "customRustBinariesDir": "",
+    "webRun": true,
+    "imageGeneration": true,
+    "viewImageFallback": false,
+    "applyPatchOnly": false,
+    "viewImageOnly": false,
+    "webRunOnly": false,
+    "imageGenerationOnly": false
+  },
+  "ui": {
+    "statusLine": true,
+    "toolRenaming": true,
+    "compactTools": true,
+    "codeModeDetails": true,
+    "backgroundShellWidget": true,
+    "backgroundShellToggleShortcut": "alt+w",
+    "backgroundShellPrevShortcut": "alt+q",
+    "backgroundShellNextShortcut": "alt+e",
+    "backgroundShellCloseShortcut": "alt+r"
+  },
+  "compaction": {
+    "responsesCompaction": false,
+    "version": "v1"
+  },
+  "beta": {
+    "codeMode": true,
+    "responsesLite": false,
+    "v2UserMessageRetention": 64
+  },
+  "voice": {
+    "protocol": "v3",
+    "mode": "conversational",
+    "v2Voice": "marin",
+    "v3Voice": "cove",
+    "dictationShortcut": "ctrl+alt+d",
+    "realtimeShortcut": "ctrl+alt+space",
+    "dictationShortcutMode": "push"
+  },
+  "openai": {
+    "fast": true,
+    "verbosity": "low",
+    "forceCachedWebSockets": true,
+    "webSearchModel": "gpt-5.6-luna"
+  }
+}

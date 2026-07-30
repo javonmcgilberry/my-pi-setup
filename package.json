@@ -1,0 +1,25 @@
+{
+  "name": "pi-extensions",
+  "private": true,
+  "dependencies": {
+    "@ayulab/pi-rewind": "^0.4.6",
+    "@ff-labs/pi-fff": "^0.10.1",
+    "@howaboua/pi-auto-trees": "^0.1.11",
+    "@howaboua/pi-cache-hit-predictor": "^0.0.1",
+    "@howaboua/pi-codex-conversion": "^3.0.4",
+    "@howaboua/pi-explore-subagents": "^0.1.13",
+    "@howaboua/pi-smart-btw": "^0.2.5",
+    "@petechu/pi-extension-toggle": "^0.1.3",
+    "@pi-stef/atlassian": "^0.4.2",
+    "context-mode": "^1.0.169",
+    "pi-agent-browser-native": "^0.2.72",
+    "pi-anthropic-oauth": "^0.2.3",
+    "pi-ask-user": "^0.13.0",
+    "pi-cursor-sdk": "^0.1.62",
+    "pi-intercom": "^0.9.0",
+    "pi-lens": "^3.8.73",
+    "pi-mcp-adapter": "^2.15.0",
+    "pi-subagents": "^0.37.2",
+    "pi-web-access": "^0.15.0"
+  }
+}
