@@ -168,15 +168,17 @@ function metricLines(ctx: ExtensionContext, theme: Theme, width: number): string
 	];
 }
 
-function prewalkLines(text: string, ctx: ExtensionContext, theme: Theme, width: number): string[] {
-	const solActive = text.includes("[5.6 Sol]");
-	const lunaActive = text.includes("[Luna]");
-	const sol = `Sol · ${ctx.thinkingLevel ?? "off"}`;
-	const luna = "Luna · low";
+function prewalkLines(text: string, theme: Theme, width: number): string[] {
+	const routeText = text.replace(/^prewalk:\s*/i, "").split(" (", 1)[0] ?? "";
+	const [plannerText = "planner", executorText = "executor"] = routeText.split(/\s+\/\s+/, 2);
+	const plannerActive = plannerText.startsWith("[") && plannerText.endsWith("]");
+	const executorActive = executorText.startsWith("[") && executorText.endsWith("]");
+	const planner = plannerText.replace(/^\[|\]$/g, "");
+	const executor = executorText.replace(/^\[|\]$/g, "");
 	const route = [
-		solActive ? theme.bold(theme.fg("accent", sol)) : theme.fg("dim", sol),
+		plannerActive ? theme.bold(theme.fg("accent", planner)) : theme.fg("dim", planner),
 		theme.fg("dim", " → "),
-		lunaActive ? theme.bold(theme.fg("success", luna)) : theme.fg("dim", luna),
+		executorActive ? theme.bold(theme.fg("success", executor)) : theme.fg("dim", executor),
 	].join("");
 	const failed = /\(failed(?:: ([^)]+))?\)/.exec(text);
 	const cancelled = /\(cancelled(?:; ([^)]+))?\)/.exec(text);
@@ -185,12 +187,14 @@ function prewalkLines(text: string, ctx: ExtensionContext, theme: Theme, width: 
 		state = theme.bold(theme.fg("error", `✕ FAILED${failed[1] ? `  ${failed[1]}` : ""}`));
 	} else if (cancelled) {
 		state = theme.fg("muted", `○ CANCELLED${cancelled[1] ? `  ${cancelled[1]}` : ""}`);
-	} else if (text.includes("(ready)")) {
-		state = theme.bold(theme.fg("warning", "● READY TO SWITCH"));
-	} else if (lunaActive) {
-		state = theme.bold(theme.fg("success", "● EXECUTING ON LUNA"));
+	} else if (text.includes("(switching after this turn)")) {
+		state = theme.bold(theme.fg("warning", "● SWITCHING AFTER THIS TURN"));
+	} else if (text.includes("(waiting for first code change)")) {
+		state = theme.bold(theme.fg("warning", "● WAITING FOR FIRST CODE CHANGE"));
+	} else if (executorActive) {
+		state = theme.bold(theme.fg("success", `● EXECUTING WITH ${executor.toUpperCase()}`));
 	} else {
-		state = theme.bold(theme.fg("accent", "● PLANNING ON SOL"));
+		state = theme.bold(theme.fg("accent", `● PLANNING WITH ${planner.toUpperCase()}`));
 	}
 	return alignedPair(section(theme, "PREWALK", route), state, width);
 }
@@ -258,7 +262,7 @@ function footerLines(
 			branch ? theme.fg("dim", `BRANCH  ${branch}`) : "",
 			width,
 		),
-		...(prewalk ? prewalkLines(cleanStatus(prewalk), ctx, theme, width) : []),
+		...(prewalk ? prewalkLines(cleanStatus(prewalk), theme, width) : []),
 		...metricLines(ctx, theme, width),
 		...secondaryStatusLines(statuses, theme, width),
 	];

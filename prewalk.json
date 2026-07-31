@@ -1,3 +1,13 @@
 {
-  "enabled": true
+  "executor": {
+    "provider": "openai-codex",
+    "model": "gpt-5.6-luna",
+    "reasoning": "low"
+  },
+  "analytics": {
+    "enabled": true,
+    "catalogFallbackEnabled": false,
+    "recentReceiptCount": 10,
+    "schemaVersion": 1
+  }
 }

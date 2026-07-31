@@ -20,6 +20,13 @@ json_files=(
 
 node -e 'for (const file of process.argv.slice(1)) JSON.parse(require("fs").readFileSync(file, "utf8"))' "${json_files[@]}"
 
+[[ -f prewalk/package.json ]] || {
+  echo "Missing Prewalk submodule. Run: git submodule update --init" >&2
+  exit 1
+}
+
+git submodule status -- prewalk >/dev/null
+
 for forbidden in auth.json trust.json run-history.jsonl mcp-cache.json models-store.json cursor-sdk-model-list.json; do
   if git ls-files --error-unmatch "$forbidden" >/dev/null 2>&1; then
     echo "Forbidden runtime file is tracked: $forbidden" >&2

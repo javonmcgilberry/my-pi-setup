@@ -16,6 +16,8 @@ bin/
 git/
 npm/
 node_modules/
+upstream/
+worktrees/
 .pi-subagents/
 *.db
 *.sqlite*

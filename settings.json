@@ -23,7 +23,7 @@
     "npm:@ayulab/pi-rewind",
     "git:github.com/EveryInc/compound-engineering-plugin",
     "npm:pi-ask-user",
-    "../pi-prework/prewalk",
+    "./packages/prewalk",
     "npm:@petechu/pi-extension-toggle"
   ],
   "enabledModels": [

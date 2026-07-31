@@ -77,6 +77,24 @@ for relative in "${managed_files[@]}"; do
   run cp -p "$source_path" "$target_path"
 done
 
+prewalk_source="${repo_dir}/prewalk"
+prewalk_link="${agent_dir}/packages/prewalk"
+[[ -f "${prewalk_source}/package.json" ]] || {
+  echo "Missing Prewalk submodule. Run: git submodule update --init" >&2
+  exit 1
+}
+
+if [[ -L "$prewalk_link" ]] && [[ "$(readlink "$prewalk_link")" == "$prewalk_source" ]]; then
+  echo "unchanged: packages/prewalk"
+else
+  if [[ -e "$prewalk_link" || -L "$prewalk_link" ]]; then
+    run mkdir -p "${backup_dir}/packages"
+    run mv "$prewalk_link" "${backup_dir}/packages/prewalk"
+  fi
+  run mkdir -p "${agent_dir}/packages"
+  run ln -s "$prewalk_source" "$prewalk_link"
+fi
+
 if "$install_packages"; then
   if "$dry_run"; then
     echo "would run: npm install --prefix $(printf '%q' "$agent_dir")"

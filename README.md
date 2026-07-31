@@ -13,14 +13,15 @@ Inspired by [davis7dotsh/my-pi-setup](https://github.com/davis7dotsh/my-pi-setup
 - Compaction, retry, and subagent defaults
 - Context-mode MCP configuration
 - Pi Codex Conversion, Auto Trees, Explore Subagents, Smart BTW, and Prewalk settings
+- The exact Prewalk revision, pinned as a Git submodule while Prewalk keeps its own history
 - Local footer and Herdr state extensions
 - The npm dependencies that install the rest of the Pi toolchain
 
 ## Install
 
 ```sh
-git clone https://github.com/javonmcgilberry/my-pi-setup.git
-cd my-pi-setup
+git clone --recurse-submodules https://github.com/javonmcgilberry/my-pi-setup.git pi
+cd pi
 ./setup.sh --dry-run
 ./setup.sh
 ```
@@ -28,7 +29,9 @@ cd my-pi-setup
 The installer copies the managed files into `${PI_AGENT_DIR:-~/.pi/agent}`. If a
 different file already exists, it is backed up under
 `~/.pi/agent/backups/<timestamp>/` before replacement. Package installation runs
-through npm unless `--skip-install` is supplied.
+through npm unless `--skip-install` is supplied. The installer links
+`~/.pi/agent/packages/prewalk` to this checkout, so local Prewalk edits are
+immediately testable without copying source into a hidden directory.
 
 Useful options:
 
