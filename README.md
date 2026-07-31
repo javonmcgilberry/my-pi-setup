@@ -12,6 +12,7 @@ Inspired by [davis7dotsh/my-pi-setup](https://github.com/davis7dotsh/my-pi-setup
 - OpenAI Codex defaults and model preferences
 - Compaction, retry, and subagent defaults
 - Context-mode MCP configuration
+- The Context Mode fork with Pi Code Mode trace accounting
 - Pi Codex Conversion, Auto Trees, Explore Subagents, Smart BTW, and Prewalk settings
 - The exact Prewalk revision, pinned as a Git submodule while Prewalk keeps its own history
 - Local footer and Herdr state extensions
@@ -32,6 +33,8 @@ different file already exists, it is backed up under
 through npm unless `--skip-install` is supplied. The installer links
 `~/.pi/agent/packages/prewalk` to this checkout, so local Prewalk edits are
 immediately testable without copying source into a hidden directory.
+Context Mode is loaded from `javonmcgilberry/context-mode`, while pi-subagents
+remains the unmodified upstream npm package.
 
 Useful options:
 

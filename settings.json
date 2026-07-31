@@ -6,7 +6,7 @@
   "packages": [
     "npm:pi-mcp-adapter",
     "npm:pi-web-access",
-    "npm:context-mode",
+    "git:github.com/javonmcgilberry/context-mode",
     "npm:pi-subagents",
     "npm:pi-intercom",
     "npm:pi-anthropic-oauth",
