@@ -8,6 +8,12 @@ Coordinate with other local pi sessions on related codebases. Use `/skill:pi-int
 **Principle:** Prefer `send` for notifications; `ask` only when blocked waiting for input.
 </pi-intercom>
 
+<context-mode>
+Use top-level `ctx_*` tools for large reads, logs, research, and web payloads.
+Use Code Mode `exec_command` only for small bounded shell output and mutations.
+Never print the full `FILE_CONTENT`; return only the answer needed.
+</context-mode>
+
 <pi-subagents>
 Use Pi subagents with mutation-safe orchestration.
 
