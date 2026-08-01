@@ -13,11 +13,21 @@ const ITEM_SEPARATOR = "  ·  ";
 const SYSTEM_SEPARATOR = "  |  ";
 const ANSI_SGR_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
-function compact(value: number): string {
-	if (value < 1_000) return String(value);
-	if (value < 10_000) return `${(value / 1_000).toFixed(1)}k`;
-	if (value < 1_000_000) return `${Math.round(value / 1_000)}k`;
-	return `${(value / 1_000_000).toFixed(1)}M`;
+function finiteNumber(value: unknown): number {
+	return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function compact(value: unknown): string {
+	const n = finiteNumber(value);
+	if (n < 1_000) return String(Math.round(n));
+	if (n < 10_000) return `${(n / 1_000).toFixed(1)}k`;
+	if (n < 1_000_000) return `${Math.round(n / 1_000)}k`;
+	return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+function compactOrDash(value: unknown, present: boolean): string {
+	if (!present) return "—";
+	return compact(value);
 }
 
 function displayPath(cwd: string): string {
@@ -81,28 +91,88 @@ interface UsageSummary {
 	input: number;
 	output: number;
 	reasoning: number;
+	hasReasoning: boolean;
 	cacheRead: number;
 	cacheWrite: number;
 	cost: number;
+}
+
+function usageFromEntry(usage: {
+	input?: unknown;
+	output?: unknown;
+	reasoning?: unknown;
+	cacheRead?: unknown;
+	cacheWrite?: unknown;
+	cost?: { total?: unknown };
+}): Omit<UsageSummary, "hasReasoning"> & { sawReasoning: boolean } {
+	return {
+		input: finiteNumber(usage.input),
+		output: finiteNumber(usage.output),
+		reasoning: finiteNumber(usage.reasoning),
+		sawReasoning: typeof usage.reasoning === "number" && Number.isFinite(usage.reasoning),
+		cacheRead: finiteNumber(usage.cacheRead),
+		cacheWrite: finiteNumber(usage.cacheWrite),
+		cost: finiteNumber(usage.cost?.total),
+	};
 }
 
 function usageSummary(ctx: ExtensionContext): UsageSummary {
 	let input = 0;
 	let output = 0;
 	let reasoning = 0;
+	let hasReasoning = false;
 	let cacheRead = 0;
 	let cacheWrite = 0;
 	let cost = 0;
 	for (const entry of ctx.sessionManager.getEntries()) {
-		if (entry.type !== "message" || entry.message.role !== "assistant") continue;
-		input += entry.message.usage.input;
-		output += entry.message.usage.output;
-		reasoning += entry.message.usage.reasoning;
-		cacheRead += entry.message.usage.cacheRead;
-		cacheWrite += entry.message.usage.cacheWrite;
-		cost += entry.message.usage.cost.total;
+		let usage: ReturnType<typeof usageFromEntry> | undefined;
+		if (entry.type === "message" && entry.message.role === "assistant") {
+			usage = usageFromEntry(entry.message.usage);
+		} else if (entry.type === "message" && entry.message.role === "toolResult" && entry.message.usage) {
+			usage = usageFromEntry(entry.message.usage);
+		} else if ((entry.type === "branch_summary" || entry.type === "compaction") && entry.usage) {
+			usage = usageFromEntry(entry.usage);
+		}
+		if (!usage) continue;
+		input += usage.input;
+		output += usage.output;
+		reasoning += usage.reasoning;
+		hasReasoning ||= usage.sawReasoning;
+		cacheRead += usage.cacheRead;
+		cacheWrite += usage.cacheWrite;
+		cost += usage.cost;
 	}
-	return { input, output, reasoning, cacheRead, cacheWrite, cost };
+	return { input, output, reasoning, hasReasoning, cacheRead, cacheWrite, cost };
+}
+
+function modelStatusText(ctx: ExtensionContext, theme: Theme): string {
+	const model = ctx.model;
+	if (!model) return theme.fg("dim", "MODEL  —");
+	const id = model.id || "unknown";
+	const thinking = ctx.thinkingLevel;
+	const showThinking = Boolean(model.reasoning) || (thinking !== undefined && thinking !== "off");
+	if (!showThinking || thinking === undefined) {
+		return `${theme.fg("dim", "MODEL")} ${theme.fg("text", id)}`;
+	}
+	const level = thinking === "off" ? "off" : String(thinking);
+	return `${theme.fg("dim", "MODEL")} ${theme.fg("text", id)}${theme.fg("dim", " · think ")}${theme.fg("thinkingText", level)}`;
+}
+
+function costText(ctx: ExtensionContext, cost: number): { value: string; note?: string } {
+	if (cost > 0) return { value: `$${cost.toFixed(3)}` };
+	const provider = ctx.model?.provider;
+	const rates = ctx.model?.cost;
+	const hasRates = Boolean(
+		rates &&
+			(finiteNumber(rates.input) > 0 ||
+				finiteNumber(rates.output) > 0 ||
+				finiteNumber(rates.cacheRead) > 0 ||
+				finiteNumber(rates.cacheWrite) > 0),
+	);
+	if (provider === "cursor" || !hasRates) {
+		return { value: "$0.000", note: "sub" };
+	}
+	return { value: "$0.000" };
 }
 
 function metric(
@@ -135,29 +205,41 @@ function metricLines(ctx: ExtensionContext, theme: Theme, width: number): string
 			? `${((usage.cacheRead / cachePromptTokens) * 100).toFixed(1)}%`
 			: "n/a";
 	const context = ctx.getContextUsage();
-	const contextText = context
+	const hasContext =
+		context !== null &&
+		context !== undefined &&
+		typeof context.percent === "number" &&
+		Number.isFinite(context.percent) &&
+		typeof context.contextWindow === "number" &&
+		Number.isFinite(context.contextWindow);
+	const contextText = hasContext
 		? `${context.percent.toFixed(1)}% of ${compact(context.contextWindow)}`
 		: "?";
 	const contextColor =
-		context && context.percent > 90
+		hasContext && context.percent > 90
 			? "error"
-			: context && context.percent > 70
+			: hasContext && context.percent > 70
 				? "warning"
 				: "success";
+	const thinkingValue = compactOrDash(usage.reasoning, usage.hasReasoning);
 	const tokenMetrics = [
 		metric(theme, "Input", compact(usage.input), "text"),
 		metric(theme, "Output", compact(usage.output), "text"),
-		metric(theme, "Thinking", compact(usage.reasoning), "thinkingText"),
+		metric(theme, "Thinking", thinkingValue, "thinkingText"),
 	];
 	const cacheMetrics = [
 		valueThenLabel(theme, compact(usage.cacheRead), "reused", "text"),
 		valueThenLabel(theme, compact(usage.cacheWrite), "stored", "text"),
 		valueThenLabel(theme, cacheHitRate, "hit", cacheHitRate === "n/a" ? "muted" : "success"),
 	];
+	const cost = costText(ctx, usage.cost);
+	const costDisplay = cost.note
+		? `${cost.value}${theme.fg("dim", ` (${cost.note})`)}`
+		: cost.value;
 	return [
 		...alignedPair(
 			section(theme, "TOKENS", tokenMetrics.join(theme.fg("dim", ITEM_SEPARATOR))),
-			metric(theme, "COST", `$${usage.cost.toFixed(3)}`, "text"),
+			metric(theme, "COST", costDisplay, "text"),
 			width,
 		),
 		...alignedPair(
@@ -256,12 +338,11 @@ function footerLines(
 	const branch = footerData.getGitBranch();
 	const statuses = footerData.getExtensionStatuses();
 	const prewalk = statuses.get("prewalk");
+	const pathLeft = branch
+		? `${theme.fg("dim", displayPath(ctx.cwd))}${theme.fg("dim", `  ·  ${branch}`)}`
+		: theme.fg("dim", displayPath(ctx.cwd));
 	return [
-		...alignedPair(
-			theme.fg("dim", displayPath(ctx.cwd)),
-			branch ? theme.fg("dim", `BRANCH  ${branch}`) : "",
-			width,
-		),
+		...alignedPair(pathLeft, modelStatusText(ctx, theme), width),
 		...(prewalk ? prewalkLines(cleanStatus(prewalk), theme, width) : []),
 		...metricLines(ctx, theme, width),
 		...secondaryStatusLines(statuses, theme, width),

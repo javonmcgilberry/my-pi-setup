@@ -14,6 +14,23 @@ Use Code Mode `exec_command` only for small bounded shell output and mutations.
 Never print the full `FILE_CONTENT`; return only the answer needed.
 </context-mode>
 
+<worktree-dependencies>
+Git worktrees do not automatically share installed dependencies. Before
+installing again, point a worktree at the main checkout's dependencies:
+
+\`\`\`sh
+MAIN_CHECKOUT="$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')"
+ln -s "$MAIN_CHECKOUT/node_modules" node_modules  # when node_modules is missing
+export NODE_PATH="$MAIN_CHECKOUT/node_modules"
+export PATH="$MAIN_CHECKOUT/node_modules/.bin:$PATH"
+\`\`\`
+
+The \`node_modules\` symlink is required for scripts that invoke
+\`./node_modules/.bin/*\`; \`NODE_PATH\` alone is not sufficient. Do not share
+dependencies when the worktree changes the dependency manifest or lockfile
+unless the main checkout has already installed the matching dependency graph.
+</worktree-dependencies>
+
 <pi-subagents>
 Use Pi subagents with mutation-safe orchestration.
 
