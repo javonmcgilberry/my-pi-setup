@@ -70,7 +70,14 @@
       "disabledItems": [
         "package:@howaboua/pi-explore-subagents"
       ],
-      "config": {}
+      "config": {
+        "@vanillagreen/pi-tool-renderer": {
+          "readOutputMode": "summary",
+          "searchOutputMode": "count",
+          "bashOutputMode": "summary",
+          "mcpOutputMode": "summary"
+        }
+      }
     }
   }
 }
