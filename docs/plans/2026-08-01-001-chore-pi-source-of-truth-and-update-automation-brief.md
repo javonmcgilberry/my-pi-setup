@@ -232,9 +232,22 @@ its GitHub page matches the code people can actually install and run.
   link, moved the private Warp checkout to `~/webdev/warp-pi-gateway`, and
   retargeted both its Pi extension and CLI links. The same four active Warp
   modifications and original commit remained after the move.
-- [ ] U4. Add low-noise GitHub automation.
-- [ ] U5. Review Warp for secrets and portability.
-- [ ] U6. Bring Prewalk's GitHub documentation up to date.
+- [x] U4. Added push/PR setup checks and one grouped monthly npm Dependabot
+  update, verified the YAML and local check, then pushed `my-pi-setup` main at
+  `3a19c26` with no auto-merge, publish, deploy, or fork-sync workflow.
+- [x] U5. Confirmed Git history and tracked working files contain no secrets,
+  removed a personal Tailnet hostname from docs, fixed old and configurable Pi
+  paths, made stop remove the credential volume, hid raw upstream errors, and
+  pushed private Warp main at `8d0b8cb`. `npm run build`, all 5 tests, shell and
+  Node syntax, Compose validation, and `git diff --check` passed. Ignored local
+  `.env` and runtime copies still contain the credentials they are expected to
+  hold and were not committed.
+- [x] U6. Rewrote Prewalk's README around the install-and-run path, moved local
+  analytics details into a focused guide, marked plans and research as
+  historical, corrected the stale RPC fixture, and pushed `pi-prewalk` main at
+  `71d01d6`. Lint, typecheck, all 300 tests, the stock Pi RPC smoke, current-doc
+  link checks, `npm pack --dry-run`, and `git diff --check` passed. The Docker
+  benchmark integration remained intentionally skipped.
 
 ## Verification
 
