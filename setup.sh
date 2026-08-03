@@ -131,9 +131,9 @@ link_owned "${repo_dir}/extensions/pretty-footer.ts" "${agent_dir}/extensions/pr
 
 if "$install_packages"; then
   if "$dry_run"; then
-    echo "would run: npm install --prefix $(printf '%q' "$agent_dir")"
+    echo "would run: npm ci --prefix $(printf '%q' "$agent_dir")"
   else
-    npm install --prefix "$agent_dir"
+    npm ci --prefix "$agent_dir"
   fi
 fi
 
