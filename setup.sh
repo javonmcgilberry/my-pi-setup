@@ -40,7 +40,7 @@ managed_files=(
   disabled-extensions/clear-status.ts
 )
 
-timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+timestamp="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 backup_dir="${agent_dir}/backups/${timestamp}"
 
 run() {
