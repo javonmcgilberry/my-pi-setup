@@ -26,6 +26,22 @@ cd pi
 ./setup.sh
 ```
 
+## Daily workflow
+
+Edit files in this checkout, then run one command:
+
+```sh
+./sync
+```
+
+That command pulls, validates, commits, pushes, and applies the setup. It refuses
+to touch the live agent directory while Pi sessions are running. To explicitly
+upgrade npm dependencies, Git pins, and the Prewalk submodule first, run:
+
+```sh
+./sync --update
+```
+
 The installer renders tracked defaults plus an optional local override into
 `${PI_AGENT_DIR:-~/.pi/agent}`. It backs up files before replacing them and runs
 npm unless you pass `--skip-install`.

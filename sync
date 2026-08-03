@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+agent_dir="${PI_AGENT_DIR:-${HOME}/.pi/agent}"
+update=false
+
+case "${1:-}" in
+  "") ;;
+  --update) update=true ;;
+  -h|--help)
+    echo "Usage: ./sync [--update]"
+    echo "  ./sync          validate, save, publish, and apply this setup"
+    echo "  ./sync --update update dependencies first, then sync"
+    exit 0
+    ;;
+  *) echo "Unknown option: $1" >&2; exit 2 ;;
+esac
+
+if [[ "$agent_dir" == "${HOME}/.pi/agent" ]] && pgrep -x pi >/dev/null 2>&1; then
+  echo "Pi is running. Close active Pi sessions, then run ./sync again." >&2
+  exit 1
+fi
+
+cd "$repo_dir"
+git pull --rebase --autostash
+git submodule update --init
+
+if "$update"; then
+  npx --yes npm-check-updates@22 -u
+  npm install --package-lock-only --ignore-scripts
+  git submodule update --remote --merge prewalk
+  node scripts/update-git-pins.mjs
+fi
+
+git add -A
+./scripts/check.sh
+
+validation_dir="$(mktemp -d "${TMPDIR:-/tmp}/my-pi-sync.XXXXXX")"
+trap 'rm -rf "$validation_dir"' EXIT
+PI_AGENT_DIR="$validation_dir/agent" ./setup.sh --skip-install >/dev/null
+PI_AGENT_DIR="$validation_dir/agent" ./setup.sh --skip-install >/dev/null
+
+if ! git diff --cached --quiet; then
+  if "$update"; then
+    git commit -m "chore: update Pi setup"
+  else
+    git commit -m "chore: sync Pi setup"
+  fi
+  git push
+fi
+
+./setup.sh
+./scripts/drift.sh
+echo "Pi setup synced."
