@@ -14,8 +14,7 @@ Inspired by [davis7dotsh/my-pi-setup](https://github.com/davis7dotsh/my-pi-setup
 - Context Mode MCP configuration and my Context Mode fork
 - Pi Codex Conversion, Auto Trees, Explore Subagents, Smart BTW, and Prewalk settings
 - The exact Prewalk revision, pinned as a Git submodule while Prewalk keeps its own history
-- Local footer and Herdr state extensions. These files are copied into the live
-  Pi directory by the installer; the copies in this repo are the source of truth.
+- Local footer and Herdr state extensions
 - The npm dependencies that install the rest of the Pi toolchain
 
 ## Install
@@ -27,16 +26,30 @@ cd pi
 ./setup.sh
 ```
 
-The installer copies managed files into `${PI_AGENT_DIR:-~/.pi/agent}`. If a
-different file is already there, it moves a backup to
-`~/.pi/agent/backups/<timestamp>/` first. It runs npm unless you pass
-`--skip-install`.
+The installer renders tracked defaults plus an optional local override into
+`${PI_AGENT_DIR:-~/.pi/agent}`. It backs up files before replacing them and runs
+npm unless you pass `--skip-install`.
 
-Prewalk is different: the installer links `~/.pi/agent/packages/prewalk` to the
-Git submodule in this checkout. That makes local Prewalk changes available right
-away. Context Mode loads from my GitHub fork. pi-subagents still comes from npm
-in the portable setup, even when I temporarily point my live machine at a local
-development checkout.
+Prewalk, pretty-footer, and Herdr are linked to this checkout. Edit them here,
+not under `~/.pi/agent`. Context Mode and pi-subagents use pinned commits from my
+forks by default.
+
+Machine-only choices go in `settings.local.json`, which Git ignores. Copy
+`settings.local.example.json` to start. The `settings` object merges into the
+tracked defaults. Arrays replace tracked arrays. `packageReplacements` swaps a
+pinned package source for a local checkout without copying the whole package
+list.
+
+```json
+{
+  "settings": {
+    "defaultProjectTrust": "always"
+  },
+  "packageReplacements": {
+    "git:github.com/javonmcgilberry/pi-subagents@92416192d7ccf59264ae03eb12b4d2700cb9dd2b": "/absolute/path/to/local/pi-subagents"
+  }
+}
+```
 
 Run the dry run before reinstalling. It shows every live file that differs from
 the tracked copy, which helps catch local experiments before they get replaced.
@@ -55,24 +68,26 @@ PI_AGENT_DIR=/tmp/pi-agent ./setup.sh --skip-install
 ./scripts/check.sh
 ```
 
-The check validates JSON and shell syntax, the tracked-file boundary, dependency
-metadata, and common secret patterns. It intentionally does not inspect or copy
-your existing `auth.json`.
+The check validates JSON, the local-settings merge, shell syntax, dependency
+metadata, the tracked-file boundary, and common secret patterns. It does not
+inspect or copy `auth.json`.
 
 ## Where the code lives
 
 | Part | Source of truth | Live install |
 | --- | --- | --- |
-| Setup and copied extensions | This repo | Files under `~/.pi/agent` |
+| Global config | This repo plus ignored `settings.local.json` | Generated files under `~/.pi/agent` |
+| Footer and Herdr extensions | This repo | Symlinks under `~/.pi/agent/extensions` |
 | Prewalk | [`pi-prewalk`](https://github.com/javonmcgilberry/pi-prewalk), pinned here as a submodule | `~/.pi/agent/packages/prewalk` symlink |
-| Context Mode changes | [`context-mode`](https://github.com/javonmcgilberry/context-mode) | Pi-managed Git checkout |
-| pi-subagents changes | [`pi-subagents`](https://github.com/javonmcgilberry/pi-subagents) | npm by default; local checkout only while developing |
-| Pi changes | [`pi`](https://github.com/javonmcgilberry/pi) | Separate development checkout |
+| Context Mode changes | [`context-mode`](https://github.com/javonmcgilberry/context-mode) | Pinned Pi-managed Git checkout; edit `~/webdev/context-mode` |
+| pi-subagents changes | [`pi-subagents`](https://github.com/javonmcgilberry/pi-subagents) | Pinned Git commit or local replacement; edit `~/webdev/pi-subagents` |
+| Pi changes | [`pi`](https://github.com/javonmcgilberry/pi) | Separate development checkout; the normal `pi` command remains the global install |
+| Warp gateway | Private `warp-pi-gateway` repo | Edit `~/webdev/warp-pi-gateway`; live extension is a symlink |
 
-`warp-pi-gateway` is currently a separate local project. Its extension is linked
-into the live Pi directory, but this repo does not install or publish it. Runtime
-folders such as `sessions`, `prewalk/analytics`, `backups`, `cache`, `intercom`,
-and Ayu checkpoints are data, not source code.
+Do not edit `~/.pi/agent/npm/node_modules` or `~/.pi/agent/git`. Pi owns those
+install directories and may replace them during an update. Runtime folders such
+as `sessions`, `prewalk/analytics`, `backups`, `cache`, `intercom`, and Ayu
+checkpoints are data, not source code.
 
 ## Deliberately excluded
 

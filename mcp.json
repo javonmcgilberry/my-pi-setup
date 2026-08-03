@@ -5,6 +5,9 @@
     },
     "linear": {
       "url": "https://mcp.linear.app/mcp"
+    },
+    "buildkite": {
+      "url": "https://mcp.buildkite.com/mcp/readonly"
     }
   }
 }

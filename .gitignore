@@ -16,6 +16,7 @@ bin/
 git/
 npm/
 node_modules/
+settings.local.json
 upstream/
 worktrees/
 .pi-subagents/

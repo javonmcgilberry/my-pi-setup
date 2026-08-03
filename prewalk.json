@@ -6,7 +6,7 @@
   },
   "analytics": {
     "enabled": true,
-    "catalogFallbackEnabled": false,
+    "catalogFallbackEnabled": true,
     "recentReceiptCount": 10,
     "schemaVersion": 1
   }

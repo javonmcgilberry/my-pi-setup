@@ -5,6 +5,7 @@ repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_dir"
 
 bash -n setup.sh scripts/check.sh
+node --check scripts/render-settings.mjs
 
 json_files=(
   settings.json
@@ -16,9 +17,11 @@ json_files=(
   prewalk.json
   package.json
   package-lock.json
+  settings.local.example.json
 )
 
 node -e 'for (const file of process.argv.slice(1)) JSON.parse(require("fs").readFileSync(file, "utf8"))' "${json_files[@]}"
+node scripts/render-settings.mjs settings.json settings.local.example.json >/dev/null
 
 [[ -f prewalk/package.json ]] || {
   echo "Missing Prewalk submodule. Run: git submodule update --init" >&2

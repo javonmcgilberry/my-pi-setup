@@ -28,7 +28,6 @@ done
 managed_files=(
   AGENTS.md
   REALTIME-SYSTEM-PROMPT.md
-  settings.json
   mcp.json
   pi-auto-trees.json
   pi-codex-conversion.json
@@ -37,8 +36,6 @@ managed_files=(
   prewalk.json
   package.json
   package-lock.json
-  extensions/herdr-agent-state.ts
-  extensions/pretty-footer.ts
   disabled-extensions/clear-status.ts
 )
 
@@ -56,6 +53,29 @@ run() {
 }
 
 run mkdir -p "$agent_dir"
+
+settings_override=()
+if [[ -f "${repo_dir}/settings.local.json" ]]; then
+  settings_override+=("${repo_dir}/settings.local.json")
+fi
+rendered_settings="$(node "${repo_dir}/scripts/render-settings.mjs" "${repo_dir}/settings.json" "${settings_override[@]}")"
+settings_target="${agent_dir}/settings.json"
+
+if [[ -f "$settings_target" ]] && cmp -s <(printf '%s\n' "$rendered_settings") "$settings_target"; then
+  echo "unchanged: settings.json (tracked defaults + local overrides)"
+else
+  if [[ -e "$settings_target" || -L "$settings_target" ]]; then
+    run mkdir -p "$backup_dir"
+    run cp -p "$settings_target" "${backup_dir}/settings.json"
+  fi
+  if "$dry_run"; then
+    echo "would render: settings.json (tracked defaults + local overrides)"
+  else
+    settings_tmp="${settings_target}.tmp.$$"
+    printf '%s\n' "$rendered_settings" > "$settings_tmp"
+    mv "$settings_tmp" "$settings_target"
+  fi
+fi
 
 for relative in "${managed_files[@]}"; do
   source_path="${repo_dir}/${relative}"
@@ -77,23 +97,32 @@ for relative in "${managed_files[@]}"; do
   run cp -p "$source_path" "$target_path"
 done
 
+link_owned() {
+  local source_path="$1"
+  local target_path="$2"
+  local relative="$3"
+
+  if [[ -L "$target_path" ]] && [[ "$(readlink "$target_path")" == "$source_path" ]]; then
+    echo "unchanged: ${relative} -> ${source_path}"
+    return
+  fi
+
+  if [[ -e "$target_path" || -L "$target_path" ]]; then
+    run mkdir -p "${backup_dir}/$(dirname "$relative")"
+    run mv "$target_path" "${backup_dir}/${relative}"
+  fi
+  run mkdir -p "$(dirname "$target_path")"
+  run ln -s "$source_path" "$target_path"
+}
+
 prewalk_source="${repo_dir}/prewalk"
-prewalk_link="${agent_dir}/packages/prewalk"
 [[ -f "${prewalk_source}/package.json" ]] || {
   echo "Missing Prewalk submodule. Run: git submodule update --init" >&2
   exit 1
 }
-
-if [[ -L "$prewalk_link" ]] && [[ "$(readlink "$prewalk_link")" == "$prewalk_source" ]]; then
-  echo "unchanged: packages/prewalk"
-else
-  if [[ -e "$prewalk_link" || -L "$prewalk_link" ]]; then
-    run mkdir -p "${backup_dir}/packages"
-    run mv "$prewalk_link" "${backup_dir}/packages/prewalk"
-  fi
-  run mkdir -p "${agent_dir}/packages"
-  run ln -s "$prewalk_source" "$prewalk_link"
-fi
+link_owned "$prewalk_source" "${agent_dir}/packages/prewalk" "packages/prewalk"
+link_owned "${repo_dir}/extensions/herdr-agent-state.ts" "${agent_dir}/extensions/herdr-agent-state.ts" "extensions/herdr-agent-state.ts"
+link_owned "${repo_dir}/extensions/pretty-footer.ts" "${agent_dir}/extensions/pretty-footer.ts" "extensions/pretty-footer.ts"
 
 if "$install_packages"; then
   if "$dry_run"; then

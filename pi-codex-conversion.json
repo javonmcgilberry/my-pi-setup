@@ -22,7 +22,7 @@
     "statusLine": true,
     "toolRenaming": true,
     "compactTools": true,
-    "codeModeDetails": true,
+    "codeModeDetails": false,
     "backgroundShellWidget": true,
     "backgroundShellToggleShortcut": "alt+w",
     "backgroundShellPrevShortcut": "alt+q",
