@@ -4,7 +4,7 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_dir"
 
-bash -n setup.sh scripts/check.sh
+bash -n setup.sh scripts/check.sh scripts/drift.sh scripts/restore.sh
 node --check scripts/render-settings.mjs
 
 json_files=(
@@ -18,6 +18,7 @@ json_files=(
   package.json
   package-lock.json
   settings.local.example.json
+  fzf.json
 )
 
 node -e 'for (const file of process.argv.slice(1)) JSON.parse(require("fs").readFileSync(file, "utf8"))' "${json_files[@]}"

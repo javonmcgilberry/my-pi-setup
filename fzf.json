@@ -1,0 +1,17 @@
+{
+  "defaultPlacement": "overlay",
+  "settings": {
+    "previewScrollUp": "shift+up",
+    "previewScrollDown": "shift+down",
+    "previewScrollLines": 5
+  },
+  "commands": {
+    "file": {
+      "list": "rg --files --hidden -g '!.git'",
+      "action": "@{{selected}}",
+      "shortcut": "@",
+      "preview": "sed -n '1,240p' -- \"{{selected}}\" 2>/dev/null",
+      "hideHeader": true
+    }
+  }
+}

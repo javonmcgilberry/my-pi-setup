@@ -12,11 +12,13 @@
     "npm:pi-anthropic-oauth",
     "npm:pi-cursor-sdk",
     "npm:@howaboua/pi-codex-conversion",
-    "npm:@howaboua/pi-explore-subagents",
+    {
+      "source": "npm:@howaboua/pi-explore-subagents",
+      "extensions": []
+    },
     "npm:@howaboua/pi-auto-trees",
     "npm:@howaboua/pi-cache-hit-predictor",
     "npm:@howaboua/pi-smart-btw",
-    "npm:@ff-labs/pi-fff",
     "npm:pi-lens",
     "npm:pi-agent-browser-native",
     "git:github.com/EveryInc/compound-engineering-plugin",
@@ -40,9 +42,11 @@
     "cursor/grok-4.5:fast",
     "cursor/grok-4.5"
   ],
-  "defaultThinkingLevel": "low",
+  "defaultThinkingLevel": "medium",
   "compaction": {
-    "enabled": true
+    "enabled": true,
+    "reserveTokens": 65536,
+    "keepRecentTokens": 20000
   },
   "retry": {
     "enabled": true
@@ -57,6 +61,16 @@
         "defaultContext": "fresh",
         "acceptanceRole": "read-only"
       }
+    },
+    "defaultModel": "openai-codex/gpt-5.6-luna:high"
+  },
+  "showCacheMissNotices": true,
+  "vstack": {
+    "extensionManager": {
+      "disabledItems": [
+        "package:@howaboua/pi-explore-subagents"
+      ],
+      "config": {}
     }
   }
 }

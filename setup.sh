@@ -36,6 +36,7 @@ managed_files=(
   prewalk.json
   package.json
   package-lock.json
+  fzf.json
   disabled-extensions/clear-status.ts
 )
 
@@ -58,15 +59,19 @@ settings_override=()
 if [[ -f "${repo_dir}/settings.local.json" ]]; then
   settings_override+=("${repo_dir}/settings.local.json")
 fi
-rendered_settings="$(node "${repo_dir}/scripts/render-settings.mjs" "${repo_dir}/settings.json" "${settings_override[@]}")"
+if ((${#settings_override[@]})); then
+  rendered_settings="$(node "${repo_dir}/scripts/render-settings.mjs" "${repo_dir}/settings.json" "${settings_override[0]}")"
+else
+  rendered_settings="$(node "${repo_dir}/scripts/render-settings.mjs" "${repo_dir}/settings.json")"
+fi
 settings_target="${agent_dir}/settings.json"
 
-if [[ -f "$settings_target" ]] && cmp -s <(printf '%s\n' "$rendered_settings") "$settings_target"; then
+if [[ -f "$settings_target" && ! -L "$settings_target" ]] && cmp -s <(printf '%s\n' "$rendered_settings") "$settings_target"; then
   echo "unchanged: settings.json (tracked defaults + local overrides)"
 else
   if [[ -e "$settings_target" || -L "$settings_target" ]]; then
     run mkdir -p "$backup_dir"
-    run cp -p "$settings_target" "${backup_dir}/settings.json"
+    run mv "$settings_target" "${backup_dir}/settings.json"
   fi
   if "$dry_run"; then
     echo "would render: settings.json (tracked defaults + local overrides)"
@@ -83,14 +88,14 @@ for relative in "${managed_files[@]}"; do
 
   [[ -f "$source_path" ]] || { echo "Missing managed source: $relative" >&2; exit 1; }
 
-  if [[ -f "$target_path" ]] && cmp -s "$source_path" "$target_path"; then
+  if [[ -f "$target_path" && ! -L "$target_path" ]] && cmp -s "$source_path" "$target_path"; then
     echo "unchanged: $relative"
     continue
   fi
 
   if [[ -e "$target_path" || -L "$target_path" ]]; then
     run mkdir -p "${backup_dir}/$(dirname "$relative")"
-    run cp -p "$target_path" "${backup_dir}/${relative}"
+    run mv "$target_path" "${backup_dir}/${relative}"
   fi
 
   run mkdir -p "$(dirname "$target_path")"

@@ -12,6 +12,10 @@ sessions/
 cache/
 generated/
 intercom/
+backups/
+ayu/
+packages/
+prewalk/analytics/
 bin/
 git/
 npm/

@@ -1,0 +1,45 @@
+{
+  "rendered": {
+    "settings.json": "settings.json"
+  },
+  "copied": [
+    "AGENTS.md",
+    "REALTIME-SYSTEM-PROMPT.md",
+    "mcp.json",
+    "pi-auto-trees.json",
+    "pi-codex-conversion.json",
+    "pi-explore-subagents.json",
+    "pi-smart-btw.json",
+    "prewalk.json",
+    "fzf.json",
+    "package.json",
+    "package-lock.json",
+    "disabled-extensions/clear-status.ts"
+  ],
+  "linked": {
+    "packages/prewalk": "prewalk",
+    "extensions/herdr-agent-state.ts": "extensions/herdr-agent-state.ts",
+    "extensions/pretty-footer.ts": "extensions/pretty-footer.ts"
+  },
+  "externalLinks": [
+    "extensions/warp-gateway.ts",
+    "extensions/warp-link-fallback.ts"
+  ],
+  "localOverrides": [
+    "settings.local.json"
+  ],
+  "runtimeExclusions": [
+    "auth.json",
+    "trust.json",
+    "sessions/",
+    "cache/",
+    "generated/",
+    "intercom/",
+    "backups/",
+    "ayu/",
+    "npm/",
+    "git/",
+    "node_modules/",
+    "prewalk/analytics/"
+  ]
+}

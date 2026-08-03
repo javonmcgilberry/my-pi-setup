@@ -34,6 +34,10 @@ Prewalk, pretty-footer, and Herdr are linked to this checkout. Edit them here,
 not under `~/.pi/agent`. Context Mode and pi-subagents use pinned commits from my
 forks by default.
 
+Use `./scripts/drift.sh` to inspect live-file drift without changing anything.
+Every apply backs up replaced files under a unique directory in
+`~/.pi/agent/backups`; restore one with `./scripts/restore.sh <backup-dir>`.
+
 Machine-only choices go in `settings.local.json`, which Git ignores. Copy
 `settings.local.example.json` to start. The `settings` object merges into the
 tracked defaults. Arrays replace tracked arrays. `packageReplacements` swaps a
