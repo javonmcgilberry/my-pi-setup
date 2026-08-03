@@ -3,6 +3,6 @@
     "defaultProjectTrust": "ask"
   },
   "packageReplacements": {
-    "git:github.com/javonmcgilberry/pi-subagents@6c8493b7c2151fa752c42201d3777cd8112817a5": "/absolute/path/to/local/pi-subagents"
+    "git:github.com/javonmcgilberry/pi-subagents@35f4bafd8b8f1914b3b95adf32ce76a98b7a38a2": "/absolute/path/to/local/pi-subagents"
   }
 }

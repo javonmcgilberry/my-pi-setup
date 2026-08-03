@@ -7,7 +7,7 @@
     "npm:pi-mcp-adapter",
     "npm:pi-web-access",
     "git:github.com/javonmcgilberry/context-mode@19b8f73e757eda6b71502f3e64ca5eecd1bfc7c0",
-    "git:github.com/javonmcgilberry/pi-subagents@6c8493b7c2151fa752c42201d3777cd8112817a5",
+    "git:github.com/javonmcgilberry/pi-subagents@35f4bafd8b8f1914b3b95adf32ce76a98b7a38a2",
     "npm:pi-intercom",
     "npm:pi-anthropic-oauth",
     "npm:pi-cursor-sdk",
