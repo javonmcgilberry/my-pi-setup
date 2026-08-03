@@ -6,6 +6,7 @@ cd "$repo_dir"
 
 bash -n setup.sh scripts/check.sh scripts/drift.sh scripts/restore.sh
 node --check scripts/render-settings.mjs
+node --check scripts/json-equal.mjs
 
 json_files=(
   settings.json

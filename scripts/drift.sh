@@ -13,6 +13,8 @@ for relative in settings.json AGENTS.md REALTIME-SYSTEM-PROMPT.md mcp.json pi-au
     echo "missing: $relative"; found=true
   elif [[ -L "$actual" ]]; then
     echo "link: $relative -> $(readlink "$actual")"
+  elif [[ "$relative" == *.json ]] && node "$repo_dir/scripts/json-equal.mjs" "$actual" "$expected"; then
+    continue
   elif ! cmp -s "$expected" "$actual"; then
     echo "different: $relative"; diff -u "$actual" "$expected" || true; found=true
   fi
