@@ -47,8 +47,8 @@ The installer renders tracked defaults plus an optional local override into
 npm unless you pass `--skip-install`.
 
 Prewalk, pretty-footer, and Herdr are linked to this checkout. Edit them here,
-not under `~/.pi/agent`. Context Mode and pi-subagents use pinned commits from my
-forks by default.
+not under `~/.pi/agent`. Context Mode uses a pinned commit from my fork;
+pi-subagents uses the unmodified upstream npm release.
 
 Use `./scripts/drift.sh` to inspect live-file drift without changing anything.
 Every apply backs up replaced files under a unique directory in
@@ -65,9 +65,7 @@ list.
   "settings": {
     "defaultProjectTrust": "always"
   },
-  "packageReplacements": {
-    "git:github.com/javonmcgilberry/pi-subagents@92416192d7ccf59264ae03eb12b4d2700cb9dd2b": "/absolute/path/to/local/pi-subagents"
-  }
+  "packageReplacements": {}
 }
 ```
 
@@ -100,7 +98,7 @@ inspect or copy `auth.json`.
 | Footer and Herdr extensions | This repo | Symlinks under `~/.pi/agent/extensions` |
 | Prewalk | [`pi-prewalk`](https://github.com/javonmcgilberry/pi-prewalk), pinned here as a submodule | `~/.pi/agent/packages/prewalk` symlink |
 | Context Mode changes | [`context-mode`](https://github.com/javonmcgilberry/context-mode) | Pinned Pi-managed Git checkout; edit `~/webdev/context-mode` |
-| pi-subagents changes | [`pi-subagents`](https://github.com/javonmcgilberry/pi-subagents) | Pinned Git commit or local replacement; edit `~/webdev/pi-subagents` |
+| pi-subagents | [`nicobailon/pi-subagents`](https://github.com/nicobailon/pi-subagents) | Exact upstream npm package in `settings.json`; no Prewalk fork policy |
 | Pi changes | [`pi`](https://github.com/javonmcgilberry/pi) | Separate development checkout; the normal `pi` command remains the global install |
 | Warp gateway | Private `warp-pi-gateway` repo | Edit `~/webdev/warp-pi-gateway`; live extension is a symlink |
 
