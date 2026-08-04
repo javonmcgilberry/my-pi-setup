@@ -1,8 +1,5 @@
 {
   "settings": {
     "defaultProjectTrust": "ask"
-  },
-  "packageReplacements": {
-    "git:github.com/javonmcgilberry/pi-subagents@35f4bafd8b8f1914b3b95adf32ce76a98b7a38a2": "/absolute/path/to/local/pi-subagents"
   }
 }

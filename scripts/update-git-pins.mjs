@@ -13,7 +13,6 @@ const localPaths = [
 ];
 const pins = [
   { repository: "javonmcgilberry/context-mode", branch: "main" },
-  { repository: "javonmcgilberry/pi-subagents", branch: "jm/prewalk-execution-profile-policy" },
 ];
 
 const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
