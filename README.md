@@ -112,18 +112,23 @@ commit, push, and apply changes, so they are publication commands rather than
 read-only checks.
 
 The installer renders tracked defaults plus an optional local override into
-`${PI_AGENT_DIR:-~/.pi/agent}` and backs up files before replacing them. Pi
-installs configured packages in its managed `npm/` and `git/` directories when
-it starts; setup does not create a duplicate root `node_modules` tree.
+`${PI_AGENT_DIR:-~/.pi/agent}` and links cross-harness skills into
+`${AGENTS_SKILLS_DIR:-~/.agents/skills}`. It backs up files before replacing
+them. Pi installs configured packages in its managed `npm/` and `git/`
+directories when it starts; setup does not create a duplicate root
+`node_modules` tree.
 
 Prewalk, pretty-footer, and Herdr are linked to this checkout. Edit them here,
 not under `~/.pi/agent`. Context Mode uses a pinned commit from my fork;
 pi-subagents uses the unmodified upstream npm release.
 
-The Webflow skill uses the global `agent-browser` CLI and a locally installed
-Chrome for Testing binary. Its authenticated browser profile, cookies, leases,
-and runtime records stay under `~/.config/webflow-designer-agent-browser` and
-are intentionally not copied into this repository.
+The Webflow skill is installed once under `~/.agents/skills` so Pi and other
+compatible harnesses can discover the same implementation without duplicate
+skill-name collisions. It uses the global `agent-browser` CLI and a locally
+installed Chrome for Testing binary. Its authenticated browser profile,
+cookies, leases, and runtime records stay under
+`~/.config/webflow-designer-agent-browser` and are intentionally not copied
+into this repository.
 
 Use `./scripts/drift.sh` to inspect live-file drift without changing anything.
 Every apply backs up replaced files under a unique directory in
@@ -151,7 +156,7 @@ Useful options:
 
 ```sh
 ./setup.sh --dry-run
-PI_AGENT_DIR=/tmp/pi-agent ./setup.sh
+PI_AGENT_DIR=/tmp/pi-agent AGENTS_SKILLS_DIR=/tmp/agents-skills ./setup.sh
 ```
 
 ## Verify
@@ -171,7 +176,7 @@ inspect or copy `auth.json`.
 | Global config | This repo plus ignored `settings.local.json` | Generated files under `~/.pi/agent` |
 | Footer and Herdr extensions | This repo | Symlinks under `~/.pi/agent/extensions` |
 | Session-spend dashboard | `extensions/session-spend-dashboard` in this repo | `~/.pi/agent/extensions/session-spend-dashboard` symlink |
-| Webflow Designer browser skill | `skills/webflow-designer-agent-browser` in this repo | `~/.pi/agent/skills/webflow-designer-agent-browser` symlink |
+| Webflow Designer browser skill | `skills/webflow-designer-agent-browser` in this repo | `~/.agents/skills/webflow-designer-agent-browser` symlink shared across compatible harnesses |
 | Prewalk | [`pi-prewalk`](https://github.com/javonmcgilberry/pi-prewalk), pinned here as a submodule | `~/.pi/agent/packages/prewalk` symlink |
 | Context Mode changes | [`context-mode`](https://github.com/javonmcgilberry/context-mode) | Pinned Pi-managed Git checkout; edit `~/webdev/context-mode` |
 | pi-subagents | [`nicobailon/pi-subagents`](https://github.com/nicobailon/pi-subagents) | Exact upstream npm package in `settings.json`; no Prewalk fork policy |

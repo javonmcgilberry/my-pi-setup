@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 agent_dir="${PI_AGENT_DIR:-${HOME}/.pi/agent}"
+shared_skills_dir="${AGENTS_SKILLS_DIR:-${HOME}/.agents/skills}"
 dry_run=false
 
 usage() {
@@ -10,6 +11,10 @@ usage() {
 Usage: ./setup.sh [--dry-run]
 
   --dry-run  Print intended changes without writing anything.
+
+Environment:
+  PI_AGENT_DIR       Pi configuration target (default: ~/.pi/agent)
+  AGENTS_SKILLS_DIR  Cross-harness skill target (default: ~/.agents/skills)
 EOF
 }
 
@@ -36,6 +41,36 @@ managed_files=(
   disabled-extensions/clear-status.ts
 )
 
+prewalk_source="${repo_dir}/prewalk"
+owned_link_sources=(
+  "$prewalk_source"
+  "${repo_dir}/extensions/herdr-agent-state.ts"
+  "${repo_dir}/extensions/pretty-footer.ts"
+  "${repo_dir}/extensions/session-spend-dashboard"
+  "${repo_dir}/skills/webflow-designer-agent-browser"
+)
+
+for relative in "${managed_files[@]}"; do
+  [[ -f "${repo_dir}/${relative}" ]] || { echo "Missing managed source: $relative" >&2; exit 1; }
+done
+[[ -f "${prewalk_source}/package.json" ]] || {
+  echo "Missing Prewalk submodule. Run: git submodule update --init" >&2
+  exit 1
+}
+for source_path in "${owned_link_sources[@]}"; do
+  [[ -e "$source_path" ]] || { echo "Missing linked source: $source_path" >&2; exit 1; }
+done
+
+settings_override=()
+if [[ -f "${repo_dir}/settings.local.json" ]]; then
+  settings_override+=("${repo_dir}/settings.local.json")
+fi
+if ((${#settings_override[@]})); then
+  rendered_settings="$(node "${repo_dir}/scripts/render-settings.mjs" "${repo_dir}/settings.json" "${settings_override[0]}")"
+else
+  rendered_settings="$(node "${repo_dir}/scripts/render-settings.mjs" "${repo_dir}/settings.json")"
+fi
+
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 backup_dir="${agent_dir}/backups/${timestamp}"
 
@@ -53,6 +88,7 @@ run mkdir -p "$agent_dir"
 
 retired_files=(
   pi-explore-subagents.json
+  skills/webflow-designer-agent-browser
 )
 
 for relative in "${retired_files[@]}"; do
@@ -63,15 +99,6 @@ for relative in "${retired_files[@]}"; do
   fi
 done
 
-settings_override=()
-if [[ -f "${repo_dir}/settings.local.json" ]]; then
-  settings_override+=("${repo_dir}/settings.local.json")
-fi
-if ((${#settings_override[@]})); then
-  rendered_settings="$(node "${repo_dir}/scripts/render-settings.mjs" "${repo_dir}/settings.json" "${settings_override[0]}")"
-else
-  rendered_settings="$(node "${repo_dir}/scripts/render-settings.mjs" "${repo_dir}/settings.json")"
-fi
 settings_target="${agent_dir}/settings.json"
 
 if [[ -f "$settings_target" && ! -L "$settings_target" ]] && cmp -s <(printf '%s\n' "$rendered_settings") "$settings_target"; then
@@ -93,8 +120,6 @@ fi
 for relative in "${managed_files[@]}"; do
   source_path="${repo_dir}/${relative}"
   target_path="${agent_dir}/${relative}"
-
-  [[ -f "$source_path" ]] || { echo "Missing managed source: $relative" >&2; exit 1; }
 
   if [[ -f "$target_path" && ! -L "$target_path" ]] && cmp -s "$source_path" "$target_path"; then
     echo "unchanged: $relative"
@@ -128,15 +153,10 @@ link_owned() {
   run ln -s "$source_path" "$target_path"
 }
 
-prewalk_source="${repo_dir}/prewalk"
-[[ -f "${prewalk_source}/package.json" ]] || {
-  echo "Missing Prewalk submodule. Run: git submodule update --init" >&2
-  exit 1
-}
 link_owned "$prewalk_source" "${agent_dir}/packages/prewalk" "packages/prewalk"
 link_owned "${repo_dir}/extensions/herdr-agent-state.ts" "${agent_dir}/extensions/herdr-agent-state.ts" "extensions/herdr-agent-state.ts"
 link_owned "${repo_dir}/extensions/pretty-footer.ts" "${agent_dir}/extensions/pretty-footer.ts" "extensions/pretty-footer.ts"
 link_owned "${repo_dir}/extensions/session-spend-dashboard" "${agent_dir}/extensions/session-spend-dashboard" "extensions/session-spend-dashboard"
-link_owned "${repo_dir}/skills/webflow-designer-agent-browser" "${agent_dir}/skills/webflow-designer-agent-browser" "skills/webflow-designer-agent-browser"
+link_owned "${repo_dir}/skills/webflow-designer-agent-browser" "${shared_skills_dir}/webflow-designer-agent-browser" "external-agents-skills-webflow-designer-agent-browser"
 
-echo "Pi setup complete: $agent_dir"
+echo "Setup complete: Pi at $agent_dir; shared skills at $shared_skills_dir"

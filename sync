@@ -38,8 +38,8 @@ git add -A
 
 validation_dir="$(mktemp -d "${TMPDIR:-/tmp}/my-pi-sync.XXXXXX")"
 trap 'rm -rf "$validation_dir"' EXIT
-PI_AGENT_DIR="$validation_dir/agent" ./setup.sh >/dev/null
-PI_AGENT_DIR="$validation_dir/agent" ./setup.sh >/dev/null
+PI_AGENT_DIR="$validation_dir/agent" AGENTS_SKILLS_DIR="$validation_dir/shared-skills" ./setup.sh >/dev/null
+PI_AGENT_DIR="$validation_dir/agent" AGENTS_SKILLS_DIR="$validation_dir/shared-skills" ./setup.sh >/dev/null
 
 if ! git diff --cached --quiet; then
   if "$update"; then

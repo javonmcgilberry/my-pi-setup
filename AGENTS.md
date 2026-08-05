@@ -18,16 +18,18 @@ work here instead of treating `~/.pi/agent` as editable source.
 4. Do not create a branch or worktree unless the user asks for a PR or isolation. Remove merged temporary branches/worktrees when that work is complete.
 5. `./sync` is the publication boundary: it pulls, validates, commits, pushes, applies to the live agent directory, and verifies no drift. Run it only when the user asks to sync/apply/publish and all Pi sessions are closed.
 6. Use `./sync --update` only when the user explicitly asks to upgrade dependencies or tracked revisions. Ordinary syncs must remain deterministic.
-7. When Pi sessions are still active, do not run `./sync`. Validate installation safely with `PI_AGENT_DIR="$(mktemp -d)/agent" ./setup.sh`, then tell the user that a later live `./sync` is still required.
+7. When Pi sessions are still active, do not run `./sync`. Validate installation safely with both `PI_AGENT_DIR` and `AGENTS_SKILLS_DIR` pointed inside one temporary directory, then tell the user that a later live `./sync` is still required.
 
 **Current architecture:** Prewalk is a standalone, OMP-faithful adaptation
 pinned as a submodule. pi-subagents is the exact upstream npm release named in
 `settings.json`; the archived GitHub fork is historical only.
 
-The tracked Webflow Designer skill is linked from
-`skills/webflow-designer-agent-browser` into the live agent directory. Its
-browser profile and runtime state remain private machine data under `~/.config`
-and are never tracked.
+The tracked, cross-harness Webflow Designer skill is linked from
+`skills/webflow-designer-agent-browser` into `~/.agents/skills`, where Pi and
+other compatible harnesses can discover the same installation. Do not also
+link it under `~/.pi/agent/skills`; duplicate discovery causes a skill-name
+collision. Its browser profile and runtime state remain private machine data
+under `~/.config` and are never tracked.
 </my-pi-setup-workflow>
 
 <pi-intercom>
