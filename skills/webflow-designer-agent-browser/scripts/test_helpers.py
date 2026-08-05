@@ -551,7 +551,7 @@ class BrowserRuntimeTests(unittest.TestCase):
         self.assertEqual(result["status"], "unhealthy")
         self.assertTrue(result["runtimeOwned"])
 
-    def test_profile_bootstrap_copies_state_and_excludes_runtime_files(self):
+    def test_profile_bootstrap_excludes_credentials_and_runtime_files(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             source = base / "source"
@@ -559,18 +559,83 @@ class BrowserRuntimeTests(unittest.TestCase):
             profile.mkdir(parents=True)
             (source / "Local State").write_text("{}")
             (profile / "Cookies").write_text("synthetic-encrypted-cookie-db")
+            (profile / "Cookies-wal").write_text("synthetic-cookie-sidecar")
+            (profile / "Cookies-shm").write_text("synthetic-cookie-sidecar")
+            (profile / "Login Data").write_text("synthetic-login-db")
+            (profile / "Login Data-wal").write_text("synthetic-login-sidecar")
+            (profile / "Web Data").write_text("synthetic-web-data-db")
+            (profile / "Web Data-shm").write_text("synthetic-web-data-sidecar")
+            (profile / "Local State").write_text("synthetic-nested-state")
+            (profile / "Preferences").write_text("{}")
+            (profile / "Network").mkdir()
+            (profile / "Network" / "Cookies").write_text("synthetic-network-cookie-db")
             (profile / "Cache").mkdir()
             (profile / "Cache" / "entry").write_text("transient")
             config = self.config(base / "state", source)
             result = browser_runtime.bootstrap_profile(config, replace=False)
             copied = config.profile_root / "Default"
             self.assertEqual(result["classification"], "profile_initialized")
-            self.assertTrue((copied / "Cookies").is_file())
+            self.assertTrue((copied / "Preferences").is_file())
+            self.assertFalse((config.profile_root / "Local State").exists())
+            self.assertFalse((copied / "Cookies").exists())
+            self.assertFalse((copied / "Cookies-wal").exists())
+            self.assertFalse((copied / "Cookies-shm").exists())
+            self.assertFalse((copied / "Login Data").exists())
+            self.assertFalse((copied / "Login Data-wal").exists())
+            self.assertFalse((copied / "Web Data").exists())
+            self.assertFalse((copied / "Web Data-shm").exists())
+            self.assertFalse((copied / "Local State").exists())
+            self.assertFalse((copied / "Network" / "Cookies").exists())
             self.assertFalse((copied / "Cache").exists())
             self.assertEqual(
                 json.loads(config.origin_path.read_text())["refreshPolicy"],
-                "manual_domain_scoped",
+                "manual_login_only",
             )
+
+    def test_profile_bootstrap_rejects_source_profile_traversal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            config = replace(
+                self.config(base / "state", base / "source"),
+                source_profile="..",
+            )
+            with self.assertRaisesRegex(
+                browser_runtime.RuntimeFailure, "invalid_source_profile"
+            ):
+                browser_runtime.bootstrap_profile(config, replace=False)
+
+    def test_profile_bootstrap_rejects_symlink_outside_source_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = base / "source"
+            external = base / "external"
+            source.mkdir()
+            external.mkdir()
+            (source / "Default").symlink_to(
+                external,
+                target_is_directory=True,
+            )
+            config = self.config(base / "state", source)
+            with self.assertRaisesRegex(
+                browser_runtime.RuntimeFailure, "invalid_source_profile"
+            ):
+                browser_runtime.bootstrap_profile(config, replace=False)
+
+    def test_profile_bootstrap_rejects_nested_symlinks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = base / "source"
+            profile = source / "Default"
+            external = base / "external-secret"
+            profile.mkdir(parents=True)
+            external.write_text("must-not-copy")
+            (profile / "nested-link").symlink_to(external)
+            config = self.config(base / "state", source)
+            with self.assertRaisesRegex(
+                browser_runtime.RuntimeFailure, "source_profile_symlink"
+            ):
+                browser_runtime.bootstrap_profile(config, replace=False)
+            self.assertFalse(config.profile_root.exists())
 
     def test_profile_bootstrap_refuses_locked_source(self):
         with tempfile.TemporaryDirectory() as directory:

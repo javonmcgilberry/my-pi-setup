@@ -331,15 +331,20 @@ export default function prettyFooter(pi: ExtensionAPI): void {
 		ctx.ui.setFooter((tui, theme, footerData) => {
 			let artifactRuns = new Map<string, TaskUsage>();
 			let disposed = false;
+			let refreshPending = false;
 			const refreshChildren = async (): Promise<void> => {
+				if (refreshPending) return;
+				refreshPending = true;
 				const sessionFile = ctx.sessionManager.getSessionFile();
-				if (!sessionFile) return;
-				artifactRuns = await readTaskRunUsage(sessionFile);
-				if (!disposed) tui.requestRender();
+				try {
+					if (!sessionFile) return;
+					artifactRuns = await readTaskRunUsage(sessionFile);
+					if (!disposed) tui.requestRender();
+				} finally {
+					refreshPending = false;
+				}
 			};
 			void refreshChildren();
-			const timer = setInterval(() => void refreshChildren(), 2_000);
-			timer.unref();
 			const unsubscribe = footerData.onBranchChange(() => {
 				void refreshChildren();
 				tui.requestRender();
@@ -347,10 +352,11 @@ export default function prettyFooter(pi: ExtensionAPI): void {
 			return {
 				dispose() {
 					disposed = true;
-					clearInterval(timer);
 					unsubscribe();
 				},
-				invalidate() {},
+				invalidate() {
+					void refreshChildren();
+				},
 				render(width: number): string[] {
 					return footerLines(ctx, footerData, theme, width, artifactRuns);
 				},

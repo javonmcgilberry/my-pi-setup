@@ -13,7 +13,7 @@ Use agent-browser for token-efficient Designer exploration while preserving the 
 2. Do not install agent-browser, download a browser, or change Chrome configuration without approval.
 3. Obtain the exact Designer URL, including `pageId`, role simulation, and local port. Prefer the URL from the live tab.
 4. Check explicit required local services and extension endpoints before diagnosing product behavior.
-5. On `profile_unavailable`, fully quit normal Chrome and run `scripts/browser-runtime.py bootstrap --confirm-sensitive-copy` once. The default source is the normal Chrome `Default` profile; pass `--source-profile <directory-name>` explicitly for another profile. Then run `start --headed` for a one-time Webflow login and `stop` immediately afterward. Never copy a live/locked profile or transfer cookies or credentials.
+5. On `profile_unavailable`, fully quit normal Chrome and run `scripts/browser-runtime.py bootstrap --confirm-sensitive-copy` once. The default source is the normal Chrome `Default` profile; pass `--source-profile <directory-name>` explicitly for another profile. Bootstrap excludes `Local State`, cookie databases, saved-login databases, and Web Data. Then run `start --headed` for a one-time Webflow login and `stop` immediately afterward. Never copy a live/locked profile or transfer cookies or credentials.
 5. Choose one mode explicitly and record it in the evidence.
 
 ## Reusable helpers

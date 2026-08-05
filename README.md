@@ -5,6 +5,10 @@ setup. It tracks the settings and extensions I actually want to maintain. It
 does not track credentials, conversations, caches, analytics, or other local
 runtime data.
 
+[`PRODUCT.md`](PRODUCT.md) is the shared product authority for tracked skills,
+extensions, terminal/TUI behavior, and localhost interfaces in this workbench.
+Scoped product records may refine it but should not silently contradict it.
+
 Inspired by [davis7dotsh/my-pi-setup](https://github.com/davis7dotsh/my-pi-setup).
 
 ## What's included
@@ -61,8 +65,9 @@ python3 "$runtime" stop
 ```
 
 The copied profile is private machine state, not repository content. Chrome for
-Testing may still require its own one-time Webflow login; never extract or move
-cookies or credentials to avoid that login.
+Testing may still require its own one-time Webflow login. Bootstrap excludes
+`Local State`, cookie databases, saved-login databases, and Web Data; never
+extract or move cookies or credentials to avoid that login.
 
 ## Daily workflow
 

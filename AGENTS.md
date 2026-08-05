@@ -4,6 +4,7 @@ work here instead of treating `~/.pi/agent` as editable source.
 
 **Ownership:**
 - Edit tracked configuration, package metadata, scripts, skills, and linked extensions in this repository.
+- Treat root `PRODUCT.md` as shared product authority for tracked skills, extensions, terminal/TUI behavior, and localhost interfaces.
 - Edit Pi core in `~/Developer/pi`, not in the globally installed package.
 - Edit Prewalk in the `prewalk` submodule/repository, then advance this repository's submodule pin.
 - Use the unmodified upstream `npm:pi-subagents` package. Do not restore the retired custom fork or its Prewalk execution-profile policy.

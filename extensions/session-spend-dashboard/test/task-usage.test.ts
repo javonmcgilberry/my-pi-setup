@@ -67,6 +67,37 @@ test("deduplicates the same child reported by a tool result and run artifact", (
 	assert.equal(total.childRuns, 1);
 });
 
+test("deduplicates aggregate and result entries for the same child run", () => {
+	const entries = [
+		{
+			type: "message",
+			message: {
+				role: "toolResult",
+				details: { runId: "run-1", totalCost: { inputTokens: 100, outputTokens: 20, costUsd: 5 } },
+			},
+		},
+		{
+			type: "message",
+			message: {
+				role: "toolResult",
+				details: {
+					runId: "run-1",
+					results: [
+						{
+							index: 0,
+							usage: { input: 100, output: 20, cost: 5 },
+						},
+					],
+				},
+			},
+		},
+	];
+	const total = summarizeTaskEntries(entries);
+	assert.equal(total.cost, 5);
+	assert.equal(total.input, 100);
+	assert.equal(total.childRuns, 1);
+});
+
 test("includes asynchronous child artifacts when no terminal tool result exists", () => {
 	const child: TaskUsage = {
 		input: 200,

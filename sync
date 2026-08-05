@@ -17,7 +17,7 @@ case "${1:-}" in
   *) echo "Unknown option: $1" >&2; exit 2 ;;
 esac
 
-if [[ "$agent_dir" == "${HOME}/.pi/agent" ]] && pgrep -x pi >/dev/null 2>&1; then
+if pgrep -x pi >/dev/null 2>&1; then
   echo "Pi is running. Close active Pi sessions, then run ./sync again." >&2
   exit 1
 fi

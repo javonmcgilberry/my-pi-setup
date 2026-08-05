@@ -94,6 +94,7 @@ export function childUsageFromDetails(value: unknown, seen = new Set<string>()):
 		: typeof details.asyncId === "string"
 			? details.asyncId
 			: undefined;
+	if (topKey && seen.has(topKey)) return runs;
 	if (totalCost && topKey) {
 		if (!seen.has(topKey)) {
 			seen.add(topKey);
@@ -116,6 +117,7 @@ export function childUsageFromDetails(value: unknown, seen = new Set<string>()):
 		}
 		runs.set(key, usage);
 	}
+	if (topKey) seen.add(topKey);
 	return runs;
 }
 

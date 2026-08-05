@@ -23,6 +23,12 @@ DEFAULT_SOURCE_ROOT = Path.home() / "Library/Application Support/Google/Chrome"
 DEFAULT_MAX_RUNTIME_SECONDS = 1800
 MAX_RUNTIME_SECONDS = 14400
 CONSUMERS = {"agent_browser", "chrome_devtools_mcp"}
+SENSITIVE_PROFILE_DATABASES = {
+    "Cookies",
+    "Local State",
+    "Login Data",
+    "Web Data",
+}
 TRANSIENT_NAMES = {
     "Cache",
     "Code Cache",
@@ -33,6 +39,12 @@ TRANSIENT_NAMES = {
     "GrShaderCache",
     "RunningChromeVersion",
     "ShaderCache",
+    "Cookies",
+    "Cookies-journal",
+    "Login Data",
+    "Login Data-journal",
+    "Web Data",
+    "Web Data-journal",
 }
 
 
@@ -102,7 +114,12 @@ def validate_config(config: RuntimeConfig) -> RuntimeConfig:
         raise RuntimeFailure("loopback_required", "configuration", False)
     if isinstance(config.port, bool) or not 1 <= config.port <= 65535:
         raise RuntimeFailure("invalid_port", "configuration", False)
-    if not config.source_profile or "/" in config.source_profile:
+    if (
+        not config.source_profile
+        or config.source_profile in {".", ".."}
+        or "/" in config.source_profile
+        or "\\" in config.source_profile
+    ):
         raise RuntimeFailure("invalid_source_profile", "configuration", False)
     if config.profile_root.is_symlink():
         raise RuntimeFailure("unsafe_profile_root", "configuration", False)
@@ -303,6 +320,10 @@ def copy_ignore(_directory: str, names: list[str]) -> set[str]:
     for name in names:
         if (
             name in TRANSIENT_NAMES
+            or any(
+                name == database or name.startswith(f"{database}-")
+                for database in SENSITIVE_PROFILE_DATABASES
+            )
             or name.startswith("Singleton")
             or name.endswith("-journal")
             or name.endswith(".tmp")
@@ -311,15 +332,49 @@ def copy_ignore(_directory: str, names: list[str]) -> set[str]:
     return ignored
 
 
+def resolved_source_profile(config: RuntimeConfig) -> Path:
+    source_root = config.source_root.resolve()
+    source_profile = (source_root / config.source_profile).resolve()
+    if source_profile.parent != source_root:
+        raise RuntimeFailure("invalid_source_profile", "configuration", False)
+    return source_profile
+
+
+def reject_source_profile_symlinks(source_profile: Path) -> None:
+    def raise_walk_error(error: OSError) -> None:
+        raise error
+
+    try:
+        for directory, directories, files in os.walk(
+            source_profile,
+            followlinks=False,
+            onerror=raise_walk_error,
+        ):
+            root = Path(directory)
+            for name in (*directories, *files):
+                if (root / name).is_symlink():
+                    raise RuntimeFailure(
+                        "source_profile_symlink",
+                        "profile_bootstrap",
+                        False,
+                    )
+    except OSError as error:
+        raise RuntimeFailure(
+            "source_profile_unreadable",
+            "profile_bootstrap",
+            False,
+        ) from error
+
+
 def bootstrap_profile(config: RuntimeConfig, *, replace: bool) -> dict[str, object]:
     validate_config(config)
     ensure_private_root(config.root)
     if source_locked(config):
         raise RuntimeFailure("source_profile_locked", "profile_bootstrap", True)
-    source_profile = config.source_root / config.source_profile
-    source_state = config.source_root / "Local State"
-    if not source_profile.is_dir() or not source_state.is_file():
+    source_profile = resolved_source_profile(config)
+    if not source_profile.is_dir():
         raise RuntimeFailure("source_profile_unavailable", "profile_bootstrap", False)
+    reject_source_profile_symlinks(source_profile)
     if config.profile_root.exists():
         if not replace:
             raise RuntimeFailure("profile_already_initialized", "profile_bootstrap", False)
@@ -328,7 +383,6 @@ def bootstrap_profile(config: RuntimeConfig, *, replace: bool) -> dict[str, obje
         shutil.rmtree(config.profile_root)
     config.profile_root.mkdir(mode=0o700)
     try:
-        shutil.copy2(source_state, config.profile_root / "Local State")
         shutil.copytree(
             source_profile,
             config.profile_root / "Default",
@@ -345,14 +399,14 @@ def bootstrap_profile(config: RuntimeConfig, *, replace: bool) -> dict[str, obje
             "version": 1,
             "sourceProfile": config.source_profile,
             "snapshotCreatedAt": int(time.time()),
-            "refreshPolicy": "manual_domain_scoped",
+            "refreshPolicy": "manual_login_only",
         },
     )
     return {
         "status": "succeeded",
         "classification": "profile_initialized",
         "sourceProfile": config.source_profile,
-        "refreshPolicy": "manual_domain_scoped",
+        "refreshPolicy": "manual_login_only",
     }
 
 
