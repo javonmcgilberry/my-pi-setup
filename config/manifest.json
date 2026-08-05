@@ -1,4 +1,5 @@
 {
+  "version": 1,
   "rendered": {
     "settings.json": "settings.json"
   },
@@ -24,6 +25,13 @@
   "sharedSkills": {
     "webflow-designer-agent-browser": "skills/webflow-designer-agent-browser"
   },
+  "retired": {
+    "pi": [
+      "pi-explore-subagents.json",
+      "skills/webflow-designer-agent-browser"
+    ],
+    "shared": []
+  },
   "externalLinks": [
     "extensions/warp-gateway.ts",
     "extensions/warp-link-fallback.ts"
@@ -43,6 +51,21 @@
     "npm/",
     "git/",
     "node_modules/",
-    "prewalk/analytics/"
+    "prewalk/analytics/",
+    "__pycache__/",
+    ".pi-subagents/",
+    "chrome-user-data/",
+    "browser-profile/",
+    "run-history.jsonl",
+    "mcp-cache.json",
+    "models-store.json",
+    "cursor-sdk-model-list.json",
+    "Cookies",
+    "Cookies-journal",
+    "Local State",
+    "Login Data",
+    "Login Data-journal",
+    "Web Data",
+    "Web Data-journal"
   ]
 }

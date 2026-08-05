@@ -10,6 +10,7 @@ work here instead of treating `~/.pi/agent` as editable source.
 - Use the unmodified upstream `npm:pi-subagents` package. Do not restore the retired custom fork or its Prewalk execution-profile policy.
 - Never edit Pi-managed code under `~/.pi/agent/npm/node_modules` or `~/.pi/agent/git`.
 - Put machine-only overrides in ignored `settings.local.json`; never commit credentials, browser profiles, cookies, or runtime data.
+- Treat `config/manifest.json` as the authoritative managed install inventory. Update it before changing setup, drift, validation, retirement, or restore behavior.
 
 **Change workflow:**
 1. Start Pi from this repository on a clean, current `main`; inspect `git status` before editing.

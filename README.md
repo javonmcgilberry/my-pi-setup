@@ -121,6 +121,10 @@ them. Pi installs configured packages in its managed `npm/` and `git/`
 directories when it starts; setup does not create a duplicate root
 `node_modules` tree.
 
+`config/manifest.json` is the authoritative managed install inventory. The
+installer, drift checker, and repository checks all validate and consume that
+same manifest; do not add a managed path to only one script.
+
 Prewalk, pretty-footer, and Herdr are linked to this checkout. Edit them here,
 not under `~/.pi/agent`. Context Mode uses a pinned commit from my fork;
 pi-subagents uses the unmodified upstream npm release.
