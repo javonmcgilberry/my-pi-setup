@@ -12,19 +12,13 @@
     "npm:pi-anthropic-oauth",
     "npm:pi-cursor-sdk",
     "npm:@howaboua/pi-codex-conversion",
-    {
-      "source": "npm:@howaboua/pi-explore-subagents",
-      "extensions": []
-    },
     "npm:@howaboua/pi-auto-trees",
-    "npm:@howaboua/pi-cache-hit-predictor",
     "npm:@howaboua/pi-smart-btw",
     "npm:pi-lens",
     "npm:pi-agent-browser-native",
     "git:github.com/EveryInc/compound-engineering-plugin",
     "npm:pi-ask-user",
     "./packages/prewalk",
-    "npm:@petechu/pi-extension-toggle",
     "npm:@vanillagreen/pi-tool-renderer",
     "npm:@vanillagreen/pi-extension-manager",
     "npm:@kliebhan/pi-prompt-autocomplete",
@@ -45,7 +39,7 @@
   "defaultThinkingLevel": "medium",
   "compaction": {
     "enabled": true,
-    "reserveTokens": 65536,
+    "reserveTokens": 32768,
     "keepRecentTokens": 20000
   },
   "retry": {
@@ -67,9 +61,6 @@
   "showCacheMissNotices": true,
   "vstack": {
     "extensionManager": {
-      "disabledItems": [
-        "package:@howaboua/pi-explore-subagents"
-      ],
       "config": {
         "@vanillagreen/pi-tool-renderer": {
           "readOutputMode": "summary",

@@ -4,21 +4,18 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 agent_dir="${PI_AGENT_DIR:-${HOME}/.pi/agent}"
 dry_run=false
-install_packages=true
 
 usage() {
   cat <<'EOF'
-Usage: ./setup.sh [--dry-run] [--skip-install]
+Usage: ./setup.sh [--dry-run]
 
-  --dry-run       Print intended changes without writing anything.
-  --skip-install  Do not run npm install after copying package metadata.
+  --dry-run  Print intended changes without writing anything.
 EOF
 }
 
 while (($#)); do
   case "$1" in
     --dry-run) dry_run=true ;;
-    --skip-install) install_packages=false ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -31,7 +28,6 @@ managed_files=(
   mcp.json
   pi-auto-trees.json
   pi-codex-conversion.json
-  pi-explore-subagents.json
   pi-smart-btw.json
   prewalk.json
   package.json
@@ -54,6 +50,18 @@ run() {
 }
 
 run mkdir -p "$agent_dir"
+
+retired_files=(
+  pi-explore-subagents.json
+)
+
+for relative in "${retired_files[@]}"; do
+  target_path="${agent_dir}/${relative}"
+  if [[ -e "$target_path" || -L "$target_path" ]]; then
+    run mkdir -p "${backup_dir}/$(dirname "$relative")"
+    run mv "$target_path" "${backup_dir}/${relative}"
+  fi
+done
 
 settings_override=()
 if [[ -f "${repo_dir}/settings.local.json" ]]; then
@@ -129,13 +137,5 @@ link_owned "$prewalk_source" "${agent_dir}/packages/prewalk" "packages/prewalk"
 link_owned "${repo_dir}/extensions/herdr-agent-state.ts" "${agent_dir}/extensions/herdr-agent-state.ts" "extensions/herdr-agent-state.ts"
 link_owned "${repo_dir}/extensions/pretty-footer.ts" "${agent_dir}/extensions/pretty-footer.ts" "extensions/pretty-footer.ts"
 link_owned "${repo_dir}/extensions/session-spend-dashboard" "${agent_dir}/extensions/session-spend-dashboard" "extensions/session-spend-dashboard"
-
-if "$install_packages"; then
-  if "$dry_run"; then
-    echo "would run: npm ci --prefix $(printf '%q' "$agent_dir")"
-  else
-    npm ci --prefix "$agent_dir"
-  fi
-fi
 
 echo "Pi setup complete: $agent_dir"

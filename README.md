@@ -28,7 +28,21 @@ cd pi
 
 ## Daily workflow
 
-Edit files in this checkout, then run one command:
+Start Pi from this checkout so it automatically reads the repository workflow
+in `AGENTS.md`:
+
+```sh
+cd ~/Developer/my-pi-setup
+pi
+```
+
+Ask Pi to make the setup change here, not under `~/.pi/agent`. A useful prompt
+is:
+
+> Update my canonical Pi setup to ____. Validate it, but wait for my approval
+> before syncing it live.
+
+After reviewing the change, close every Pi session and run one command:
 
 ```sh
 ./sync
@@ -42,9 +56,15 @@ upgrade npm dependencies, Git pins, and the Prewalk submodule first, run:
 ./sync --update
 ```
 
+Use `./sync` for normal configuration changes. Use `./sync --update` only when
+you intentionally want newer dependencies or tracked revisions. Both commands
+commit, push, and apply changes, so they are publication commands rather than
+read-only checks.
+
 The installer renders tracked defaults plus an optional local override into
-`${PI_AGENT_DIR:-~/.pi/agent}`. It backs up files before replacing them and runs
-npm unless you pass `--skip-install`.
+`${PI_AGENT_DIR:-~/.pi/agent}` and backs up files before replacing them. Pi
+installs configured packages in its managed `npm/` and `git/` directories when
+it starts; setup does not create a duplicate root `node_modules` tree.
 
 Prewalk, pretty-footer, and Herdr are linked to this checkout. Edit them here,
 not under `~/.pi/agent`. Context Mode uses a pinned commit from my fork;
@@ -76,8 +96,7 @@ Useful options:
 
 ```sh
 ./setup.sh --dry-run
-./setup.sh --skip-install
-PI_AGENT_DIR=/tmp/pi-agent ./setup.sh --skip-install
+PI_AGENT_DIR=/tmp/pi-agent ./setup.sh
 ```
 
 ## Verify

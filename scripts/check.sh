@@ -14,7 +14,6 @@ json_files=(
   mcp.json
   pi-auto-trees.json
   pi-codex-conversion.json
-  pi-explore-subagents.json
   pi-smart-btw.json
   prewalk.json
   package.json
