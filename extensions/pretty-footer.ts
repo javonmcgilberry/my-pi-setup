@@ -7,6 +7,11 @@ import type {
 	Theme,
 } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { readTaskRunUsage } from "./session-spend-dashboard/runs.ts";
+import {
+	type TaskUsage,
+	summarizeTaskEntries,
+} from "./session-spend-dashboard/task-usage.ts";
 
 const STATUS_PRIORITY = ["prewalk", "codex-adapter", "mcp", "pi-lens-lsp"];
 const ITEM_SEPARATOR = "  ·  ";
@@ -97,52 +102,17 @@ interface UsageSummary {
 	cost: number;
 }
 
-function usageFromEntry(usage: {
-	input?: unknown;
-	output?: unknown;
-	reasoning?: unknown;
-	cacheRead?: unknown;
-	cacheWrite?: unknown;
-	cost?: { total?: unknown };
-}): Omit<UsageSummary, "hasReasoning"> & { sawReasoning: boolean } {
+function usageSummary(ctx: ExtensionContext, artifactRuns: ReadonlyMap<string, TaskUsage>): UsageSummary {
+	const usage = summarizeTaskEntries(ctx.sessionManager.getEntries(), artifactRuns);
 	return {
-		input: finiteNumber(usage.input),
-		output: finiteNumber(usage.output),
-		reasoning: finiteNumber(usage.reasoning),
-		sawReasoning: typeof usage.reasoning === "number" && Number.isFinite(usage.reasoning),
-		cacheRead: finiteNumber(usage.cacheRead),
-		cacheWrite: finiteNumber(usage.cacheWrite),
-		cost: finiteNumber(usage.cost?.total),
+		input: usage.input,
+		output: usage.output,
+		reasoning: usage.reasoning,
+		hasReasoning: usage.hasReasoning,
+		cacheRead: usage.cacheRead,
+		cacheWrite: usage.cacheWrite,
+		cost: usage.cost,
 	};
-}
-
-function usageSummary(ctx: ExtensionContext): UsageSummary {
-	let input = 0;
-	let output = 0;
-	let reasoning = 0;
-	let hasReasoning = false;
-	let cacheRead = 0;
-	let cacheWrite = 0;
-	let cost = 0;
-	for (const entry of ctx.sessionManager.getEntries()) {
-		let usage: ReturnType<typeof usageFromEntry> | undefined;
-		if (entry.type === "message" && entry.message.role === "assistant") {
-			usage = usageFromEntry(entry.message.usage);
-		} else if (entry.type === "message" && entry.message.role === "toolResult" && entry.message.usage) {
-			usage = usageFromEntry(entry.message.usage);
-		} else if ((entry.type === "branch_summary" || entry.type === "compaction") && entry.usage) {
-			usage = usageFromEntry(entry.usage);
-		}
-		if (!usage) continue;
-		input += usage.input;
-		output += usage.output;
-		reasoning += usage.reasoning;
-		hasReasoning ||= usage.sawReasoning;
-		cacheRead += usage.cacheRead;
-		cacheWrite += usage.cacheWrite;
-		cost += usage.cost;
-	}
-	return { input, output, reasoning, hasReasoning, cacheRead, cacheWrite, cost };
 }
 
 function modelStatusText(ctx: ExtensionContext, theme: Theme): string {
@@ -197,28 +167,33 @@ function valueThenLabel(
 	return `${theme.fg(color, value)}${theme.fg("dim", ` ${label}`)}`;
 }
 
-function metricLines(ctx: ExtensionContext, theme: Theme, width: number): string[] {
-	const usage = usageSummary(ctx);
+function metricLines(
+	ctx: ExtensionContext,
+	theme: Theme,
+	width: number,
+	artifactRuns: ReadonlyMap<string, TaskUsage>,
+): string[] {
+	const usage = usageSummary(ctx, artifactRuns);
 	const cachePromptTokens = usage.input + usage.cacheRead + usage.cacheWrite;
 	const cacheHitRate =
 		cachePromptTokens > 0
 			? `${((usage.cacheRead / cachePromptTokens) * 100).toFixed(1)}%`
 			: "n/a";
 	const context = ctx.getContextUsage();
-	const hasContext =
-		context !== null &&
-		context !== undefined &&
-		typeof context.percent === "number" &&
-		Number.isFinite(context.percent) &&
-		typeof context.contextWindow === "number" &&
-		Number.isFinite(context.contextWindow);
+	const contextPercent = typeof context?.percent === "number" && Number.isFinite(context.percent)
+		? context.percent
+		: undefined;
+	const contextWindow = typeof context?.contextWindow === "number" && Number.isFinite(context.contextWindow)
+		? context.contextWindow
+		: undefined;
+	const hasContext = contextPercent !== undefined && contextWindow !== undefined;
 	const contextText = hasContext
-		? `${context.percent.toFixed(1)}% of ${compact(context.contextWindow)}`
+		? `${contextPercent.toFixed(1)}% of ${compact(contextWindow)}`
 		: "?";
 	const contextColor =
-		hasContext && context.percent > 90
+		hasContext && contextPercent > 90
 			? "error"
-			: hasContext && context.percent > 70
+			: hasContext && contextPercent > 70
 				? "warning"
 				: "success";
 	const thinkingValue = compactOrDash(usage.reasoning, usage.hasReasoning);
@@ -334,6 +309,7 @@ function footerLines(
 	footerData: ReadonlyFooterDataProvider,
 	theme: Theme,
 	width: number,
+	artifactRuns: ReadonlyMap<string, TaskUsage>,
 ): string[] {
 	const branch = footerData.getGitBranch();
 	const statuses = footerData.getExtensionStatuses();
@@ -344,7 +320,7 @@ function footerLines(
 	return [
 		...alignedPair(pathLeft, modelStatusText(ctx, theme), width),
 		...(prewalk ? prewalkLines(cleanStatus(prewalk), theme, width) : []),
-		...metricLines(ctx, theme, width),
+		...metricLines(ctx, theme, width, artifactRuns),
 		...secondaryStatusLines(statuses, theme, width),
 	];
 }
@@ -353,12 +329,30 @@ export default function prettyFooter(pi: ExtensionAPI): void {
 	pi.on("session_start", (_event, ctx) => {
 		if (ctx.mode !== "tui") return;
 		ctx.ui.setFooter((tui, theme, footerData) => {
-			const unsubscribe = footerData.onBranchChange(() => tui.requestRender());
+			let artifactRuns = new Map<string, TaskUsage>();
+			let disposed = false;
+			const refreshChildren = async (): Promise<void> => {
+				const sessionFile = ctx.sessionManager.getSessionFile();
+				if (!sessionFile) return;
+				artifactRuns = await readTaskRunUsage(sessionFile);
+				if (!disposed) tui.requestRender();
+			};
+			void refreshChildren();
+			const timer = setInterval(() => void refreshChildren(), 2_000);
+			timer.unref();
+			const unsubscribe = footerData.onBranchChange(() => {
+				void refreshChildren();
+				tui.requestRender();
+			});
 			return {
-				dispose: unsubscribe,
+				dispose() {
+					disposed = true;
+					clearInterval(timer);
+					unsubscribe();
+				},
 				invalidate() {},
 				render(width: number): string[] {
-					return footerLines(ctx, footerData, theme, width);
+					return footerLines(ctx, footerData, theme, width, artifactRuns);
 				},
 			};
 		});
