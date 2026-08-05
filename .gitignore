@@ -29,3 +29,7 @@ worktrees/
 *.log
 *.pem
 *.key
+__pycache__/
+*.pyc
+chrome-user-data/
+browser-profile/

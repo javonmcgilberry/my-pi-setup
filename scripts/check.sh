@@ -20,6 +20,8 @@ json_files=(
   package-lock.json
   settings.local.example.json
   fzf.json
+  skills/webflow-designer-agent-browser/capabilities.json
+  skills/webflow-designer-agent-browser/config/attachment.json
 )
 
 node -e 'for (const file of process.argv.slice(1)) JSON.parse(require("fs").readFileSync(file, "utf8"))' "${json_files[@]}"
@@ -32,15 +34,17 @@ node scripts/render-settings.mjs settings.json settings.local.example.json >/dev
 
 git submodule status -- prewalk >/dev/null
 
-for forbidden in auth.json trust.json run-history.jsonl mcp-cache.json models-store.json cursor-sdk-model-list.json; do
-  if git ls-files --error-unmatch "$forbidden" >/dev/null 2>&1; then
-    echo "Forbidden runtime file is tracked: $forbidden" >&2
-    exit 1
-  fi
-done
+python3 -B -m unittest discover \
+  -s skills/webflow-designer-agent-browser/scripts \
+  -p 'test_*.py'
+python3 -B skills/webflow-designer-agent-browser/scripts/capability-catalog.py validate
+node --check skills/webflow-designer-agent-browser/scripts/cdp-frame-eval.mjs
+node --test extensions/session-spend-dashboard/test/*.test.ts
 
-if git ls-files | grep -E '(^|/)(sessions|cache|generated|intercom|node_modules|\.pi-subagents)(/|$)|\.(db|sqlite|pem|key)$' >/dev/null; then
-  echo "Tracked files include forbidden runtime or credential material" >&2
+file_inventory="$(git ls-files --cached --others --exclude-standard)"
+forbidden_paths='(^|/)(auth\.json|trust\.json|run-history\.jsonl|mcp-cache\.json|models-store\.json|cursor-sdk-model-list\.json|Cookies(-journal)?|Local State|Login Data(-journal)?|Web Data(-journal)?)$|(^|/)(sessions|cache|generated|intercom|node_modules|\.pi-subagents|__pycache__|chrome-user-data|browser-profile)(/|$)|\.(db|sqlite|pem|key|pyc)$'
+if grep -E "$forbidden_paths" <<<"$file_inventory"; then
+  echo "Repository files include forbidden runtime, browser-profile, or credential material" >&2
   exit 1
 fi
 

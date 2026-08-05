@@ -19,7 +19,8 @@
     "packages/prewalk": "prewalk",
     "extensions/herdr-agent-state.ts": "extensions/herdr-agent-state.ts",
     "extensions/pretty-footer.ts": "extensions/pretty-footer.ts",
-    "extensions/session-spend-dashboard": "extensions/session-spend-dashboard"
+    "extensions/session-spend-dashboard": "extensions/session-spend-dashboard",
+    "skills/webflow-designer-agent-browser": "skills/webflow-designer-agent-browser"
   },
   "externalLinks": [
     "extensions/warp-gateway.ts",

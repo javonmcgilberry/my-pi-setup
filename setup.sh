@@ -137,5 +137,6 @@ link_owned "$prewalk_source" "${agent_dir}/packages/prewalk" "packages/prewalk"
 link_owned "${repo_dir}/extensions/herdr-agent-state.ts" "${agent_dir}/extensions/herdr-agent-state.ts" "extensions/herdr-agent-state.ts"
 link_owned "${repo_dir}/extensions/pretty-footer.ts" "${agent_dir}/extensions/pretty-footer.ts" "extensions/pretty-footer.ts"
 link_owned "${repo_dir}/extensions/session-spend-dashboard" "${agent_dir}/extensions/session-spend-dashboard" "extensions/session-spend-dashboard"
+link_owned "${repo_dir}/skills/webflow-designer-agent-browser" "${agent_dir}/skills/webflow-designer-agent-browser" "skills/webflow-designer-agent-browser"
 
 echo "Pi setup complete: $agent_dir"

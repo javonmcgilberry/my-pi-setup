@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "authorization": "always_localhost",
+  "host": "127.0.0.1",
+  "port": 9333,
+  "endpointKind": "direct_cdp"
+}

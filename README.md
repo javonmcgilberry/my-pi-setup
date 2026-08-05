@@ -12,19 +12,57 @@ Inspired by [davis7dotsh/my-pi-setup](https://github.com/davis7dotsh/my-pi-setup
 - OpenAI Codex defaults and model preferences
 - Compaction, retry, and subagent defaults
 - Context Mode MCP configuration and my Context Mode fork
-- Pi Codex Conversion, Auto Trees, Explore Subagents, Smart BTW, and Prewalk settings
+- Pi Codex Conversion, Auto Trees, Smart BTW, and Prewalk settings
 - The exact Prewalk revision, pinned as a Git submodule while Prewalk keeps its own history
-- Local footer and Herdr state extensions
+- Local footer, session-spend dashboard, and Herdr state extensions
+- The Webflow Designer Chrome-for-Testing skill and its deterministic runtime helpers
 - The npm dependencies that install the rest of the Pi toolchain
 
 ## Install
 
 ```sh
-git clone --recurse-submodules https://github.com/javonmcgilberry/my-pi-setup.git pi
-cd pi
+git clone --recurse-submodules https://github.com/javonmcgilberry/my-pi-setup.git ~/Developer/my-pi-setup
+cd ~/Developer/my-pi-setup
 ./setup.sh --dry-run
 ./setup.sh
 ```
+
+### Webflow browser prerequisites
+
+The tracked Webflow skill deliberately does not install or control normal
+Google Chrome. Install its external runtime prerequisites once:
+
+```sh
+npm install -g agent-browser@0.33.2
+npx --yes puppeteer browsers install chrome@stable
+```
+
+The currently verified Chrome for Testing build is `151.0.7922.71`; the runtime
+selects the newest installed Puppeteer build and refuses to fall back to
+`/Applications/Google Chrome.app`. Verify the local prerequisites with:
+
+```sh
+agent-browser --version
+python3 skills/webflow-designer-agent-browser/scripts/browser-runtime.py plan
+```
+
+Initialize the dedicated profile once. Fully quit normal Chrome before copying
+its profile; the helper refuses a locked source. The default source is
+`~/Library/Application Support/Google/Chrome/Default`. Pass
+`--source-profile "Profile 1"` (or the applicable directory name) when the
+desired Chrome profile is not `Default`.
+
+```sh
+runtime=skills/webflow-designer-agent-browser/scripts/browser-runtime.py
+python3 "$runtime" bootstrap --confirm-sensitive-copy
+python3 "$runtime" start --headed
+# Complete Webflow login in the visible Chrome for Testing window.
+python3 "$runtime" stop
+```
+
+The copied profile is private machine state, not repository content. Chrome for
+Testing may still require its own one-time Webflow login; never extract or move
+cookies or credentials to avoid that login.
 
 ## Daily workflow
 
@@ -41,6 +79,13 @@ is:
 
 > Update my canonical Pi setup to ____. Validate it, but wait for my approval
 > before syncing it live.
+
+Validate before publishing:
+
+```sh
+./scripts/check.sh
+./scripts/drift.sh
+```
 
 After reviewing the change, close every Pi session and run one command:
 
@@ -69,6 +114,11 @@ it starts; setup does not create a duplicate root `node_modules` tree.
 Prewalk, pretty-footer, and Herdr are linked to this checkout. Edit them here,
 not under `~/.pi/agent`. Context Mode uses a pinned commit from my fork;
 pi-subagents uses the unmodified upstream npm release.
+
+The Webflow skill uses the global `agent-browser` CLI and a locally installed
+Chrome for Testing binary. Its authenticated browser profile, cookies, leases,
+and runtime records stay under `~/.config/webflow-designer-agent-browser` and
+are intentionally not copied into this repository.
 
 Use `./scripts/drift.sh` to inspect live-file drift without changing anything.
 Every apply backs up replaced files under a unique directory in
@@ -115,10 +165,12 @@ inspect or copy `auth.json`.
 | --- | --- | --- |
 | Global config | This repo plus ignored `settings.local.json` | Generated files under `~/.pi/agent` |
 | Footer and Herdr extensions | This repo | Symlinks under `~/.pi/agent/extensions` |
+| Session-spend dashboard | `extensions/session-spend-dashboard` in this repo | `~/.pi/agent/extensions/session-spend-dashboard` symlink |
+| Webflow Designer browser skill | `skills/webflow-designer-agent-browser` in this repo | `~/.pi/agent/skills/webflow-designer-agent-browser` symlink |
 | Prewalk | [`pi-prewalk`](https://github.com/javonmcgilberry/pi-prewalk), pinned here as a submodule | `~/.pi/agent/packages/prewalk` symlink |
 | Context Mode changes | [`context-mode`](https://github.com/javonmcgilberry/context-mode) | Pinned Pi-managed Git checkout; edit `~/webdev/context-mode` |
 | pi-subagents | [`nicobailon/pi-subagents`](https://github.com/nicobailon/pi-subagents) | Exact upstream npm package in `settings.json`; no Prewalk fork policy |
-| Pi changes | [`pi`](https://github.com/javonmcgilberry/pi) | Separate development checkout; the normal `pi` command remains the global install |
+| Pi core changes | `~/Developer/pi` ([`javonmcgilberry/pi`](https://github.com/javonmcgilberry/pi)) | Separate development checkout; the normal `pi` command remains the global install |
 | Warp gateway | Private `warp-pi-gateway` repo | Edit `~/webdev/warp-pi-gateway`; live extension is a symlink |
 
 Do not edit `~/.pi/agent/npm/node_modules` or `~/.pi/agent/git`. Pi owns those

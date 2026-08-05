@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "capabilities": [
+    {
+      "id": "browser.runtime",
+      "category": "runtime",
+      "implementation": "scripts/browser-runtime.py",
+      "owner": "browser-runtime",
+      "purpose": "Own the dedicated authenticated profile, Chrome for Testing process, direct-CDP readiness, bounded watchdog, and consumer lease.",
+      "inputs": ["runtime-command", "loopback-port", "headless-or-headed-mode", "maximum-runtime"],
+      "postconditions": ["explicit-runtime-status", "verified-release-and-stop"],
+      "sensitivity": "profile-metadata",
+      "maturity": "provisional",
+      "disposition": "keep",
+      "loadWhen": "starting, releasing, stopping, or diagnosing the authenticated browser runtime"
+    },
+    {
+      "id": "designer.session",
+      "category": "designer",
+      "implementation": "scripts/designer-session.py",
+      "owner": "designer-session",
+      "purpose": "Preflight declared services and emit bounded native agent-browser actions with mandatory cleanup.",
+      "inputs": ["session-mode", "readiness-surface"],
+      "postconditions": ["bounded-session-plan", "explicit-cleanup-plan"],
+      "sensitivity": "sanitized-url-metadata",
+      "maturity": "stable",
+      "disposition": "keep",
+      "loadWhen": "bootstrapping a bounded Designer observation"
+    },
+    {
+      "id": "designer.tabs",
+      "category": "designer",
+      "implementation": "scripts/discover-designer-tabs.py",
+      "owner": "designer-targeting",
+      "purpose": "Discover sanitized Designer targets and verify attachment ownership and surface identity.",
+      "inputs": ["direct-cdp-endpoint", "sanitized-target"],
+      "postconditions": ["verified-attachment-plan"],
+      "sensitivity": "sanitized-url-metadata",
+      "maturity": "stable",
+      "disposition": "keep",
+      "loadWhen": "selecting or verifying an attached Designer tab"
+    },
+    {
+      "id": "evidence.sanitize",
+      "category": "evidence",
+      "implementation": "scripts/sanitize-evidence.py",
+      "owner": "automation-evidence",
+      "purpose": "Redact and bound browser evidence before reporting or persistence.",
+      "inputs": ["browser-result"],
+      "postconditions": ["sanitized-evidence"],
+      "sensitivity": "secret-bearing-input",
+      "maturity": "stable",
+      "disposition": "keep",
+      "loadWhen": "browser evidence may leave the active tool result"
+    },
+    {
+      "id": "evidence.review",
+      "category": "evidence",
+      "implementation": "scripts/automation-evidence.py",
+      "owner": "automation-evidence",
+      "purpose": "Review complete runs and queue non-sensitive repeated automation candidates for reviewed promotion.",
+      "inputs": ["sanitized-run", "sanitized-candidate"],
+      "postconditions": ["review-decision", "bounded-evidence-queue"],
+      "sensitivity": "non-sensitive-only",
+      "maturity": "provisional",
+      "disposition": "keep",
+      "loadWhen": "closing a run or reviewing automation promotion candidates"
+    },
+    {
+      "id": "designer.frame-observe",
+      "category": "exceptional",
+      "implementation": "scripts/cdp-frame-eval.mjs",
+      "owner": "designer-frame-observation",
+      "purpose": "Perform bounded file-backed observation in a matching out-of-process frame.",
+      "inputs": ["frame-match", "file-backed-expression"],
+      "postconditions": ["sanitized-frame-observation"],
+      "sensitivity": "page-content",
+      "maturity": "exceptional",
+      "disposition": "keep",
+      "loadWhen": "agent-browser cannot retain the required frame context"
+    },
+    {
+      "id": "connected-app.authorization",
+      "category": "connected-app",
+      "implementation": "scripts/guarded-site-authorization.py",
+      "owner": "connected-app-authorization",
+      "purpose": "Validate exact-site selection and authorization postconditions from sanitized surfaces.",
+      "inputs": ["sanitized-authorization-surface"],
+      "postconditions": ["exact-site-authorization-proof"],
+      "sensitivity": "site-identity",
+      "maturity": "stable",
+      "disposition": "keep",
+      "loadWhen": "authorizing a supported connected application"
+    },
+    {
+      "id": "workspace.build-verify",
+      "category": "verification",
+      "implementation": "scripts/verify-workspace-build.py",
+      "owner": "workspace-verification",
+      "purpose": "Verify generated workspace output is current before published runtime QA.",
+      "inputs": ["source-module", "generated-module"],
+      "postconditions": ["workspace-build-current"],
+      "sensitivity": "none",
+      "maturity": "stable",
+      "disposition": "keep",
+      "loadWhen": "a local provider depends on ignored generated output"
+    },
+    {
+      "id": "published-site.preflight",
+      "category": "verification",
+      "implementation": "scripts/published-site-preflight.py",
+      "owner": "published-site-verification",
+      "purpose": "Classify published-site renderer readiness without leaking credentials.",
+      "inputs": ["published-site-url"],
+      "postconditions": ["renderer-readiness-classification"],
+      "sensitivity": "sanitized-url-metadata",
+      "maturity": "stable",
+      "disposition": "keep",
+      "loadWhen": "testing a published site that depends on a renderer"
+    }
+  ]
+}

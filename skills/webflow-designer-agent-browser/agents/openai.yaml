@@ -1,0 +1,4 @@
+interface:
+  display_name: "Webflow Designer Agent Browser"
+  short_description: "Test Designer in an isolated managed browser"
+  default_prompt: "Use $webflow-designer-agent-browser with the agent-owned Chrome for Testing profile, headless by default. Never launch or attach to normal Chrome, and close the managed session and release the runtime before completing."

@@ -3,15 +3,16 @@ This repository is the source of truth for Javon's Pi setup. Future agents must
 work here instead of treating `~/.pi/agent` as editable source.
 
 **Ownership:**
-- Edit tracked configuration, package metadata, scripts, and linked extensions in this repository.
+- Edit tracked configuration, package metadata, scripts, skills, and linked extensions in this repository.
+- Edit Pi core in `~/Developer/pi`, not in the globally installed package.
 - Edit Prewalk in the `prewalk` submodule/repository, then advance this repository's submodule pin.
 - Use the unmodified upstream `npm:pi-subagents` package. Do not restore the retired custom fork or its Prewalk execution-profile policy.
 - Never edit Pi-managed code under `~/.pi/agent/npm/node_modules` or `~/.pi/agent/git`.
-- Put machine-only overrides in ignored `settings.local.json`; never commit credentials or runtime data.
+- Put machine-only overrides in ignored `settings.local.json`; never commit credentials, browser profiles, cookies, or runtime data.
 
 **Change workflow:**
-1. Start from clean, current `main`; inspect `git status` before editing.
-2. Make the smallest canonical change in this repository (or Prewalk first when it owns the behavior).
+1. Start Pi from this repository on a clean, current `main`; inspect `git status` before editing.
+2. Make setup changes here. Make Pi core changes in `~/Developer/pi`, Prewalk changes in its submodule, and package-specific changes in their owning checkout.
 3. Run `./scripts/check.sh`. Use `./scripts/drift.sh` for a read-only comparison with the live setup.
 4. Do not create a branch or worktree unless the user asks for a PR or isolation. Remove merged temporary branches/worktrees when that work is complete.
 5. `./sync` is the publication boundary: it pulls, validates, commits, pushes, applies to the live agent directory, and verifies no drift. Run it only when the user asks to sync/apply/publish and all Pi sessions are closed.
@@ -21,6 +22,11 @@ work here instead of treating `~/.pi/agent` as editable source.
 **Current architecture:** Prewalk is a standalone, OMP-faithful adaptation
 pinned as a submodule. pi-subagents is the exact upstream npm release named in
 `settings.json`; the archived GitHub fork is historical only.
+
+The tracked Webflow Designer skill is linked from
+`skills/webflow-designer-agent-browser` into the live agent directory. Its
+browser profile and runtime state remain private machine data under `~/.config`
+and are never tracked.
 </my-pi-setup-workflow>
 
 <pi-intercom>
