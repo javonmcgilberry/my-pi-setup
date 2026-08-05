@@ -5,12 +5,31 @@ description: Use agent-browser and Chrome DevTools Protocol to inspect, debug, a
 
 # Webflow Designer Agent Browser
 
-Use agent-browser for token-efficient Designer exploration while preserving the exact browser state under test. Keep `webflow-designer-playwright` available as the deterministic Playwright baseline. Do not claim this skill replaces it until a real Designer scenario proves the required behavior.
+Use the best available agent-browser transport for token-efficient Designer exploration while preserving the exact browser state under test. Keep `webflow-designer-playwright` available as the deterministic Playwright baseline. Do not claim this skill replaces it until a real Designer scenario proves the required behavior.
+
+## Select the browser transport by capability
+
+Do not branch on a harness name. Select once before opening or claiming a
+session, record the selection, and keep it for the whole task:
+
+1. If the harness exposes the native `agent_browser` tool, select `native`.
+   This is the preferred Pi path because the extension returns compact,
+   structured results without routing CLI output through a shell.
+2. Otherwise, if `command -v agent-browser` and `agent-browser --version`
+   succeed, select `cli` and invoke the same operations with the CLI.
+3. If neither capability exists, stop with `browser_transport_unavailable`.
+
+Do not silently switch transports after a session starts or after an action
+fails. Native and CLI sessions have different ownership state; switching can
+open a second browser or leave the first session unclosed. The operation names
+in this skill (`open`, `connect`, `tab`, `wait`, `snapshot`, `close`) apply to
+both transports. Native actions use `agent_browser`; CLI actions use the
+`agent-browser` executable.
 
 ## Preconditions
 
-1. Run `command -v agent-browser` and `agent-browser --version`.
-2. Do not install agent-browser, download a browser, or change Chrome configuration without approval.
+1. Select and record `native` or `cli` using the capability rules above. Run the CLI checks only for `cli`.
+2. Do not install a browser transport, download a browser, or change Chrome configuration without approval.
 3. Obtain the exact Designer URL, including `pageId`, role simulation, and local port. Prefer the URL from the live tab.
 4. Check explicit required local services and extension endpoints before diagnosing product behavior.
 5. On `profile_unavailable`, fully quit normal Chrome and run `scripts/browser-runtime.py bootstrap --confirm-sensitive-copy` once. The default source is the normal Chrome `Default` profile; pass `--source-profile <directory-name>` explicitly for another profile. Bootstrap excludes `Local State`, cookie databases, saved-login databases, and Web Data. Then run `start --headed` for a one-time Webflow login and `stop` immediately afterward. Never copy a live/locked profile or transfer cookies or credentials.
@@ -21,15 +40,15 @@ Use agent-browser for token-efficient Designer exploration while preserving the 
 - Run `scripts/capability-catalog.py list [--category <name>]` for the compact deferred helper catalog. Read only the selected helper or direct reference; do not load every helper contract up front.
 - Run `scripts/browser-runtime.py status` before authenticated attached work. The runtime owns the dedicated profile, Chrome for Testing process, loopback direct-CDP readiness, bounded watchdog, and exclusive consumer lease. `start` is headless by default; use `start --headed` only for login, MFA, or visual debugging. `release` also stops the owned runtime. Use `plan`, `bootstrap`, `start`, `claim`, `release`, or `stop` only for the lifecycle phase each command names.
 - Run `scripts/discover-designer-tabs.py` to query an existing CDP endpoint and return only sanitized Designer tab metadata. Use `--ownership-url` and `--current-session` to inspect known agent-browser ownership without claiming or focusing a tab.
-- Run `scripts/discover-designer-tabs.py --attachment-config config/attachment.json` from this skill directory before attaching. The tracked config emits agent-browser's explicit `connect <port>` action for canonical `direct_cdp`. Pass a sanitized surface fixture back with `--surface-fixture`, `--expected-title`, and the required actual `--expected-runtime-mode`; headed verification rejects `HeadlessChrome`, headless verification requires it, and both reject all-`about:blank` managed fallbacks.
-- Run `scripts/designer-session.py` to preflight a bounded attached or isolated bootstrap and emit native `agent_browser` actions plus mandatory cleanup actions. It never launches a browser itself. Supply each required service through `--tcp-service` or `--http-service`; a failed preflight stops plan emission and identifies the unavailable label without exposing its target.
+- Run `scripts/discover-designer-tabs.py --attachment-config config/attachment.json --transport <native|cli>` from this skill directory before attaching. The tracked config emits the selected transport's explicit `connect <port>` action for canonical `direct_cdp`. Pass a sanitized surface fixture back with `--surface-fixture`, `--expected-title`, and the required actual `--expected-runtime-mode`; headed verification rejects `HeadlessChrome`, headless verification requires it, and both reject all-`about:blank` managed fallbacks.
+- Run `scripts/designer-session.py <attached|isolated> --transport <native|cli>` to preflight a bounded bootstrap and emit transport-specific actions plus mandatory cleanup. It never launches a browser itself. Supply each required service through `--tcp-service` or `--http-service`; a failed preflight stops plan emission and identifies the unavailable label without exposing its target.
 - Pipe agent-browser JSON or a saved report through `scripts/sanitize-evidence.py` before sharing it. The sanitizer redacts secret-bearing keys, sensitive headers, unsafe query values, long strings, and oversized collections.
 - Run `scripts/automation-evidence.py <sanitized-run-shape.json>` only after reconstructing the complete run. It rejects incomplete inventories. Use its private evidence queue only for non-sensitive candidate shapes; reviewed promotion is a separate maintenance pass.
 - Run `scripts/guarded-site-authorization.py <sanitized-surface.json> --expected-site-id <site-id>` to identify one exact authorization checkbox across visible pages. The helper validates the selection and callback postconditions only when their explicit flags are present; agent-browser remains responsible for browser actions.
 - Run `scripts/verify-workspace-build.py --source <source-module> --built <generated-module>` before published runtime QA when a local provider package imports ignored generated workspace output.
 - Run `node scripts/cdp-frame-eval.mjs ... --dry-run` when agent-browser cannot retain context for an out-of-process iframe. It evaluates a file-backed expression in the matching frame without printing target URLs. Use `--visible-replacement-selector <selector>` with a bounded `--observation-ms` to report count-only overlap and blank-gap evidence during one replacement.
 
-These helpers cover deterministic setup and evidence handling only. Use agent-browser directly for interaction, diffs, diagnostics, screenshots, traces, and profiles.
+These helpers cover deterministic setup and evidence handling only. Use the selected browser transport directly for interaction, diffs, diagnostics, screenshots, traces, and profiles.
 
 ## Browser ownership and operating modes
 
@@ -54,8 +73,8 @@ Attaching to a user-owned live tab is an exceptional shared-session mode for uns
 Use this mode for the agent-owned authenticated runtime, or exceptionally when an explicitly authorized user-owned tab contains unsaved, collaborative, selected, or otherwise live state that the dedicated profile cannot reproduce.
 
 1. Run `scripts/browser-runtime.py status`; require `endpointKind: direct_cdp`, `cdpReady: true`, and no conflicting consumer. Never use broker auto-connect in the routine workflow.
-2. Claim `agent_browser`, run `scripts/discover-designer-tabs.py --port <port>`, then connect explicitly through the native `agent_browser` tool with `sessionMode: "fresh"`. Let the wrapper own the generated session; do not create a caller-owned named session that can outlive the task.
-3. Before claiming a shared tab, run the ownership diagnostic for its exact sanitized URL. Reuse the current owning session or hand control back to the orchestrator when another known session owns it.
+2. Claim the runtime's `agent_browser` lease, run `scripts/discover-designer-tabs.py --port <port>`, then connect through the selected transport. For `native`, use `sessionMode: "fresh"` and let the wrapper own the generated session. For `cli`, use the CLI's current managed session and do not create an unrelated named session.
+3. Before claiming a shared tab, run the ownership diagnostic for its exact sanitized URL. For `native`, first use native session/tab observation to create the helper's sanitized `--ownership-fixture`; never shell out to the CLI to infer ownership of native-wrapper sessions. For `cli`, the helper may inspect CLI sessions directly. Reuse the current owning session or hand control back to the orchestrator when another known session owns it.
 4. In headless mode, expect the first tab to be `about:blank` and navigate it to the exact approved Designer URL. In headed or exceptional shared-tab mode, run `tab`, identify the exact Designer tab by URL, and switch to its stable tab ID without navigating or reloading first.
 5. Preserve all pre-existing tabs and browser state. Do not call `close`, clear storage, save/export state, or mutate the canvas without explicit task authorization. In exceptional user-owned attachment mode, require the user to pause browsing until control is released.
 
@@ -65,13 +84,13 @@ CDP exposes the dedicated authenticated browser to local control. Keep it loopba
 
 Use this mode for repeatable checks where live unsaved state is not required.
 
-1. Open the exact URL with native `agent_browser` and `sessionMode: "fresh"`; let the wrapper own the generated session instead of choosing a caller-owned name.
+1. Open the exact URL with the selected transport. For `native`, use `sessionMode: "fresh"`; for `cli`, choose one task-owned name and pass it as `--session <name>` to every action and cleanup command.
 2. Use a dedicated session or profile. Make authentication setup explicit; never imply the isolated session shares the live tab's canvas state.
 3. For local Designer, use the selected automation browser's native identity and `--ignore-https-errors` when the certificate requires it. Do not spoof the user agent merely because intentional headless Chrome reports `HeadlessChrome`; supply `--user-agent` only when a separately proven environment constraint requires it.
 4. Fix viewport, selectors, setup, and assertions so reruns exercise the same state.
 5. Close only the isolated session that this task owns.
 
-Use `scripts/designer-session.py isolated --url '<exact-url>' --surface '<selector>' --dry-run` to inspect the bounded native-tool and cleanup plan before launch.
+Use `scripts/designer-session.py isolated --transport <native|cli> --url '<exact-url>' --surface '<selector>' --dry-run` to inspect the bounded action and cleanup plan before launch.
 
 Do not print, export, persist, or commit cookies, tokens, credentials, storage state, or PII. State files are sensitive plaintext unless separately encrypted, so avoid them unless the task explicitly requires controlled persistence.
 
@@ -79,7 +98,7 @@ Do not print, export, persist, or commit cookies, tokens, credentials, storage s
 
 Treat cleanup as a required `finally` block, including failed and interrupted browser tasks:
 
-1. Close the native wrapper-managed browser session with `agent_browser close`.
+1. Close the selected transport's managed browser session: native `agent_browser close` or CLI `agent-browser close`.
 2. Run `scripts/browser-runtime.py release --consumer agent_browser`. Release removes the lease and stops the owned Chrome for Testing process and watchdog.
 3. Run `scripts/browser-runtime.py status` and require `runtimeOwned: false`, `cdpReady: false`, `consumer: null`, and `status: stopped` before reporting completion.
 4. If normal release is unavailable, run `scripts/browser-runtime.py stop`; it may terminate only PIDs that match the private runtime state and dedicated profile.
@@ -94,7 +113,7 @@ Never leave cleanup for the next browser task. Never kill unverified Chrome, Chr
 4. **Compare changes.** Capture the scoped baseline, perform one authorized action, then run `diff snapshot --selector "<surface>" --compact`. Prefer semantic state assertions before screenshots.
 5. **Escalate evidence deliberately.** Use `get`, `eval`, console, errors, or network inspection for a specific question. Use screenshots for layout, placement, color, transformed canvas content, or final visual proof.
 
-Example:
+Native-tool example (use the same `batch` arguments via the CLI when `cli` is selected):
 
 ```json
 {

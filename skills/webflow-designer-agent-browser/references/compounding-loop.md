@@ -78,7 +78,7 @@ Queue only non-sensitive candidate shapes. Repetition in the queue is evidence f
 1. Select one classified promotable candidate.
 2. Reread the actual skill tree and tests so the overlap decision uses the current implementation.
 3. Extend the closest helper unless that would mix unrelated responsibilities.
-4. Keep agent-browser as the runtime. Do not recreate its daemon, CDP client, snapshot engine, network stack, or state store.
+4. Keep the selected native-tool or CLI agent-browser adapter as the runtime. Do not recreate its daemon, CDP client, snapshot engine, network stack, or state store.
 5. Require sanitized structured inputs and bounded structured outputs. Reject secret-bearing arguments before execution.
 6. Keep read-only helpers read-only. For stateful behavior, default to observation, require explicit mutation permission, capture a baseline, and verify postconditions.
 7. Add a focused regression test from sanitized run evidence.
@@ -89,7 +89,7 @@ For every candidate that is not promoted, record whether it belongs in applicati
 
 ## Completion contract
 
-Before classifying the run as complete, verify that the native managed session is closed and `browser-runtime.py status` reports no consumer, no owned runtime, and no ready CDP endpoint. Missing cleanup proof is an incomplete inventory, not a successful run.
+Before classifying the run as complete, verify that the selected transport's managed session is closed and `browser-runtime.py status` reports no consumer, no owned runtime, and no ready CDP endpoint. Missing cleanup proof is an incomplete inventory, not a successful run.
 
 End each browser task with one concise audit line:
 

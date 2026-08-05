@@ -21,7 +21,18 @@ SERVICE_LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$")
 
 
 def reject_sensitive_url(value: str) -> None:
-    for key, _item in parse_qsl(urlsplit(value).query, keep_blank_values=True):
+    parts = urlsplit(value)
+    if parts.scheme not in {"http", "https"} or not parts.hostname:
+        raise ValueError("Designer URL must use HTTP or HTTPS")
+    if parts.username is not None or parts.password is not None:
+        raise ValueError("Refusing URL with user information")
+    host = parts.hostname.lower()
+    if not (
+        host in {"design.webflow.com", "design.wfdev.io", "wfdev.io", "localhost", "127.0.0.1", "::1"}
+        or host.endswith(".design.wfdev.io")
+    ):
+        raise ValueError("URL is not an approved Designer host")
+    for key, _item in parse_qsl(parts.query, keep_blank_values=True):
         lowered = key.lower()
         if any(part in lowered for part in SENSITIVE_QUERY_PARTS):
             raise ValueError(f"Refusing URL with sensitive query key: {key}")
@@ -49,6 +60,8 @@ def build_service_checks(args: argparse.Namespace) -> list[dict[str, object]]:
     checks: list[dict[str, object]] = []
     for label, host, port_text in args.tcp_service:
         validate_service_label(label)
+        if host.lower() not in {"127.0.0.1", "::1", "localhost"}:
+            raise ValueError(f"{label}: TCP host must be loopback")
         port = int(port_text)
         if port < 1 or port > 65535:
             raise ValueError(f"{label}: TCP port must be between 1 and 65535")
@@ -169,22 +182,36 @@ def describe_preflight(checks: list[dict[str, object]]) -> dict[str, object]:
 
 def build_commands(args: argparse.Namespace) -> list[dict[str, object]]:
     commands: list[dict[str, object]] = []
+    if args.port is not None and not 1 <= args.port <= 65535:
+        raise ValueError("--port must be between 1 and 65535")
+    if args.transport == "cli" and not args.session:
+        raise ValueError("--session is required for cli transport")
+
+    def browser_action(
+        action_args: list[str], *, fresh: bool = False
+    ) -> dict[str, object]:
+        if args.transport == "native":
+            action: dict[str, object] = {
+                "tool": "agent_browser",
+                "args": action_args,
+            }
+            if fresh:
+                action["sessionMode"] = "fresh"
+            return action
+        if args.transport == "cli":
+            return {
+                "command": "agent-browser",
+                "args": ["--session", args.session, *action_args],
+            }
+        raise ValueError("transport must be native or cli")
 
     if args.mode == "attached":
         if not args.port:
             raise ValueError("--port is required for attached direct CDP mode")
-        commands.append(
-            {
-                "tool": "agent_browser",
-                "sessionMode": "fresh",
-                "args": ["connect", str(args.port)],
-            }
-        )
-        commands.append({"tool": "agent_browser", "args": ["tab"]})
+        commands.append(browser_action(["connect", str(args.port)], fresh=True))
+        commands.append(browser_action(["tab"]))
         if args.tab:
-            commands.append(
-                {"tool": "agent_browser", "args": ["tab", args.tab]}
-            )
+            commands.append(browser_action(["tab", args.tab]))
     else:
         if not args.url:
             raise ValueError("--url is required for isolated mode")
@@ -192,24 +219,14 @@ def build_commands(args: argparse.Namespace) -> list[dict[str, object]]:
         launch = []
         if args.user_agent:
             launch.extend(["--user-agent", args.user_agent])
-        launch.extend(["--ignore-https-errors", "open", args.url])
-        commands.append(
-            {
-                "tool": "agent_browser",
-                "sessionMode": "fresh",
-                "args": launch,
-            }
-        )
+        host = (urlsplit(args.url).hostname or "").lower()
+        if host in {"127.0.0.1", "::1", "localhost"}:
+            launch.append("--ignore-https-errors")
+        launch.extend(["open", args.url])
+        commands.append(browser_action(launch, fresh=True))
 
-    commands.append(
-        {"tool": "agent_browser", "args": ["wait", args.ready_selector]}
-    )
-    commands.append(
-        {
-            "tool": "agent_browser",
-            "args": ["snapshot", "-i", "-c", "-s", args.surface],
-        }
-    )
+    commands.append(browser_action(["wait", args.ready_selector]))
+    commands.append(browser_action(["snapshot", "-i", "-c", "-s", args.surface]))
     return commands
 
 
@@ -220,16 +237,23 @@ def run(
     timeout: float,
     preflight_only: bool,
     dry_run: bool,
+    transport: str,
 ) -> int:
-    if checks and not dry_run:
-        preflight = run_preflight(checks, timeout)
-        if not preflight["ready"]:
-            print(json.dumps({"preflight": preflight}, sort_keys=True))
-            return 1
+    if transport == "native":
+        browser_cleanup = {"tool": "agent_browser", "args": ["close"]}
+    elif commands:
+        browser_cleanup = {
+            "command": "agent-browser",
+            "args": ["--session", commands[0]["args"][1], "close"],
+        }
     else:
-        preflight = describe_preflight(checks)
+        browser_cleanup = {
+            "command": "agent-browser",
+            "args": ["close"],
+            "when": "session-created",
+        }
     cleanup = [
-        {"tool": "agent_browser", "args": ["close"]},
+        browser_cleanup,
         {
             "helper": "scripts/browser-runtime.py",
             "args": ["release", "--consumer", "agent_browser"],
@@ -247,9 +271,22 @@ def run(
             "when": "attached",
         },
     ]
+    if checks and not dry_run:
+        preflight = run_preflight(checks, timeout)
+        if not preflight["ready"]:
+            print(
+                json.dumps(
+                    {"preflight": preflight, "cleanup": cleanup[1:]},
+                    sort_keys=True,
+                )
+            )
+            return 1
+    else:
+        preflight = describe_preflight(checks)
     print(
         json.dumps(
             {
+                "transport": transport,
                 "preflight": preflight,
                 "actions": [] if preflight_only else commands,
                 "cleanup": [] if preflight_only else cleanup,
@@ -263,6 +300,8 @@ def run(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("mode", choices=("attached", "isolated"))
+    parser.add_argument("--transport", choices=("native", "cli"), default="native")
+    parser.add_argument("--session")
     parser.add_argument("--port", type=int)
     parser.add_argument("--tab")
     parser.add_argument("--url")
@@ -311,6 +350,7 @@ def main() -> int:
         timeout=args.preflight_timeout,
         preflight_only=args.preflight_only,
         dry_run=args.dry_run,
+        transport=args.transport,
     )
 
 

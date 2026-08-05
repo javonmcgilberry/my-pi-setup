@@ -19,8 +19,8 @@
       "category": "designer",
       "implementation": "scripts/designer-session.py",
       "owner": "designer-session",
-      "purpose": "Preflight declared services and emit bounded native agent-browser actions with mandatory cleanup.",
-      "inputs": ["session-mode", "readiness-surface"],
+      "purpose": "Preflight declared services and emit bounded native-tool or CLI browser actions with mandatory cleanup.",
+      "inputs": ["transport", "session-mode", "readiness-surface"],
       "postconditions": ["bounded-session-plan", "explicit-cleanup-plan"],
       "sensitivity": "sanitized-url-metadata",
       "maturity": "stable",
@@ -77,7 +77,7 @@
       "sensitivity": "page-content",
       "maturity": "exceptional",
       "disposition": "keep",
-      "loadWhen": "agent-browser cannot retain the required frame context"
+      "loadWhen": "the selected browser transport cannot retain the required frame context"
     },
     {
       "id": "connected-app.authorization",

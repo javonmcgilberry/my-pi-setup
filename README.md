@@ -34,7 +34,10 @@ cd ~/Developer/my-pi-setup
 ### Webflow browser prerequisites
 
 The tracked Webflow skill deliberately does not install or control normal
-Google Chrome. Install its external runtime prerequisites once:
+Google Chrome. Pi should use its native `agent_browser` extension when that
+tool is available; other compatible harnesses can invoke the `agent-browser`
+CLI directly. The current native extension delegates to the same executable,
+so install the pinned CLI runtime for either invocation path:
 
 ```sh
 npm install -g agent-browser@0.33.2

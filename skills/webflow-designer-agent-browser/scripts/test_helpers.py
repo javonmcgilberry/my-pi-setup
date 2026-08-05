@@ -57,6 +57,12 @@ class DiscoverTests(unittest.TestCase):
             "&simulateRole=marketer&token=%5BREDACTED%5D",
         )
 
+    def test_url_sanitization_removes_userinfo(self):
+        self.assertEqual(
+            discover.sanitize_url("https://user:secret@design.webflow.com/path"),
+            "https://design.webflow.com/path",
+        )
+
     def test_non_designer_host_is_rejected(self):
         self.assertFalse(discover.is_designer_url("https://example.com"))
 
@@ -125,20 +131,32 @@ class DiscoverTests(unittest.TestCase):
             "port": 9222,
         }
 
-        direct = discover.build_native_attachment_plan(
+        direct = discover.build_attachment_plan(
             config,
             endpoint_kind="direct_cdp",
         )
-        self.assertEqual(direct["transport"], "agent_browser")
+        self.assertEqual(direct["transport"], "native")
         self.assertEqual(
-            direct["actions"][0]["payload"]["args"],
+            direct["actions"][0]["args"],
             ["connect", "9222"],
         )
+        self.assertEqual(direct["actions"][0]["sessionMode"], "fresh")
         self.assertFalse(direct["conversationPermissionRequired"])
         self.assertEqual(direct["endpointKind"], "direct_cdp")
         self.assertTrue(direct["exclusiveOwnershipRequired"])
 
-        broker = discover.build_native_attachment_plan(
+        cli = discover.build_attachment_plan(
+            config,
+            endpoint_kind="direct_cdp",
+            transport="cli",
+        )
+        self.assertEqual(cli["transport"], "cli")
+        self.assertEqual(cli["actions"][0], {
+            "command": "agent-browser",
+            "args": ["connect", "9222"],
+        })
+
+        broker = discover.build_attachment_plan(
             config,
             endpoint_kind="chrome_remote_debugging_broker",
         )
@@ -234,6 +252,7 @@ class SessionTests(unittest.TestCase):
     def test_attached_plan_is_read_only(self):
         args = argparse.Namespace(
             mode="attached",
+            transport="native",
             session="designer-live",
             port=9222,
             tab="t2",
@@ -255,9 +274,31 @@ class SessionTests(unittest.TestCase):
             ["snapshot", "-i", "-c", "-s", "#panel"],
         )
 
+    def test_cli_transport_emits_agent_browser_commands(self):
+        args = argparse.Namespace(
+            mode="isolated",
+            transport="cli",
+            session="designer-cli-test",
+            port=None,
+            tab=None,
+            url="https://design.webflow.com/",
+            user_agent=None,
+            ready_selector="#ready",
+            surface="#panel",
+        )
+        commands = session.build_commands(args)
+        self.assertEqual(commands[0]["command"], "agent-browser")
+        self.assertNotIn("tool", commands[0])
+        self.assertEqual(commands[0]["args"], ["--session", "designer-cli-test", "open", args.url])
+        self.assertEqual(
+            commands[-1]["args"],
+            ["--session", "designer-cli-test", "snapshot", "-i", "-c", "-s", "#panel"],
+        )
+
     def test_attached_plan_requires_direct_cdp_port(self):
         args = argparse.Namespace(
             mode="attached",
+            transport="native",
             session="synthetic-session",
             port=None,
             tab=None,
@@ -267,6 +308,21 @@ class SessionTests(unittest.TestCase):
             user_agent=None,
         )
         with self.assertRaisesRegex(ValueError, "--port is required"):
+            session.build_commands(args)
+
+    def test_attached_plan_rejects_invalid_direct_cdp_port(self):
+        args = argparse.Namespace(
+            mode="attached",
+            transport="native",
+            session=None,
+            port=70000,
+            tab=None,
+            url=None,
+            ready_selector="body",
+            surface="body",
+            user_agent=None,
+        )
+        with self.assertRaisesRegex(ValueError, "between 1 and 65535"):
             session.build_commands(args)
 
     def test_attached_plan_emits_mandatory_cleanup_without_spawning_browser(self):
@@ -284,6 +340,7 @@ class SessionTests(unittest.TestCase):
                 timeout=1,
                 preflight_only=False,
                 dry_run=True,
+                transport="native",
             )
         plan = json.loads(output.getvalue())
         self.assertEqual(result, 0)
@@ -299,6 +356,7 @@ class SessionTests(unittest.TestCase):
     def test_isolated_plan_rejects_sensitive_url(self):
         args = argparse.Namespace(
             mode="isolated",
+            transport="native",
             session="designer-check",
             port=None,
             tab=None,
@@ -309,6 +367,22 @@ class SessionTests(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             session.build_commands(args)
+
+    def test_cli_cleanup_uses_cli_without_silent_native_fallback(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            result = session.run(
+                [{"command": "agent-browser", "args": ["--session", "designer-cli-test", "open", "https://design.webflow.com/"]}],
+                [],
+                timeout=1,
+                preflight_only=False,
+                dry_run=True,
+                transport="cli",
+            )
+        plan = json.loads(output.getvalue())
+        self.assertEqual(result, 0)
+        self.assertEqual(plan["transport"], "cli")
+        self.assertEqual(plan["cleanup"][0], {"command": "agent-browser", "args": ["--session", "designer-cli-test", "close"]})
 
     def test_service_preflight_returns_sanitized_success(self):
         check = {
@@ -567,6 +641,10 @@ class BrowserRuntimeTests(unittest.TestCase):
             (profile / "Web Data-shm").write_text("synthetic-web-data-sidecar")
             (profile / "Local State").write_text("synthetic-nested-state")
             (profile / "Preferences").write_text("{}")
+            (profile / "Local Storage").mkdir()
+            (profile / "Local Storage" / "token").write_text("synthetic-token")
+            (profile / "IndexedDB").mkdir()
+            (profile / "IndexedDB" / "state").write_text("synthetic-state")
             (profile / "Network").mkdir()
             (profile / "Network" / "Cookies").write_text("synthetic-network-cookie-db")
             (profile / "Cache").mkdir()
@@ -586,6 +664,8 @@ class BrowserRuntimeTests(unittest.TestCase):
             self.assertFalse((copied / "Web Data-shm").exists())
             self.assertFalse((copied / "Local State").exists())
             self.assertFalse((copied / "Network" / "Cookies").exists())
+            self.assertFalse((copied / "Local Storage").exists())
+            self.assertFalse((copied / "IndexedDB").exists())
             self.assertFalse((copied / "Cache").exists())
             self.assertEqual(
                 json.loads(config.origin_path.read_text())["refreshPolicy"],
@@ -1197,6 +1277,31 @@ class PublishedSitePreflightTests(unittest.TestCase):
 
 
 class CdpFrameEvalTests(unittest.TestCase):
+    def test_rejects_non_loopback_browser_websocket(self):
+        with tempfile.TemporaryDirectory() as directory:
+            expression = Path(directory) / "check.js"
+            expression.write_text("document.readyState")
+            completed = subprocess.run(
+                [
+                    "node",
+                    str(SCRIPT_DIR / "cdp-frame-eval.mjs"),
+                    "--browser-ws-url",
+                    "ws://example.com/devtools/browser/example",
+                    "--page-url-needle",
+                    "site.design.wfdev.io",
+                    "--frame-url-needle",
+                    "localhost:1337",
+                    "--expression-file",
+                    str(expression),
+                    "--dry-run",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(completed.returncode, 2)
+            self.assertIn("loopback host", completed.stderr)
+
     def test_dry_run_suppresses_target_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
             expression = Path(directory) / "check.js"

@@ -23,17 +23,26 @@ def sanitize_url(value: str) -> str:
     safe_query = []
     for key, item in parse_qsl(parts.query, keep_blank_values=True):
         safe_query.append((key, item if key in SAFE_QUERY_KEYS else "[REDACTED]"))
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(safe_query), ""))
+    host = parts.hostname or ""
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    netloc = f"{host}:{parts.port}" if parts.port is not None else host
+    return urlunsplit((parts.scheme, netloc, parts.path, urlencode(safe_query), ""))
 
 
 def is_designer_url(value: str) -> bool:
     parts = urlsplit(value)
     host = (parts.hostname or "").lower()
     return (
-        host == "design.webflow.com"
-        or host.endswith(".design.wfdev.io")
-        or host == "design.wfdev.io"
-        or host == "wfdev.io"
+        parts.scheme in {"http", "https"}
+        and parts.username is None
+        and parts.password is None
+        and (
+            host == "design.webflow.com"
+            or host.endswith(".design.wfdev.io")
+            or host == "design.wfdev.io"
+            or host == "wfdev.io"
+        )
     )
 
 
@@ -71,10 +80,11 @@ def validate_attachment_config(config: object) -> dict[str, object]:
     }
 
 
-def build_native_attachment_plan(
+def build_attachment_plan(
     config: object,
     *,
     endpoint_kind: str | None = None,
+    transport: str = "native",
 ) -> dict[str, object]:
     """Return sanitized next actions for the available browser transport."""
     validated = validate_attachment_config(config)
@@ -83,20 +93,29 @@ def build_native_attachment_plan(
         raise ValueError("attachment endpoint kind is unsupported")
 
     if kind == "direct_cdp":
+        if transport not in {"native", "cli"}:
+            raise ValueError("direct CDP transport must be native or cli")
+        action = (
+            {
+                "tool": "agent_browser",
+                "sessionMode": "fresh",
+                "args": ["connect", str(validated["port"])],
+            }
+            if transport == "native"
+            else {
+                "command": "agent-browser",
+                "args": ["connect", str(validated["port"])],
+            }
+        )
         return {
             "classification": "attachment_plan",
             "endpointKind": "direct_cdp",
-            "transport": "agent_browser",
+            "transport": transport,
             "authorization": "standing_localhost_authorization",
             "conversationPermissionRequired": False,
             "chromeConfirmationRequired": False,
             "exclusiveOwnershipRequired": True,
-            "actions": [
-                {
-                    "tool": "agent_browser",
-                    "payload": {"args": ["connect", str(validated["port"])]},
-                }
-            ],
+            "actions": [action],
         }
 
     return {
@@ -198,6 +217,8 @@ def fetch_json(url: str, timeout: float) -> object:
 
 
 def discover(host: str, port: int, timeout: float) -> dict[str, object]:
+    if host.lower() not in LOOPBACK_HOSTS:
+        raise ValueError("CDP discovery host must be loopback")
     base = f"http://{host}:{port}"
     version = fetch_json(f"{base}/json/version", timeout)
     targets = fetch_json(f"{base}/json/list", timeout)
@@ -281,12 +302,16 @@ def diagnose_ownership(
 
 
 def run_agent_browser_json(command: list[str]) -> object:
-    completed = subprocess.run(
-        command,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError("agent-browser session inspection timed out") from error
     if completed.returncode:
         raise RuntimeError("agent-browser session inspection failed")
     try:
@@ -382,6 +407,7 @@ def parse_args() -> argparse.Namespace:
             "chrome_remote_debugging_broker",
         ),
     )
+    parser.add_argument("--transport", choices=("native", "cli"), default="native")
     return parser.parse_args()
 
 
@@ -402,9 +428,10 @@ def main() -> int:
                     expected_runtime_mode=args.expected_runtime_mode,
                 )
             else:
-                result = build_native_attachment_plan(
+                result = build_attachment_plan(
                     config,
                     endpoint_kind=args.endpoint_kind,
+                    transport=args.transport,
                 )
         elif args.ownership_url:
             if not args.current_session:
@@ -416,6 +443,10 @@ def main() -> int:
                     args.ownership_fixture
                 )
             else:
+                if args.transport == "native":
+                    raise ValueError(
+                        "--ownership-fixture is required for native ownership diagnostics"
+                    )
                 sessions, unavailable = inspect_agent_browser_sessions()
             result = diagnose_ownership(
                 sessions,

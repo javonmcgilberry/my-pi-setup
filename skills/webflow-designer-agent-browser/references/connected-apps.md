@@ -32,7 +32,7 @@ Use `eval` only inside the confirmed extension iframe and return filtered values
 
 - Select a Webflow site by its expected site ID, never by display name or result position.
 - Capture each visible authorization page as a sanitized file-backed surface. Run `scripts/guarded-site-authorization.py` without mutation flags to verify pagination and one exact match.
-- Use agent-browser for the actual pagination and checkbox actions. Add `--allow-selection` only after the baseline is captured, then provide the post-selection surface so the helper can verify that one checkbox is selected and the authorization action is enabled.
+- Use the selected browser transport for the actual pagination and checkbox actions. Add `--allow-selection` only after the baseline is captured, then provide the post-selection surface so the helper can verify that one checkbox is selected and the authorization action is enabled.
 - Add `--allow-authorization` only when the final action is authorized. Provide parsed callback state containing only `site_id`; never provide a complete callback URL or authorization code.
 
 The initial surface shape is:

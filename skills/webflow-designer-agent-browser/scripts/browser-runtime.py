@@ -29,6 +29,14 @@ SENSITIVE_PROFILE_DATABASES = {
     "Login Data",
     "Web Data",
 }
+SENSITIVE_PROFILE_DIRECTORIES = {
+    "Extension State",
+    "IndexedDB",
+    "Local Extension Settings",
+    "Local Storage",
+    "Session Storage",
+    "Sync Extension Settings",
+}
 TRANSIENT_NAMES = {
     "Cache",
     "Code Cache",
@@ -320,6 +328,7 @@ def copy_ignore(_directory: str, names: list[str]) -> set[str]:
     for name in names:
         if (
             name in TRANSIENT_NAMES
+            or name in SENSITIVE_PROFILE_DIRECTORIES
             or any(
                 name == database or name.startswith(f"{database}-")
                 for database in SENSITIVE_PROFILE_DATABASES

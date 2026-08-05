@@ -50,6 +50,13 @@ function parseArgs(argv) {
   for (const field of ["browserWsUrl", "pageUrlNeedle", "frameUrlNeedle"]) {
     if (!options[field]) throw new Error(`Missing required option: ${field}`);
   }
+  const browserUrl = new URL(options.browserWsUrl);
+  if (!["ws:", "wss:"].includes(browserUrl.protocol)) {
+    throw new Error("Browser WebSocket URL must use ws or wss");
+  }
+  if (!["127.0.0.1", "::1", "localhost"].includes(browserUrl.hostname)) {
+    throw new Error("Browser WebSocket URL must use a loopback host");
+  }
   const operationCount = Number(Boolean(options.expressionFile)) +
     Number(Boolean(options.visibleReplacementSelector));
   if (operationCount !== 1) {
