@@ -29,7 +29,7 @@ Unlike a generic Pi installation or a loose extension collection, this workspace
 ## Capabilities and Constraints
 
 - Provides custom and third-party Pi extensions, agent definitions, skills, MCP integrations, browser automation, subagent coordination, and code diagnostics.
-- The session spend dashboard is read-only, localhost-only, and derives totals from provider-reported session-log costs without estimating missing prices.
+- The session spend dashboard's localhost HTTP surface is read-only and derives totals from provider-reported session-log costs without estimating missing prices. The separate explicit maintenance script may delete chat trees only when all Pi sessions are closed and after committing content-free usage and tool-count metrics to the local retention ledger.
 - `pi-prewalk` and the session spend dashboard are intended candidates for open-source release; the exact package boundaries, names, licensing, support policy, and release timeline remain undecided.
 - This repository is the canonical portable Pi setup, while Pi core and separately owned packages retain their own repositories. `PRODUCT.md` remains at this root by design so its principles govern terminal/TUI behavior, tracked skills and extensions, localhost web surfaces, and future setup work. Scoped records may add product-specific facts but should not silently contradict this shared authority.
 - Future work must not expose credentials, private session content, machine-specific paths, or other local state in distributable packages.

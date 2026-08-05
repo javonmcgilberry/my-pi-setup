@@ -20,6 +20,7 @@
     "npm:pi-ask-user",
     "./packages/prewalk",
     "npm:@vanillagreen/pi-tool-renderer",
+    "npm:pi-render-cache",
     "npm:@vanillagreen/pi-extension-manager",
     "npm:@kliebhan/pi-prompt-autocomplete",
     "npm:@davecodes/pi-skill-tags",

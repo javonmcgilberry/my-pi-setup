@@ -18,6 +18,7 @@ export interface TokenTotals {
 export interface Totals extends TokenTotals {
 	cost: number;
 	calls: number;
+	toolCalls: number;
 	sessions: number;
 	projects: number;
 	callsWithoutReportedCost: number;
@@ -65,6 +66,7 @@ export interface SessionRow extends TokenTotals {
 	/** Spend replayed from an ancestor session, already attributed to that ancestor. */
 	inheritedCost: number;
 	calls: number;
+	toolCalls: number;
 	models: string[];
 	providers: string[];
 	parentSessionId?: string;
@@ -156,17 +158,30 @@ function buildOriginIndex(files: SessionFile[]): Map<string, string> {
 	return origin;
 }
 
+function buildToolOriginIndex(files: SessionFile[]): Map<string, string> {
+	const ordered = [...files].sort((a, b) => a.startedAt - b.startedAt || a.relPath.localeCompare(b.relPath));
+	const origin = new Map<string, string>();
+	for (const file of ordered) {
+		for (const key of file.toolCallKeys) {
+			if (!origin.has(key)) origin.set(key, file.relPath);
+		}
+	}
+	return origin;
+}
+
 export function aggregate(files: SessionFile[], options: AggregateOptions): Snapshot {
 	const { sessionsRoot, now, scanDurationMs } = options;
 	const maxSessions = options.maxSessions ?? 400;
 	const maxDays = options.maxDays ?? 120;
 	const origin = buildOriginIndex(files);
+	const toolOrigin = buildToolOriginIndex(files);
 	const runs = options.runs;
 
 	const totals: Totals = {
 		...emptyTokens(),
 		cost: 0,
 		calls: 0,
+		toolCalls: 0,
 		sessions: 0,
 		projects: 0,
 		callsWithoutReportedCost: 0,
@@ -189,6 +204,7 @@ export function aggregate(files: SessionFile[], options: AggregateOptions): Snap
 		let sessionCost = 0;
 		let inheritedCost = 0;
 		let sessionCalls = 0;
+		let sessionToolCalls = 0;
 		let updatedAt = Math.max(file.mtimeMs, file.startedAt);
 		const sessionModels = new Set<string>();
 		const sessionProviders = new Set<string>();
@@ -232,11 +248,16 @@ export function aggregate(files: SessionFile[], options: AggregateOptions): Snap
 			providers.set(record.provider, providerBucket);
 		}
 
+		for (const key of file.toolCallKeys) {
+			if (toolOrigin.get(key) === file.relPath) sessionToolCalls++;
+		}
+
 		const run = runs?.bySessionFile.get(file.file);
 		const activity = deriveActivity(updatedAt, now, run?.state);
 
 		totals.cost += sessionCost;
 		totals.calls += sessionCalls;
+		totals.toolCalls += sessionToolCalls;
 		addTokens(totals, sessionTokens);
 
 		const projectBucket =
@@ -261,6 +282,7 @@ export function aggregate(files: SessionFile[], options: AggregateOptions): Snap
 			cost: sessionCost,
 			inheritedCost,
 			calls: sessionCalls,
+			toolCalls: sessionToolCalls,
 			models: [...sessionModels].sort(),
 			providers: [...sessionProviders].sort(),
 			parentSessionId: file.parentSessionId,

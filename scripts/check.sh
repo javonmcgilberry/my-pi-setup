@@ -9,6 +9,7 @@ node --check scripts/render-settings.mjs
 node --check scripts/json-equal.mjs
 node --check scripts/update-git-pins.mjs
 node --check scripts/manifest.mjs
+node --check scripts/session-maintenance.mjs
 
 json_files=(
   settings.json
@@ -22,6 +23,7 @@ json_files=(
   settings.local.example.json
   config/manifest.json
   fzf.json
+  session-spend-dashboard.json
   skills/webflow-designer-agent-browser/capabilities.json
   skills/webflow-designer-agent-browser/config/attachment.json
 )

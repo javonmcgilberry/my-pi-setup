@@ -132,6 +132,49 @@ test("counts compaction and branch_summary usage", async () => {
 	const parsed = await parseSessionFile(file);
 	assert.equal(parsed.records.length, 2);
 	assert.equal(parsed.records.reduce((sum, r) => sum + r.cost, 0), 5);
+	assert.deepEqual(parsed.records.map((record) => record.usageType), ["compaction", "branch_summary"]);
+});
+
+test("counts tool calls without retaining tool names or arguments", async () => {
+	const file = await writeSession("--proj-tools--/2024-01-01T00-00-00-000Z_tools.jsonl", [
+		header("tools", "/proj/tools", 1_700_000_000_000),
+		JSON.stringify({
+			type: "message",
+			id: "tool-message",
+			message: {
+				role: "assistant",
+				provider: "anthropic",
+				model: "claude-x",
+				content: [
+					{ type: "toolCall", id: "call-1", name: "secret-tool-name", arguments: { password: "secret" } },
+					{ type: "toolCall", id: "call-2", name: "another-tool", arguments: { prompt: "private" } },
+					{ type: "toolCall", id: "call-2", name: "duplicate-replay", arguments: {} },
+				],
+				usage: usage(1),
+				timestamp: 1_700_000_000_000,
+			},
+		}),
+	]);
+
+	const parsed = await parseSessionFile(file);
+	assert.deepEqual(parsed.toolCallKeys, ["call-1", "call-2"]);
+	const snapshot = aggregate([
+		{
+			file,
+			relPath: "--proj-tools--/2024-01-01T00-00-00-000Z_tools.jsonl",
+			sessionId: parsed.sessionId,
+			cwd: parsed.cwd,
+			startedAt: parsed.startedAt,
+			mtimeMs: parsed.startedAt,
+			sizeBytes: 1,
+			records: parsed.records,
+			toolCallKeys: parsed.toolCallKeys,
+			malformedLines: 0,
+			truncated: false,
+		},
+	], { sessionsRoot: root, now: 1_700_000_000_001, scanDurationMs: 1 });
+	assert.equal(snapshot.totals.toolCalls, 2);
+	assert.equal(snapshot.sessions[0]?.toolCalls, 2);
 });
 
 test("attributes a replayed call to the earliest session and reports the rest as inherited", async () => {

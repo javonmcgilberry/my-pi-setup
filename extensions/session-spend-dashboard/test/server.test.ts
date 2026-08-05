@@ -80,6 +80,7 @@ before(async () => {
 		path.join(project, "2024-01-01T00-00-00-000Z_s1.jsonl"),
 		`${[
 			JSON.stringify({ type: "session", version: 3, id: "s1", cwd: "/proj", timestamp: "2024-01-01T00:00:00.000Z" }),
+			JSON.stringify({ type: "session_info", name: "Current live name" }),
 			JSON.stringify({
 				type: "message",
 				id: "e1",
@@ -95,7 +96,7 @@ before(async () => {
 		"utf8",
 	);
 
-	server = await startServer({ sessionsRoot: root, port: 0 });
+	server = await startServer({ sessionsRoot: root, port: 0, databasePath: path.join(root, "metrics.sqlite") });
 	await waitForSnapshot();
 });
 
@@ -136,6 +137,7 @@ test("exposes a JSON snapshot with provider-reported cost", async () => {
 	assert.equal(snapshot.totals.cost, 0.5);
 	assert.equal(snapshot.totals.sessions, 1);
 	assert.equal(snapshot.sessions[0].sessionId, "s1");
+	assert.equal(snapshot.sessions[0].name, "Current live name");
 	assert.equal(snapshot.sessionsRoot, root);
 });
 

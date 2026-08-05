@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
 import os from "node:os";
@@ -70,11 +70,23 @@ function harness(): Harness {
 		"ExtensionUIContext",
 	);
 
-	return { command, shutdown, notices, statuses, ctx: strictStub<ExtensionCommandContext>({ ui }, "ExtensionCommandContext") };
+	const sessionManager = strictStub<ExtensionCommandContext["sessionManager"]>(
+		{ getSessionFile: () => undefined },
+		"SessionManager",
+	);
+	return {
+		command,
+		shutdown,
+		notices,
+		statuses,
+		ctx: strictStub<ExtensionCommandContext>({ ui, sessionManager }, "ExtensionCommandContext"),
+	};
 }
 
 let cwd = "";
 let active: Harness;
+let previousSessionDir: string | undefined;
+let previousAgentDir: string | undefined;
 
 function freePort(): Promise<number> {
 	return new Promise((resolve, reject) => {
@@ -90,6 +102,11 @@ function freePort(): Promise<number> {
 
 before(async () => {
 	cwd = await mkdtemp(path.join(os.tmpdir(), "spend-dash-cmd-"));
+	previousSessionDir = process.env.PI_CODING_AGENT_SESSION_DIR;
+	previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+	process.env.PI_CODING_AGENT_SESSION_DIR = path.join(cwd, "sessions");
+	process.env.PI_CODING_AGENT_DIR = path.join(cwd, "agent");
+	await mkdir(process.env.PI_CODING_AGENT_SESSION_DIR, { recursive: true });
 });
 
 beforeEach(() => {
@@ -98,6 +115,10 @@ beforeEach(() => {
 
 after(async () => {
 	await active?.shutdown();
+	if (previousSessionDir === undefined) delete process.env.PI_CODING_AGENT_SESSION_DIR;
+	else process.env.PI_CODING_AGENT_SESSION_DIR = previousSessionDir;
+	if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+	else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
 	await rm(cwd, { recursive: true, force: true });
 });
 
@@ -107,7 +128,7 @@ test("describes itself and completes its actions", () => {
 	const all = command.getArgumentCompletions?.("");
 	assert.deepEqual(
 		Array.isArray(all) ? all.map((item) => item.value) : [],
-		["start", "stop", "restart", "status", "open"],
+		["start", "stop", "restart", "status", "open", "maintain"],
 	);
 	const filtered = command.getArgumentCompletions?.("sta");
 	assert.deepEqual(Array.isArray(filtered) ? filtered.map((item) => item.value) : [], ["start", "status"]);

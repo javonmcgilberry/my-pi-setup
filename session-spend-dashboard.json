@@ -1,0 +1,4 @@
+{
+  "chatRetentionDays": 7,
+  "metricsRetentionDays": 365
+}

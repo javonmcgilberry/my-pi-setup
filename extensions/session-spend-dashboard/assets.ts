@@ -484,7 +484,8 @@ export const APP_JS = `(() => {
       meta.className = "sub";
       const bits = [];
       if (session.isSubagent) bits.push("subagent");
-      if (session.calls) bits.push(count(session.calls) + " calls");
+      if (session.calls) bits.push(count(session.calls) + " model calls");
+      if (session.toolCalls) bits.push(count(session.toolCalls) + " tool calls");
       if (session.inheritedCost > 0) bits.push(money(session.inheritedCost) + " inherited");
       meta.textContent = bits.join(" · ");
       idCell.append(meta);
@@ -514,14 +515,14 @@ export const APP_JS = `(() => {
     const t = snapshot.totals;
     nodes.root.textContent = snapshot.sessionsRoot;
     nodes.cost.textContent = money(t.cost);
-    nodes.costNote.textContent = count(t.calls) + " reported calls";
+    nodes.costNote.textContent = count(t.calls) + " reported model calls";
     nodes.tokens.textContent = compact(t.totalTokens);
     nodes.tokensNote.textContent =
       compact(t.input) + " in · " + compact(t.output) + " out · " + compact(t.cacheRead) + " cache read";
     nodes.calls.textContent = count(t.calls);
-    nodes.callsNote.textContent = t.callsWithoutReportedCost
+    nodes.callsNote.textContent = count(t.toolCalls || 0) + " tool calls · " + (t.callsWithoutReportedCost
       ? count(t.callsWithoutReportedCost) + " without a reported price"
-      : "all with a reported price";
+      : "all model calls priced");
     nodes.sessions.textContent = count(t.sessions);
     nodes.sessionsNote.textContent = count(snapshot.sessions.filter((s) => s.isSubagent).length) + " subagent sessions";
     nodes.projects.textContent = count(t.projects);

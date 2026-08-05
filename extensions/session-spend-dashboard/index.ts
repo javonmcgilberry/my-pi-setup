@@ -2,11 +2,13 @@ import { spawn } from "node:child_process";
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
-import { defaultSessionsDir } from "./scan.ts";
+import { registerActiveSession, unregisterActiveSession } from "./active-sessions.ts";
+import { runMaintenance } from "./maintenance.ts";
+import { defaultAgentDir, defaultSessionsDir } from "./scan.ts";
 import { DEFAULT_PORT, startServer, type RunningServer } from "./server.ts";
 
 const STATUS_KEY = "spend-dashboard";
-const ACTIONS = ["start", "stop", "restart", "status", "open"] as const;
+const ACTIONS = ["start", "stop", "restart", "status", "open", "maintain"] as const;
 
 type Action = (typeof ACTIONS)[number];
 
@@ -20,6 +22,7 @@ const USAGE = [
 	"/spend-dashboard restart  relaunch it",
 	"/spend-dashboard status   show whether it is running",
 	"/spend-dashboard open     open it in your browser",
+	"/spend-dashboard maintain import metrics and preview expired chat trees",
 	"",
 	`Add a port to override ${DEFAULT_PORT}, for example: /spend-dashboard start 4400`,
 ].join("\n");
@@ -33,8 +36,15 @@ function openInBrowser(url: string): void {
 	child.unref();
 }
 
+function formatBytes(bytes: number): string {
+	if (bytes < 1024) return `${bytes} B`;
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+	return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
 export default function (pi: ExtensionAPI) {
 	let server: RunningServer | undefined;
+	const agentDir = () => defaultAgentDir();
 
 	function setStatus(ctx: ExtensionCommandContext): void {
 		ctx.ui.setStatus(STATUS_KEY, server ? `spend :${server.port}` : undefined);
@@ -53,7 +63,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		const sessionsRoot = defaultSessionsDir();
 		try {
-			server = await startServer({ sessionsRoot, port });
+			server = await startServer({ sessionsRoot, agentDir: agentDir(), port });
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			const hint = message.includes("EADDRINUSE") ? ` Port ${port} is already in use; pass another port.` : "";
@@ -62,6 +72,31 @@ export default function (pi: ExtensionAPI) {
 		}
 		setStatus(ctx);
 		ctx.ui.notify(`Spend dashboard reading ${sessionsRoot} at ${server.url}`, "info");
+	}
+
+	async function maintain(ctx: ExtensionCommandContext): Promise<void> {
+		const sessionsRoot = defaultSessionsDir();
+		const current = ctx.sessionManager.getSessionFile();
+		try {
+			const report = await runMaintenance({
+				sessionsRoot,
+				agentDir: agentDir(),
+				dryRun: true,
+				activeFiles: current ? new Set([current]) : new Set(),
+			});
+			ctx.ui.notify(
+				[
+					`Eligible: ${report.eligibleTrees} trees (${report.eligibleFiles} files, ${formatBytes(report.eligibleBytes)})`,
+					`Protected active trees: ${report.protectedTrees}`,
+					`Metrics ledger: ${report.archivedSessions} sessions, ${report.archivedUsageRecords} usage records, ${report.archivedToolCalls} tool calls`,
+					`Retention: chats ${report.chatRetentionDays} days; metrics ${report.metricsRetentionDays} days`,
+					"Close every Pi session, then run `node scripts/session-maintenance.mjs --apply` from my-pi-setup to delete eligible chats.",
+				].join("\n"),
+				"info",
+			);
+		} catch (error) {
+			ctx.ui.notify(`Session maintenance failed: ${error instanceof Error ? error.message : String(error)}`, "error");
+		}
 	}
 
 	function parse(args: string): { action: Action; port: number } | { error: string } {
@@ -81,7 +116,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	pi.registerCommand("spend-dashboard", {
-		description: "Read-only localhost dashboard for Pi session spend and activity",
+		description: "Read-only localhost spend dashboard with content-free session retention",
 		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
 			const matches = ACTIONS.filter((action) => action.startsWith(prefix.trim()));
 			return matches.length > 0 ? matches.map((action) => ({ value: action, label: action })) : null;
@@ -94,6 +129,11 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			const { action, port } = parsed;
+
+			if (action === "maintain") {
+				await maintain(ctx);
+				return;
+			}
 
 			if (action === "start") {
 				await start(ctx, port);
@@ -146,7 +186,18 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	pi.on("session_start", async (_event, ctx) => {
+		try {
+			await registerActiveSession(agentDir(), ctx.sessionManager.getSessionFile());
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			ctx.ui.notify(`Pi cannot start safely: ${message}`, "error");
+			ctx.shutdown();
+		}
+	});
+
 	pi.on("session_shutdown", async () => {
 		await stop();
+		await unregisterActiveSession(agentDir());
 	});
 }

@@ -19,6 +19,7 @@ export interface UsageRecord {
 	totalTokens: number;
 	cost: number;
 	costReported: boolean;
+	usageType: "assistant" | "compaction" | "branch_summary";
 }
 
 export interface SessionFile {
@@ -33,6 +34,8 @@ export interface SessionFile {
 	/** Present when the file lives under another session's directory. */
 	parentSessionId?: string;
 	records: UsageRecord[];
+	/** Stable, content-free identifiers used only to deduplicate tool-call counts. */
+	toolCallKeys: string[];
 	malformedLines: number;
 	truncated: boolean;
 }
@@ -50,9 +53,15 @@ export const DEFAULT_LIMITS: ScanLimits = {
 export function defaultSessionsDir(): string {
 	const override = process.env.PI_CODING_AGENT_SESSION_DIR;
 	if (override && override.trim()) return override;
-	const agentDir = process.env.PI_CODING_AGENT_DIR;
-	if (agentDir && agentDir.trim()) return path.join(agentDir, "sessions");
-	return path.join(os.homedir(), ".pi", "agent", "sessions");
+	return path.join(defaultAgentDir(), "sessions");
+}
+
+export function defaultAgentDir(): string {
+	const override = process.env.PI_CODING_AGENT_DIR;
+	if (override && override.trim()) return override;
+	const setupOverride = process.env.PI_AGENT_DIR;
+	if (setupOverride && setupOverride.trim()) return setupOverride;
+	return path.join(process.env.HOME || os.homedir(), ".pi", "agent");
 }
 
 function finite(value: unknown): number {
@@ -77,6 +86,7 @@ interface ExtractedUsage {
 	provider: string;
 	model: string;
 	timestamp: number;
+	usageType: UsageRecord["usageType"];
 }
 
 function extractUsage(entry: Record<string, unknown>): ExtractedUsage | undefined {
@@ -96,6 +106,7 @@ function extractUsage(entry: Record<string, unknown>): ExtractedUsage | undefine
 			provider: text(record.provider) ?? "unknown",
 			model: text(record.model) ?? "unknown",
 			timestamp: parseTimestamp(record.timestamp) || parseTimestamp(entry.timestamp),
+			usageType: "assistant",
 		};
 	}
 
@@ -107,14 +118,15 @@ function extractUsage(entry: Record<string, unknown>): ExtractedUsage | undefine
 			provider: "unknown",
 			model: text(entry.model) ?? "unknown",
 			timestamp: parseTimestamp(entry.timestamp),
+			usageType: type,
 		};
 	}
 
 	return undefined;
 }
 
-function toRecord(entry: Record<string, unknown>, extracted: ExtractedUsage): UsageRecord {
-	const { usage, provider, model, timestamp } = extracted;
+function toRecord(entry: Record<string, unknown>, extracted: ExtractedUsage): UsageRecord | undefined {
+	const { usage, provider, model, timestamp, usageType } = extracted;
 	const rawCost = usage.cost;
 	const costObject = rawCost && typeof rawCost === "object" ? (rawCost as Record<string, unknown>) : undefined;
 	const costReported = typeof costObject?.total === "number" && Number.isFinite(costObject.total);
@@ -124,7 +136,8 @@ function toRecord(entry: Record<string, unknown>, extracted: ExtractedUsage): Us
 	const cacheRead = finite(usage.cacheRead);
 	const cacheWrite = finite(usage.cacheWrite);
 	const totalTokens = finite(usage.totalTokens) || input + output + cacheRead + cacheWrite;
-	const entryId = text(entry.id) ?? "";
+	const entryId = text(entry.id);
+	if (!entryId) return undefined;
 
 	return {
 		dedupeKey: `${entryId}|${timestamp}|${model}|${totalTokens}|${cost}`,
@@ -139,6 +152,7 @@ function toRecord(entry: Record<string, unknown>, extracted: ExtractedUsage): Us
 		totalTokens,
 		cost,
 		costReported,
+		usageType,
 	};
 }
 
@@ -148,12 +162,14 @@ export interface ParsedSession {
 	cwd: string;
 	startedAt: number;
 	records: UsageRecord[];
+	toolCallKeys: string[];
 	malformedLines: number;
 	truncated: boolean;
 }
 
 export async function parseSessionFile(file: string, maxBytes = DEFAULT_LIMITS.maxBytesPerFile): Promise<ParsedSession> {
 	const records: UsageRecord[] = [];
+	const toolCallKeys = new Set<string>();
 	let malformedLines = 0;
 	let bytesRead = 0;
 	let truncated = false;
@@ -200,42 +216,70 @@ export async function parseSessionFile(file: string, maxBytes = DEFAULT_LIMITS.m
 				continue;
 			}
 
+			if (entry.type === "message") {
+				const message = entry.message;
+				if (message && typeof message === "object") {
+					const messageRecord = message as Record<string, unknown>;
+					if (messageRecord.role === "assistant" && Array.isArray(messageRecord.content)) {
+						for (const block of messageRecord.content) {
+							if (!block || typeof block !== "object") continue;
+							const candidate = block as Record<string, unknown>;
+							if (candidate.type !== "toolCall") continue;
+							const callId = text(candidate.id) ?? text(candidate.toolCallId);
+							if (callId) toolCallKeys.add(callId);
+						}
+					}
+				}
+			}
+
 			const extracted = extractUsage(entry);
-			if (extracted) records.push(toRecord(entry, extracted));
+			if (extracted) {
+				const record = toRecord(entry, extracted);
+				if (record) records.push(record);
+				else malformedLines++;
+			}
 		}
 	} finally {
 		lines.close();
 		stream.destroy();
 	}
 
-	return { sessionId, name, cwd, startedAt, records, malformedLines, truncated };
+	return { sessionId, name, cwd, startedAt, records, toolCallKeys: [...toolCallKeys], malformedLines, truncated };
 }
 
-async function collectSessionFiles(root: string, maxFiles: number): Promise<string[]> {
+interface CollectedFiles {
+	files: string[];
+	unreadablePaths: number;
+}
+
+async function collectSessionFiles(root: string, maxFiles: number): Promise<CollectedFiles> {
 	const found: string[] = [];
 	const queue: string[] = [root];
+	let unreadablePaths = 0;
 
-	while (queue.length > 0 && found.length < maxFiles) {
+	while (queue.length > 0 && found.length <= maxFiles) {
 		const dir = queue.shift();
 		if (dir === undefined) break;
 		let entries: Dirent[];
 		try {
 			entries = await readdir(dir, { withFileTypes: true, encoding: "utf8" });
-		} catch {
+		} catch (error) {
+			if (!((error as NodeJS.ErrnoException).code === "ENOENT" && dir === root)) unreadablePaths++;
 			continue;
 		}
 		for (const entry of entries) {
 			const full = path.join(dir, entry.name);
 			if (entry.isDirectory()) {
+				if (entry.name.startsWith(".session-retention-quarantine-")) continue;
 				queue.push(full);
 			} else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
 				found.push(full);
-				if (found.length >= maxFiles) break;
+				if (found.length > maxFiles) break;
 			}
 		}
 	}
 
-	return found;
+	return { files: found, unreadablePaths };
 }
 
 function deriveParentSessionId(root: string, file: string): string | undefined {
@@ -260,6 +304,8 @@ export class SessionScanner {
 	private readonly cache = new Map<string, CacheEntry>();
 	private readonly root: string;
 	private readonly limits: ScanLimits;
+	private _fileLimitReached = false;
+	private _unreadablePaths = 0;
 
 	constructor(root: string, limits: ScanLimits = DEFAULT_LIMITS) {
 		this.root = root;
@@ -267,7 +313,10 @@ export class SessionScanner {
 	}
 
 	async scan(): Promise<SessionFile[]> {
-		const files = await collectSessionFiles(this.root, this.limits.maxFiles);
+		const collected = await collectSessionFiles(this.root, this.limits.maxFiles);
+		this._fileLimitReached = collected.files.length > this.limits.maxFiles;
+		this._unreadablePaths = collected.unreadablePaths;
+		const files = collected.files.slice(0, this.limits.maxFiles);
 		const seen = new Set<string>();
 		const results: SessionFile[] = [];
 
@@ -277,6 +326,7 @@ export class SessionScanner {
 			try {
 				info = await stat(file);
 			} catch {
+				this._unreadablePaths++;
 				continue;
 			}
 
@@ -288,6 +338,7 @@ export class SessionScanner {
 				try {
 					parsed = await parseSessionFile(file, this.limits.maxBytesPerFile);
 				} catch {
+					this._unreadablePaths++;
 					continue;
 				}
 				this.cache.set(file, { mtimeMs: info.mtimeMs, sizeBytes: info.size, parsed });
@@ -305,6 +356,7 @@ export class SessionScanner {
 				sizeBytes: info.size,
 				parentSessionId: deriveParentSessionId(this.root, file),
 				records: parsed.records,
+				toolCallKeys: parsed.toolCallKeys,
 				malformedLines: parsed.malformedLines,
 				truncated: parsed.truncated,
 			});
@@ -319,5 +371,13 @@ export class SessionScanner {
 
 	get cachedFileCount(): number {
 		return this.cache.size;
+	}
+
+	get fileLimitReached(): boolean {
+		return this._fileLimitReached;
+	}
+
+	get unreadablePaths(): number {
+		return this._unreadablePaths;
 	}
 }

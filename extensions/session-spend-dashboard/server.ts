@@ -1,11 +1,14 @@
 import { watch, type FSWatcher } from "node:fs";
 import http from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import path from "node:path";
 
 import { aggregate, type Snapshot } from "./aggregate.ts";
 import { APP_CSS, APP_JS, INDEX_HTML } from "./assets.ts";
+import { loadRetentionConfig } from "./config.ts";
+import { defaultMetricsDatabase, MetricsLedger } from "./ledger.ts";
 import { readRunSnapshot } from "./runs.ts";
-import { SessionScanner } from "./scan.ts";
+import { SessionScanner, type SessionFile } from "./scan.ts";
 
 export const DEFAULT_PORT = 4310;
 export const HOST = "127.0.0.1";
@@ -19,7 +22,9 @@ const ALLOWED_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 
 export interface ServerOptions {
 	sessionsRoot: string;
+	agentDir?: string;
 	port?: number;
+	databasePath?: string;
 }
 
 export interface RunningServer {
@@ -57,9 +62,28 @@ function securityHeaders(contentType: string): Record<string, string> {
 	};
 }
 
+export function overlayLiveSessionState(archived: SessionFile[], live: readonly SessionFile[]): SessionFile[] {
+	const liveByPath = new Map(live.map((file) => [file.relPath, file]));
+	return archived.map((file) => {
+		const current = liveByPath.get(file.relPath);
+		if (!current) return file;
+		return {
+			...file,
+			file: current.file,
+			name: current.name,
+			mtimeMs: current.mtimeMs,
+			sizeBytes: current.sizeBytes,
+			malformedLines: current.malformedLines,
+			truncated: current.truncated,
+		};
+	});
+}
+
 export async function startServer(options: ServerOptions): Promise<RunningServer> {
 	const port = options.port ?? DEFAULT_PORT;
 	const scanner = new SessionScanner(options.sessionsRoot);
+	const agentDir = options.agentDir ?? path.dirname(options.sessionsRoot);
+	const ledger = new MetricsLedger(options.databasePath ?? defaultMetricsDatabase(options.sessionsRoot, agentDir));
 	const clients = new Set<ServerResponse>();
 
 	const state: DashboardState = { scanning: false, clients: 0, watching: false };
@@ -76,8 +100,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 		try {
 			const started = Date.now();
 			const files = await scanner.scan();
+			ledger.ingest(files);
+			const config = await loadRetentionConfig(agentDir);
+			ledger.pruneMetricsBefore(Date.now() - config.metricsRetentionDays * 24 * 60 * 60 * 1000);
 			const runs = await readRunSnapshot();
-			state.snapshot = aggregate(files, {
+			state.snapshot = aggregate(overlayLiveSessionState(ledger.readSessions(), files), {
 				sessionsRoot: options.sessionsRoot,
 				now: Date.now(),
 				scanDurationMs: Date.now() - started,
@@ -202,13 +229,18 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 		res.on("error", drop);
 	}
 
-	await new Promise<void>((resolve, reject) => {
-		server.once("error", reject);
-		server.listen(port, HOST, () => {
-			server.removeListener("error", reject);
-			resolve();
+	try {
+		await new Promise<void>((resolve, reject) => {
+			server.once("error", reject);
+			server.listen(port, HOST, () => {
+				server.removeListener("error", reject);
+				resolve();
+			});
 		});
-	});
+	} catch (error) {
+		ledger.close();
+		throw error;
+	}
 
 	const bound = server.address();
 	const boundPort = typeof bound === "object" && bound !== null ? bound.port : port;
@@ -245,6 +277,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 			for (const client of clients) client.end();
 			clients.clear();
 			await new Promise<void>((resolve) => server.close(() => resolve()));
+			while (state.scanning) await new Promise((resolve) => setTimeout(resolve, 10));
+			ledger.close();
 		},
 	};
 }
