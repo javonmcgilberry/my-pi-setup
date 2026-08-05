@@ -1,6 +1,6 @@
 # Pi setup consolidation and performance completion
 
-Status: In progress
+Status: Local consolidation complete; publication and measurement pending
 
 ## Goal
 
@@ -34,7 +34,7 @@ startup performance comparison without contaminating its measurements.
       traversal, credential-sidecar, sync-safety, footer-polling, and spend
       deduplication findings.
 - [x] Commit review fixes plus migrated product/research artifacts.
-- [ ] Fast-forward local `main`, remove the merged Webflow worktree, delete only
+- [x] Fast-forward local `main`, remove the merged Webflow worktree, delete only
       merged temporary branches, and verify one clean worktree remains.
 
 ## Publication and live migration
