@@ -7,6 +7,7 @@
     "AGENTS.md",
     "REALTIME-SYSTEM-PROMPT.md",
     "mcp.json",
+    "pi-autoname.json",
     "pi-auto-trees.json",
     "pi-codex-conversion.json",
     "pi-smart-btw.json",
@@ -21,7 +22,8 @@
     "packages/prewalk": "prewalk",
     "extensions/herdr-agent-state.ts": "extensions/herdr-agent-state.ts",
     "extensions/pretty-footer.ts": "extensions/pretty-footer.ts",
-    "extensions/session-spend-dashboard": "extensions/session-spend-dashboard"
+    "extensions/session-spend-dashboard": "extensions/session-spend-dashboard",
+    "extensions/warp-session-title.ts": "extensions/warp-session-title.ts"
   },
   "sharedSkills": {
     "webflow-designer-agent-browser": "skills/webflow-designer-agent-browser"

@@ -24,8 +24,8 @@ describe("managed install manifest", () => {
   it("normalizes the checked-in inventory for every consumer", () => {
     const manifest = loadManifest();
     assert.equal(manifest.version, 1);
-    assert.equal(manifest.copied.length, 12);
-    assert.equal(manifest.linked.length, 4);
+    assert.equal(manifest.copied.length, 13);
+    assert.equal(manifest.linked.length, 5);
     assert.equal(manifest.sharedSkills.length, 1);
     assert.deepEqual(
       entriesFor(manifest, "retired", "pi").map((entry) => entry.target),

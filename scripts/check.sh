@@ -14,6 +14,7 @@ node --check scripts/session-maintenance.mjs
 json_files=(
   settings.json
   mcp.json
+  pi-autoname.json
   pi-auto-trees.json
   pi-codex-conversion.json
   pi-smart-btw.json
@@ -44,6 +45,7 @@ python3 -B -m unittest discover \
   -p 'test_*.py'
 python3 -B skills/webflow-designer-agent-browser/scripts/capability-catalog.py validate
 node --test scripts/manifest.test.mjs
+node --test extensions/warp-session-title.test.mjs
 node --check skills/webflow-designer-agent-browser/scripts/cdp-frame-eval.mjs
 node --test extensions/session-spend-dashboard/test/*.test.ts
 

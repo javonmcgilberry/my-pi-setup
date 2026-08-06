@@ -16,6 +16,7 @@
     "npm:@howaboua/pi-smart-btw",
     "npm:pi-lens",
     "npm:pi-agent-browser-native",
+    "npm:pi-autoname@0.6.8",
     "git:github.com/EveryInc/compound-engineering-plugin",
     "npm:pi-ask-user",
     "./packages/prewalk",

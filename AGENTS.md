@@ -15,11 +15,17 @@ work here instead of treating `~/.pi/agent` as editable source.
 **Change workflow:**
 1. Start Pi from this repository on a clean, current `main`; inspect `git status` before editing.
 2. Make setup changes here. Make Pi core changes in `~/Developer/pi`, Prewalk changes in its submodule, and package-specific changes in their owning checkout.
-3. Run `./scripts/check.sh`. Use `./scripts/drift.sh` for a read-only comparison with the live setup.
-4. Do not create a branch or worktree unless the user asks for a PR or isolation. Remove merged temporary branches/worktrees when that work is complete.
-5. `./sync` is the publication boundary: it pulls, validates, commits, pushes, applies to the live agent directory, and verifies no drift. Run it only when the user asks to sync/apply/publish and all Pi sessions are closed.
-6. Use `./sync --update` only when the user explicitly asks to upgrade dependencies or tracked revisions. Ordinary syncs must remain deterministic.
-7. When Pi sessions are still active, do not run `./sync`. Validate installation safely with both `PI_AGENT_DIR` and `AGENTS_SKILLS_DIR` pointed inside one temporary directory, then tell the user that a later live `./sync` is still required.
+3. When a change affects installed components, configuration, commands,
+   ownership, paths used by the live setup, user-visible behavior, or data
+   handling, update the root `README.md` in the same change. Check the wording
+   against evidence in this repository or in the package's own source. Run the
+   Humanizer pass, then the Chill pass. Both must preserve exact paths,
+   settings, commands, safety rules, and uncertainty.
+4. Run `./scripts/check.sh`. Use `./scripts/drift.sh` for a read-only comparison with the live setup.
+5. Do not create a branch or worktree unless the user asks for a PR or isolation. Remove merged temporary branches/worktrees when that work is complete.
+6. `./sync` is the publication boundary: it pulls, validates, commits, pushes, applies to the live agent directory, and verifies no drift. Run it only when the user asks to sync/apply/publish and all Pi sessions are closed.
+7. Use `./sync --update` only when the user explicitly asks to upgrade dependencies or tracked revisions. Ordinary syncs must remain deterministic.
+8. When Pi sessions are still active, do not run `./sync`. Validate installation safely with both `PI_AGENT_DIR` and `AGENTS_SKILLS_DIR` pointed inside one temporary directory, then tell the user that a later live `./sync` is still required.
 
 **Current architecture:** Prewalk is a standalone, OMP-faithful adaptation
 pinned as a submodule. pi-subagents is the exact upstream npm release named in
