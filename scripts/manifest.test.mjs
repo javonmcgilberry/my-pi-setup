@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
+import { isGitPackageSource, parsePinnedGitSource } from "./check-git-pins.mjs";
+
 import {
   entriesFor,
   loadManifest,
@@ -71,7 +73,6 @@ describe("managed install manifest", () => {
   it("keeps every managed npm and Git package source pinned", () => {
     const settings = JSON.parse(readFileSync(`${REPO_ROOT}/settings.json`, "utf8"));
     const exactSemver = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
-    const exactGitRef = /^(?:[0-9a-f]{40}|v?\d+(?:\.\d+){0,2}(?:-[0-9A-Za-z.-]+)?)$/;
     const floating = settings.packages.filter((entry) => {
       if (entry.startsWith("npm:")) {
         const separator = entry.lastIndexOf("@");
@@ -79,15 +80,33 @@ describe("managed install manifest", () => {
         const version = entry.slice(separator + 1);
         return separator <= 4 || source.endsWith("@") || !exactSemver.test(version);
       }
-      if (entry.startsWith("git:") || /^(?:https?|ssh|git):\/\//.test(entry)) {
-        const separator = entry.lastIndexOf("@");
-        const source = entry.slice(0, separator);
-        const ref = entry.slice(separator + 1);
-        return separator < entry.indexOf(":") + 2 || source.endsWith("@") || !exactGitRef.test(ref);
-      }
+      if (isGitPackageSource(entry)) return !parsePinnedGitSource(entry);
       return false;
     });
     assert.deepEqual(floating, []);
+  });
+
+  it("resolves every supported exact Git source without rewriting its protocol", () => {
+    const commit = "a".repeat(40);
+    assert.deepEqual(parsePinnedGitSource(`git:github.com/owner/repo@${commit}`), {
+      remote: "https://github.com/owner/repo.git",
+      ref: commit,
+      commit,
+    });
+    for (const remote of [
+      "https://github.com/owner/repo.git",
+      "ssh://git@github.com/owner/repo.git",
+      "git://github.com/owner/repo.git",
+    ]) {
+      assert.deepEqual(parsePinnedGitSource(`${remote}@${commit}`), { remote, ref: commit, commit });
+    }
+    assert.deepEqual(parsePinnedGitSource("https://github.com/owner/repo.git@v1.2.3"), {
+      remote: "https://github.com/owner/repo.git",
+      ref: "v1.2.3",
+      commit: null,
+    });
+    assert.equal(parsePinnedGitSource("https://github.com/owner/repo.git@main"), null);
+    assert.equal(parsePinnedGitSource("npm:example@1.0.0"), null);
   });
 
   it("rejects traversal and absolute paths", () => {

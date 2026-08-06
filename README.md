@@ -416,6 +416,8 @@ The full exclusion list is in [`config/manifest.json`](config/manifest.json).
 ./scripts/drift.sh
 ```
 
-The check validates JSON, merges local settings, checks shell syntax and
-dependency metadata, verifies the tracked-file boundary, and looks for common
-secret patterns. It never reads or copies `auth.json`.
+The check validates JSON, tests the tracked local-settings example, checks shell syntax and
+dependency metadata, fetches every exact Git package ref in a temporary
+directory, verifies the tracked-file boundary, and looks for common secret
+patterns. The remote check catches a pin that exists only in an unpublished
+local checkout. It never reads or copies `auth.json`.

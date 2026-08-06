@@ -291,3 +291,12 @@ Required outcomes:
 
 None. Publishing a Git tag and applying the live setup remain explicit work
 outside this implementation.
+
+## Post-implementation correction
+
+A fresh isolated Pi startup found that the recorded Prewalk commit existed only
+in the former local submodule. With explicit user approval, the three existing
+Prewalk commits through `c22cf7e927b3d67d28d12a4ea9f74afbdb8b94dc`
+were verified and pushed to `pi-prewalk` `main`. The repository check now
+fetches every exact Git package ref into a temporary directory so an
+unpublished pin fails before live application.
