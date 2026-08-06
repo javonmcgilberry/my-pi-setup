@@ -119,7 +119,8 @@ skill list. It can search the catalog and read one skill when needed. Browser,
 intercom, MCP, and subagent tools also start inactive; the model can load their
 tool group with `activate_capability`. Normal file, shell, web, and diagnostic
 tools stay active. When global and project `AGENTS.md` files contain the same
-text, only the project copy is sent.
+text, only the project copy is sent. Setup loads this package after its
+dependencies so these prompt and tool changes run last.
 
 ## Installed packages and extensions
 

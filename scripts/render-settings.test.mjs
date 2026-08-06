@@ -25,7 +25,7 @@ async function fixture(base, local) {
 }
 
 describe("settings renderer", () => {
-  it("adds the local setup package exactly once", async () => {
+  it("adds the local setup package exactly once after its dependencies", async () => {
     const { baseFile } = await fixture({ packages: ["npm:example@1.2.3"] });
     const { stdout } = await execFileAsync(process.execPath, [
       script,
@@ -34,7 +34,7 @@ describe("settings renderer", () => {
       "/work/my-pi-setup",
     ]);
     const rendered = JSON.parse(stdout);
-    assert.deepEqual(rendered.packages, ["/work/my-pi-setup", "npm:example@1.2.3"]);
+    assert.deepEqual(rendered.packages, ["npm:example@1.2.3", "/work/my-pi-setup"]);
   });
 
   it("applies package replacements before adding the local setup package", async () => {
@@ -51,7 +51,7 @@ describe("settings renderer", () => {
       "/work/my-pi-setup",
     ]);
     const rendered = JSON.parse(stdout);
-    assert.deepEqual(rendered.packages, ["/work/my-pi-setup", "/work/tool"]);
+    assert.deepEqual(rendered.packages, ["/work/tool", "/work/my-pi-setup"]);
   });
 
   it("rejects a missing package-source value", async () => {

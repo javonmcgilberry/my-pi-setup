@@ -58,7 +58,7 @@ describe("setup bootstrap", () => {
     assert.match(drift.stdout, /No managed file drift detected\./);
 
     const settings = JSON.parse(await readFile(path.join(target.agentDir, "settings.json"), "utf8"));
-    assert.equal(settings.packages[0], repoRoot);
+    assert.equal(settings.packages.at(-1), repoRoot);
     assert.equal(settings.packages.filter((source) => source === repoRoot).length, 1);
     assert.equal(await exists(path.join(target.agentDir, "extensions/pretty-footer.ts")), false);
     assert.equal(await exists(path.join(target.agentDir, "packages/prewalk")), false);

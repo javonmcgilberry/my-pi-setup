@@ -86,7 +86,7 @@ if (packageSource) {
     throw new Error("Tracked settings must contain a packages array before adding the local package");
   }
   const packages = rendered.packages.filter((source) => source !== packageSource);
-  rendered = { ...rendered, packages: [packageSource, ...packages] };
+  rendered = { ...rendered, packages: [...packages, packageSource] };
 }
 
 process.stdout.write(`${JSON.stringify(rendered, null, 2)}\n`);
