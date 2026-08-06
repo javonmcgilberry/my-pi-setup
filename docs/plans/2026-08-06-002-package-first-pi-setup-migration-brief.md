@@ -74,6 +74,12 @@ bootstrap application, and drift inspection are separate explicit operations.
     The implementation may prepare package metadata and documented commands,
     but Git commits, pushes, tags, and live installation remain explicit work
     after review.
+11. **Fold the existing context-budget extension into the personal package —
+    implementation adaptation.** Clean baseline `93f110f` added
+    `packages/context-budget` as a separate linked local package after this
+    brief was drafted. Package-first ownership means shipping that existing
+    extension from the personal package instead of preserving another bootstrap
+    link.
 
 ## Scope
 
@@ -142,9 +148,9 @@ bootstrap application, and drift inspection are separate explicit operations.
 
 - Add package metadata, the `pi-package` keyword, and an explicit
   `pi.extensions` allowlist to `package.json`.
-- Include only `extensions/herdr-agent-state.ts`,
-  `extensions/pretty-footer.ts`, `extensions/session-spend-dashboard`, and
-  `extensions/warp-session-title.ts`.
+- Include `extensions/herdr-agent-state.ts`,
+  `extensions/pretty-footer.ts`, `packages/context-budget`,
+  `extensions/session-spend-dashboard`, and `extensions/warp-session-title.ts`.
 - Exclude `disabled-extensions/clear-status.ts` and
   `skills/webflow-designer-agent-browser`.
 - Remove third-party Pi packages that are present only as a live dependency
@@ -159,9 +165,11 @@ bootstrap application, and drift inspection are separate explicit operations.
   an exact commit or tag in `settings.json`.
 - Add a pin audit to `scripts/manifest.test.mjs` or a focused helper invoked by
   `scripts/check.sh`.
-- Preserve the existing `packageReplacements` contract in
-  `scripts/render-settings.mjs` and document the local self-package and Prewalk
-  development substitutions in `settings.local.example.json`.
+- Preserve the existing `packageReplacements` contract for pinned packages and
+  document the Prewalk development substitution in
+  `settings.local.example.json`. The owner bootstrap adds this repository's
+  local package source directly and exactly once; public users install its
+  pinned Git source instead.
 - Remove README claims that the root lockfile controls Pi-managed packages.
 
 ### U3. Move Prewalk to Pi-managed Git installation
@@ -220,13 +228,13 @@ bootstrap application, and drift inspection are separate explicit operations.
 
 ## Execution
 
-- [ ] U1. Define the Pi package and verify its packed resource boundary.
-- [ ] U2. Pin live package sources in settings and add the pin audit.
-- [ ] U3. Replace the Prewalk submodule/link with an exact Git package source.
-- [ ] U4. Reduce bootstrap ownership while preserving backup, restore, and drift safety.
-- [ ] U5. Delete `sync` and separate Git, upgrades, validation, and application.
-- [ ] U6. Update operating and public-support documentation, then run writing passes.
-- [ ] U7. Run full temporary-install verification and independent code review.
+- [x] U1. Defined the Pi package and verified its 22-file packed resource boundary.
+- [x] U2. Pinned live package sources in settings and added the pin audit.
+- [x] U3. Replaced the Prewalk submodule/link with an exact Git package source.
+- [x] U4. Reduced bootstrap ownership while preserving and testing backup, restore, drift, and symlink safety.
+- [x] U5. Deleted `sync` and separated Git, upgrades, validation, and application.
+- [x] U6. Updated operating and public-support documentation and completed the required writing passes.
+- [x] U7. Passed full temporary-install verification and independent standards/spec reviews.
 
 ## Verification
 
@@ -281,8 +289,5 @@ Required outcomes:
 
 ## Open blockers
 
-1. The current working tree contains unrelated in-progress changes. Before
-   implementation, those changes must be committed separately, intentionally
-   adopted into the migration baseline, or isolated at the user's direction.
-2. The package's public Git tag/version can be selected during publication; it
-   is not required for local implementation or verification.
+None. Publishing a Git tag and applying the live setup remain explicit work
+outside this implementation.

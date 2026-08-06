@@ -4,8 +4,14 @@ set -euo pipefail
 backup_dir="$1"
 agent_dir="${PI_AGENT_DIR:-${HOME}/.pi/agent}"
 shared_skills_dir="${AGENTS_SKILLS_DIR:-${HOME}/.agents/skills}"
+default_agent_dir="${HOME}/.pi/agent"
+default_shared_skills_dir="${HOME}/.agents/skills"
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 manifest_script="${repo_dir}/scripts/manifest.mjs"
+if { [[ "$agent_dir" == "$default_agent_dir" ]] || [[ "$shared_skills_dir" == "$default_shared_skills_dir" ]]; } && pgrep -x pi >/dev/null 2>&1; then
+  echo "Pi is running. Close active Pi sessions before restoring the live setup." >&2
+  exit 1
+fi
 [[ -d "$backup_dir" ]] || { echo "Backup directory not found: $backup_dir" >&2; exit 1; }
 [[ -L "$backup_dir" ]] && {
   echo "Refusing symlinked backup root: $backup_dir" >&2
@@ -30,6 +36,17 @@ assert_safe_target_parent() {
   done
   local parent_relative="${relative%/*}"
   [[ "$parent_relative" == "$relative" ]] && parent_relative="."
+  local current="$root"
+  local parts=()
+  IFS='/' read -r -a parts <<< "$relative"
+  local last_index=$((${#parts[@]} - 1))
+  for ((index = 0; index < last_index; index += 1)); do
+    current="${current}/${parts[index]}"
+    if [[ -L "$current" ]] && ! is_allowed_system_symlink "$current"; then
+      echo "Refusing symlinked target parent: $current" >&2
+      exit 1
+    fi
+  done
   if ! python3 - "$root" "$parent_relative" <<'PY'
 import os
 import sys
@@ -46,17 +63,6 @@ PY
     echo "Refusing target parent outside configured root: ${root}/${parent_relative}" >&2
     exit 1
   fi
-  local current="$root"
-  local parts=()
-  IFS='/' read -r -a parts <<< "$relative"
-  local last_index=$((${#parts[@]} - 1))
-  for ((index = 0; index < last_index; index += 1)); do
-    current="${current}/${parts[index]}"
-    if [[ -L "$current" ]] && ! is_allowed_system_symlink "$current"; then
-      echo "Refusing symlinked target parent: $current" >&2
-      exit 1
-    fi
-  done
 }
 assert_safe_backup_parent() {
   local relative="$1"

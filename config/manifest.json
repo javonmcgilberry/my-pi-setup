@@ -13,24 +13,24 @@
     "pi-smart-btw.json",
     "prewalk.json",
     "fzf.json",
-    "session-spend-dashboard.json",
-    "package.json",
-    "package-lock.json",
-    "disabled-extensions/clear-status.ts"
+    "session-spend-dashboard.json"
   ],
-  "linked": {
-    "packages/prewalk": "prewalk",
-    "extensions/herdr-agent-state.ts": "extensions/herdr-agent-state.ts",
-    "extensions/pretty-footer.ts": "extensions/pretty-footer.ts",
-    "extensions/session-spend-dashboard": "extensions/session-spend-dashboard",
-    "extensions/warp-session-title.ts": "extensions/warp-session-title.ts"
-  },
+  "linked": {},
   "sharedSkills": {
     "webflow-designer-agent-browser": "skills/webflow-designer-agent-browser"
   },
   "retired": {
     "pi": [
       "pi-explore-subagents.json",
+      "package.json",
+      "package-lock.json",
+      "disabled-extensions/clear-status.ts",
+      "extensions/herdr-agent-state.ts",
+      "extensions/pretty-footer.ts",
+      "extensions/session-spend-dashboard",
+      "extensions/warp-session-title.ts",
+      "packages/context-budget",
+      "packages/prewalk",
       "skills/webflow-designer-agent-browser"
     ],
     "shared": []

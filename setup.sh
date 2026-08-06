@@ -3,7 +3,9 @@ set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 agent_dir="${PI_AGENT_DIR:-${HOME}/.pi/agent}"
+default_agent_dir="${HOME}/.pi/agent"
 shared_skills_dir="${AGENTS_SKILLS_DIR:-${HOME}/.agents/skills}"
+default_shared_skills_dir="${HOME}/.agents/skills"
 manifest_script="${repo_dir}/scripts/manifest.mjs"
 repo_real_dir="$(cd -P "$repo_dir" && pwd)"
 dry_run=false
@@ -28,6 +30,11 @@ while (($#)); do
   esac
   shift
 done
+
+if ! "$dry_run" && { [[ "$agent_dir" == "$default_agent_dir" ]] || [[ "$shared_skills_dir" == "$default_shared_skills_dir" ]]; } && pgrep -x pi >/dev/null 2>&1; then
+  echo "Pi is running. Close active Pi sessions before applying the live setup." >&2
+  exit 1
+fi
 
 manifest() {
   node "$manifest_script" "$@"
@@ -54,6 +61,17 @@ assert_safe_target_parent() {
   done
   local parent_relative="${relative%/*}"
   [[ "$parent_relative" == "$relative" ]] && parent_relative="."
+  local current="$root"
+  local parts=()
+  IFS='/' read -r -a parts <<< "$relative"
+  local last_index=$((${#parts[@]} - 1))
+  for ((index = 0; index < last_index; index += 1)); do
+    current="${current}/${parts[index]}"
+    if [[ -L "$current" ]] && ! is_allowed_system_symlink "$current"; then
+      echo "Refusing symlinked target parent: $current" >&2
+      exit 1
+    fi
+  done
   if ! python3 - "$root" "$parent_relative" <<'PY'
 import os
 import sys
@@ -70,17 +88,6 @@ PY
     echo "Refusing target parent outside configured root: ${root}/${parent_relative}" >&2
     exit 1
   fi
-  local current="$root"
-  local parts=()
-  IFS='/' read -r -a parts <<< "$relative"
-  local last_index=$((${#parts[@]} - 1))
-  for ((index = 0; index < last_index; index += 1)); do
-    current="${current}/${parts[index]}"
-    if [[ -L "$current" ]] && ! is_allowed_system_symlink "$current"; then
-      echo "Refusing symlinked target parent: $current" >&2
-      exit 1
-    fi
-  done
 }
 
 assert_safe_target_parent "$agent_dir" ""
@@ -117,6 +124,9 @@ while IFS=$'\t' read -r relative; do
     exit 1
   fi
 done < <(manifest list externalLinks)
+while IFS=$'\t' read -r target; do
+  assert_safe_target_parent "$agent_dir" "$target"
+done < <(manifest list externalLinks)
 
 while IFS=$'\t' read -r _source target _backup; do
   assert_safe_target_parent "$agent_dir" "$target"
@@ -150,9 +160,9 @@ if ((${#local_override_entries[@]} == 1)) && [[ -f "${repo_dir}/${local_override
   settings_override+=("${repo_dir}/${local_override_entries[0]}")
 fi
 if ((${#settings_override[@]})); then
-  rendered_settings="$(node "${repo_dir}/scripts/render-settings.mjs" "${repo_dir}/${rendered_source}" "${settings_override[0]}")"
+  rendered_settings="$(node "${repo_dir}/scripts/render-settings.mjs" "${repo_dir}/${rendered_source}" "${settings_override[0]}" --package-source "$repo_real_dir")"
 else
-  rendered_settings="$(node "${repo_dir}/scripts/render-settings.mjs" "${repo_dir}/${rendered_source}")"
+  rendered_settings="$(node "${repo_dir}/scripts/render-settings.mjs" "${repo_dir}/${rendered_source}" --package-source "$repo_real_dir")"
 fi
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)-$$"

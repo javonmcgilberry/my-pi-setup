@@ -49,7 +49,7 @@ Unlike a generic Pi installation or a loose extension collection, this workspace
 - `extensions/session-spend-dashboard/README.md` documents the dashboard's commands, data model, routes, refresh behavior, and security guarantees.
 - `docs/research/2026-08-05-pi-session-spend-dashboard.md` records comparative research and the rationale for a focused read-only dashboard.
 - `docs/research/2026-08-04-pi-tool-output-ui-options.md` records current Pi and Code Mode output-presentation constraints.
-- `settings.json` references the pinned `prewalk` submodule; that submodule retains its own history and release boundary.
+- `settings.json` references an exact commit of the separate `pi-prewalk` repository, which retains its own history and release boundary.
 - No confirmed testimonials, adoption metrics, pricing, release guarantees, or public-package claims are on hand; future work must not fabricate them.
 
 ## Product Principles

@@ -4,10 +4,9 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_dir"
 
-bash -n sync setup.sh scripts/check.sh scripts/drift.sh scripts/restore.sh
+bash -n setup.sh scripts/check.sh scripts/drift.sh scripts/restore.sh
 node --check scripts/render-settings.mjs
 node --check scripts/json-equal.mjs
-node --check scripts/update-git-pins.mjs
 node --check scripts/manifest.mjs
 node --check scripts/session-maintenance.mjs
 
@@ -33,18 +32,14 @@ node -e 'for (const file of process.argv.slice(1)) JSON.parse(require("fs").read
 node scripts/render-settings.mjs settings.json settings.local.example.json >/dev/null
 node scripts/manifest.mjs validate >/dev/null
 
-[[ -f prewalk/package.json ]] || {
-  echo "Missing Prewalk submodule. Run: git submodule update --init" >&2
-  exit 1
-}
-
-git submodule status -- prewalk >/dev/null
-
 python3 -B -m unittest discover \
   -s skills/webflow-designer-agent-browser/scripts \
   -p 'test_*.py'
 python3 -B skills/webflow-designer-agent-browser/scripts/capability-catalog.py validate
 node --test scripts/manifest.test.mjs
+node --test scripts/render-settings.test.mjs
+node --test scripts/setup.test.mjs
+node --test packages/context-budget/context-budget.test.mjs packages/context-budget/index.test.ts
 node --test extensions/warp-session-title.test.mjs
 node --check skills/webflow-designer-agent-browser/scripts/cdp-frame-eval.mjs
 node --test extensions/session-spend-dashboard/test/*.test.ts

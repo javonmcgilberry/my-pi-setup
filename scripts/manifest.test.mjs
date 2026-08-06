@@ -24,12 +24,24 @@ describe("managed install manifest", () => {
   it("normalizes the checked-in inventory for every consumer", () => {
     const manifest = loadManifest();
     assert.equal(manifest.version, 1);
-    assert.equal(manifest.copied.length, 13);
-    assert.equal(manifest.linked.length, 5);
+    assert.equal(manifest.copied.length, 10);
+    assert.equal(manifest.linked.length, 0);
     assert.equal(manifest.sharedSkills.length, 1);
     assert.deepEqual(
       entriesFor(manifest, "retired", "pi").map((entry) => entry.target),
-      ["pi-explore-subagents.json", "skills/webflow-designer-agent-browser"],
+      [
+        "pi-explore-subagents.json",
+        "package.json",
+        "package-lock.json",
+        "disabled-extensions/clear-status.ts",
+        "extensions/herdr-agent-state.ts",
+        "extensions/pretty-footer.ts",
+        "extensions/session-spend-dashboard",
+        "extensions/warp-session-title.ts",
+        "packages/context-budget",
+        "packages/prewalk",
+        "skills/webflow-designer-agent-browser",
+      ],
     );
     assert.equal(
       entriesFor(manifest, "shared")[0].backup,
@@ -37,13 +49,45 @@ describe("managed install manifest", () => {
     );
   });
 
-  it("keeps the render-cache runtime pin aligned with package metadata", () => {
+  it("exposes only the intended personal package resources", () => {
     const packageJson = JSON.parse(readFileSync(`${REPO_ROOT}/package.json`, "utf8"));
+    assert.equal(packageJson.keywords.includes("pi-package"), true);
+    assert.deepEqual(packageJson.pi.extensions, [
+      "./extensions/herdr-agent-state.ts",
+      "./extensions/pretty-footer.ts",
+      "./packages/context-budget",
+      "./extensions/session-spend-dashboard",
+      "./extensions/warp-session-title.ts",
+    ]);
+    assert.deepEqual(packageJson.dependencies ?? {}, {});
+    assert.deepEqual(Object.keys(packageJson.peerDependencies).sort(), [
+      "@earendil-works/pi-coding-agent",
+      "@earendil-works/pi-tui",
+    ]);
+    assert.equal(packageJson.files.includes("disabled-extensions/clear-status.ts"), false);
+    assert.equal(packageJson.files.some((entry) => entry.includes("webflow-designer-agent-browser")), false);
+  });
+
+  it("keeps every managed npm and Git package source pinned", () => {
     const settings = JSON.parse(readFileSync(`${REPO_ROOT}/settings.json`, "utf8"));
-    const declared = packageJson.dependencies["pi-render-cache"];
-    const version = declared.replace(/^[~^=]/, "");
-    assert.equal(settings.packages.filter((entry) => entry.startsWith("npm:pi-render-cache")).length, 1);
-    assert.equal(settings.packages.find((entry) => entry.startsWith("npm:pi-render-cache")), `npm:pi-render-cache@${version}`);
+    const exactSemver = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+    const exactGitRef = /^(?:[0-9a-f]{40}|v?\d+(?:\.\d+){0,2}(?:-[0-9A-Za-z.-]+)?)$/;
+    const floating = settings.packages.filter((entry) => {
+      if (entry.startsWith("npm:")) {
+        const separator = entry.lastIndexOf("@");
+        const source = entry.slice(4, separator);
+        const version = entry.slice(separator + 1);
+        return separator <= 4 || source.endsWith("@") || !exactSemver.test(version);
+      }
+      if (entry.startsWith("git:") || /^(?:https?|ssh|git):\/\//.test(entry)) {
+        const separator = entry.lastIndexOf("@");
+        const source = entry.slice(0, separator);
+        const ref = entry.slice(separator + 1);
+        return separator < entry.indexOf(":") + 2 || source.endsWith("@") || !exactGitRef.test(ref);
+      }
+      return false;
+    });
+    assert.deepEqual(floating, []);
   });
 
   it("rejects traversal and absolute paths", () => {

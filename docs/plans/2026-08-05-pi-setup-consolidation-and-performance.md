@@ -1,5 +1,10 @@
 # Pi setup consolidation and performance completion
 
+> Superseded on 2026-08-06 by
+> [`2026-08-06-002-package-first-pi-setup-migration-brief.md`](2026-08-06-002-package-first-pi-setup-migration-brief.md).
+> The unchecked `./sync` and Prewalk-submodule steps below are historical and
+> must not be executed.
+
 Status: Local consolidation complete; publication and measurement pending
 
 ## Goal

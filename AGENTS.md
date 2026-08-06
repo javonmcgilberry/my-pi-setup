@@ -6,15 +6,15 @@ work here instead of treating `~/.pi/agent` as editable source.
 - Edit tracked configuration, package metadata, scripts, skills, and linked extensions in this repository.
 - Treat root `PRODUCT.md` as shared product authority for tracked skills, extensions, terminal/TUI behavior, and localhost interfaces.
 - Edit Pi core in `~/Developer/pi`, not in the globally installed package.
-- Edit Prewalk in the `prewalk` submodule/repository, then advance this repository's submodule pin.
+- Edit Prewalk in its owning checkout. Normal installs use the exact Git commit in `settings.json`; use `settings.local.json` to replace it with a local checkout during development.
 - Use the unmodified upstream `npm:pi-subagents` package. Do not restore the retired custom fork or its Prewalk execution-profile policy.
 - Never edit Pi-managed code under `~/.pi/agent/npm/node_modules` or `~/.pi/agent/git`.
 - Put machine-only overrides in ignored `settings.local.json`; never commit credentials, browser profiles, cookies, or runtime data.
 - Treat `config/manifest.json` as the authoritative managed install inventory. Update it before changing setup, drift, validation, retirement, or restore behavior.
 
 **Change workflow:**
-1. Start Pi from this repository on a clean, current `main`; inspect `git status` before editing.
-2. Make setup changes here. Make Pi core changes in `~/Developer/pi`, Prewalk changes in its submodule, and package-specific changes in their owning checkout.
+1. Start Pi in the repository being changed and inspect its `git status` before editing. Use this repository only for setup/package work, `~/Developer/pi` for Pi core, and each package's own checkout for package work.
+2. Make setup changes here. Make Pi core, Prewalk, and package-specific changes in their owning checkouts.
 3. When a change affects installed components, configuration, commands,
    ownership, paths used by the live setup, user-visible behavior, or data
    handling, update the root `README.md` in the same change. Check the wording
@@ -23,13 +23,14 @@ work here instead of treating `~/.pi/agent` as editable source.
    settings, commands, safety rules, and uncertainty.
 4. Run `./scripts/check.sh`. Use `./scripts/drift.sh` for a read-only comparison with the live setup.
 5. Do not create a branch or worktree unless the user asks for a PR or isolation. Remove merged temporary branches/worktrees when that work is complete.
-6. `./sync` is the publication boundary: it pulls, validates, commits, pushes, applies to the live agent directory, and verifies no drift. Run it only when the user asks to sync/apply/publish and all Pi sessions are closed.
-7. Use `./sync --update` only when the user explicitly asks to upgrade dependencies or tracked revisions. Ordinary syncs must remain deterministic.
-8. When Pi sessions are still active, do not run `./sync`. Validate installation safely with both `PI_AGENT_DIR` and `AGENTS_SKILLS_DIR` pointed inside one temporary directory, then tell the user that a later live `./sync` is still required.
+6. Keep source control, dependency upgrades, validation, and live application separate. `setup.sh` must never stage, commit, pull, push, tag, or upgrade dependencies.
+7. Update exact npm and Git pins only when the user explicitly asks for upgrades, then review those changes like code.
+8. When Pi sessions are active, validate with both `PI_AGENT_DIR` and `AGENTS_SKILLS_DIR` inside one temporary directory. Apply the live setup later with `./setup.sh`, after every Pi session is closed, then run `./scripts/drift.sh`.
 
-**Current architecture:** Prewalk is a standalone, OMP-faithful adaptation
-pinned as a submodule. pi-subagents is the exact upstream npm release named in
-`settings.json`; the archived GitHub fork is historical only.
+**Current architecture:** This repository is an installable personal Pi package.
+The bootstrap renders global settings and the few files or shared links that Pi
+packages cannot place. Prewalk is installed from the exact Git commit in
+`settings.json`; pi-subagents uses the exact upstream npm release named there.
 
 The tracked, cross-harness Webflow Designer skill is linked from
 `skills/webflow-designer-agent-browser` into `~/.agents/skills`, where Pi and

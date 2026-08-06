@@ -27,8 +27,20 @@ function merge(base, override) {
   return result;
 }
 
-const [baseFile, localFile] = process.argv.slice(2);
-if (!baseFile) throw new Error("Usage: render-settings.mjs <settings.json> [settings.local.json]");
+const args = process.argv.slice(2);
+const baseFile = args.shift();
+let localFile;
+if (args[0] && args[0] !== "--package-source") localFile = args.shift();
+let packageSource;
+if (args[0] === "--package-source") {
+  args.shift();
+  packageSource = args.shift();
+}
+if (!baseFile || args.length > 0 || (process.argv.includes("--package-source") && !packageSource)) {
+  throw new Error(
+    "Usage: render-settings.mjs <settings.json> [settings.local.json] [--package-source <path>]",
+  );
+}
 
 const base = readObject(baseFile);
 let rendered = base;
@@ -67,6 +79,14 @@ if (localFile) {
     }
     rendered = { ...rendered, packages };
   }
+}
+
+if (packageSource) {
+  if (!Array.isArray(rendered.packages)) {
+    throw new Error("Tracked settings must contain a packages array before adding the local package");
+  }
+  const packages = rendered.packages.filter((source) => source !== packageSource);
+  rendered = { ...rendered, packages: [packageSource, ...packages] };
 }
 
 process.stdout.write(`${JSON.stringify(rendered, null, 2)}\n`);

@@ -1,5 +1,8 @@
 {
   "settings": {
     "defaultProjectTrust": "ask"
+  },
+  "packageReplacements": {
+    "git:github.com/javonmcgilberry/pi-prewalk@c22cf7e927b3d67d28d12a4ea9f74afbdb8b94dc": "/absolute/path/to/pi-prewalk"
   }
 }

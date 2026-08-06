@@ -6,6 +6,10 @@ extensions, skills, and package versions I want to keep. Credentials, chats,
 caches, analytics databases, browser profiles, and other machine state stay
 local.
 
+It is also an installable Pi package, but it is personal rather than a supported
+general-purpose distribution. Other people can inspect, fork, or try it without
+an expectation that my machine-specific integrations will work for them.
+
 [`PRODUCT.md`](PRODUCT.md) defines the shared product principles for this
 workbench. This README is the operating manual: what is installed, what it
 does, where it is configured, and where its source lives.
@@ -15,7 +19,7 @@ Inspired by [davis7dotsh/my-pi-setup](https://github.com/davis7dotsh/my-pi-setup
 ## Install
 
 ```sh
-git clone --recurse-submodules https://github.com/javonmcgilberry/my-pi-setup.git ~/Developer/my-pi-setup
+git clone https://github.com/javonmcgilberry/my-pi-setup.git ~/Developer/my-pi-setup
 cd ~/Developer/my-pi-setup
 ./setup.sh --dry-run
 ./setup.sh
@@ -25,8 +29,16 @@ The installer combines the defaults in this repository with the optional, ignore
 `settings.local.json` and writes the result to `${PI_AGENT_DIR:-~/.pi/agent}`. Shared skills are
 linked into `${AGENTS_SKILLS_DIR:-~/.agents/skills}`. Existing files managed by this setup
 are backed up before replacement. Pi installs configured packages in its own
-managed `npm/` and `git/` directories when it starts; setup does not create a
-second root `node_modules` tree.
+managed `npm/` and `git/` directories when it starts. The rendered settings load
+this checkout as one local Pi package; setup does not copy its extensions or
+create a second root `node_modules` tree.
+
+Someone who only wants the packaged extensions can install a pinned Git commit
+without using my global settings or bootstrap:
+
+```sh
+pi install git:github.com/javonmcgilberry/my-pi-setup@<commit>
+```
 
 Use a temporary install to test without touching the live setup:
 
@@ -36,7 +48,8 @@ PI_AGENT_DIR=/tmp/pi-agent AGENTS_SKILLS_DIR=/tmp/agents-skills ./setup.sh
 
 ## Daily workflow
 
-Start Pi from this checkout so it reads the repository rules in `AGENTS.md`:
+Start Pi in the repository you are changing. Use this checkout only for changes
+to the setup package itself:
 
 ```sh
 cd ~/Developer/my-pi-setup
@@ -50,16 +63,17 @@ Make setup changes here, not under `~/.pi/agent`. Validate them with:
 ./scripts/drift.sh
 ```
 
-`drift.sh` is read-only. When the change is ready, close every Pi session, then
-apply and publish it with:
+`drift.sh` is read-only. Git commits, pushes, tags, and package upgrades are
+separate explicit operations. When a setup change is ready, close every Pi
+session, apply it, and verify the result:
 
 ```sh
-./sync
+./setup.sh
+./scripts/drift.sh
 ```
 
-`./sync` pulls and validates, then commits, pushes, applies the setup, and
-checks for drift. It refuses to run while Pi is open. Use `./sync --update` only when you
-also intend to upgrade dependencies or pinned revisions.
+`setup.sh` refuses to replace the live `~/.pi/agent` configuration while Pi is
+running. It never changes Git state or upgrades packages.
 
 Keep machine-only choices in ignored `settings.local.json`:
 
@@ -98,11 +112,22 @@ compact tool rendering, Code Mode, fast OpenAI requests, cached WebSockets, and
 low response verbosity. Native Responses API compaction is disabled, so normal
 Pi compaction handles the conversation.
 
+The local [`context-budget`](packages/context-budget) package keeps the first
+request smaller without uninstalling anything. Pi still discovers every skill,
+but the model sees a short `skills_catalog` instruction instead of the full
+skill list. It can search the catalog and read one skill when needed. Browser,
+intercom, MCP, and subagent tools also start inactive; the model can load their
+tool group with `activate_capability`. Normal file, shell, web, and diagnostic
+tools stay active. When global and project `AGENTS.md` files contain the same
+text, only the project copy is sent.
+
 ## Installed packages and extensions
 
 The `packages` array in `settings.json` lists the packages Pi loads.
-`package.json` and `package-lock.json` record the corresponding npm dependencies
-and versions.
+Those npm and Git sources are pinned there because Pi installs them in its own
+managed package directories. The root `package.json` describes this repository's
+own Pi package, and `package-lock.json` covers only dependencies needed by that
+package itself.
 
 | Component | What it does | Configuration and source |
 | --- | --- | --- |
@@ -121,7 +146,8 @@ and versions.
 | [`pi-autoname`](https://github.com/ssdiwu/pi-autoname) | Gives a new session a short name, then checks periodically whether the topic has changed enough to rename it. | Pinned at `0.6.8`. [`pi-autoname.json`](pi-autoname.json) uses Luna, waits 10 minutes between checks, and preserves names set with `/name`. |
 | Compound Engineering | Provides planning, implementation, review, debugging, shipping, and learning skills. | Loaded from [EveryInc/compound-engineering-plugin](https://github.com/EveryInc/compound-engineering-plugin). The package owns its skill documentation. |
 | [`pi-ask-user`](https://github.com/edlsh/pi-ask-user) | Adds the interactive `ask_user` decision UI with search, choices, and freeform input. | No tracked config. The linked repository owns the package README. |
-| Prewalk | The chosen planner starts a coding task; later turns go to a configured executor in the same session. | Pinned as the [`prewalk`](prewalk) submodule. [`prewalk.json`](prewalk.json) selects Luna at max reasoning and enables local analytics. See [Prewalk's README](prewalk/README.md). |
+| Prewalk | The chosen planner starts a coding task; later turns go to a configured executor in the same session. | Installed from an exact commit of [`pi-prewalk`](https://github.com/javonmcgilberry/pi-prewalk). [`prewalk.json`](prewalk.json) selects Luna at max reasoning and enables local analytics. |
+| Context budget | Keeps the full skill catalog and the largest optional tool schemas out of the first request, then loads them when needed. | [`packages/context-budget`](packages/context-budget), loaded as part of this Pi package. Deferred groups are browser, intercom, MCP, and subagents. |
 | [`@vanillagreen/pi-tool-renderer`](https://github.com/vanillagreencom/vstack/tree/main/pi-extensions/pi-tool-renderer) | Replaces noisy tool output with compact, readable renderers. | Renderer modes are under `vstack.extensionManager.config` in `settings.json`. The linked package README has the renderer options. |
 | [`pi-render-cache`](https://github.com/axelbaumlisto/pi-render-cache) | Reduces terminal-interface (TUI) streaming work with bounded caches for text segmentation and unstyled Markdown rendering. | Loaded at version `1.1.0`; no tracked config. This is a render-performance cache, not a conversation backup. The linked repository owns the package README. |
 | [`@vanillagreen/pi-extension-manager`](https://github.com/vanillagreencom/vstack/tree/main/pi-extensions/pi-extension-manager) | Adds package browsing, update/uninstall actions, diagnostics, and settings editing based on package schemas. | Reads Pi package state and the `vstack` settings namespace. The linked package README has the command and settings reference. |
@@ -130,15 +156,15 @@ and versions.
 | [`pi-fzf`](https://github.com/kaofelix/pi-fzf) | Adds configurable fuzzy-search commands. | [`fzf.json`](fzf.json) defines an `@` file picker, preview command, overlay placement, and scroll keys. The linked repository owns the package README. |
 | [`@juicesharp/rpiv-warp`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-warp) | Sends Pi lifecycle notifications to Warp through OSC 777. | It does nothing outside Warp. The linked package README explains terminal requirements. The separate private Warp gateway links are described below. |
 
-### Extensions maintained or linked here
+### Extensions maintained here
 
 | Component | What it does | Configuration and source |
 | --- | --- | --- |
-| Pretty footer | Replaces the footer with model, context, usage, cache, cost, task, and extension status. | [`extensions/pretty-footer.ts`](extensions/pretty-footer.ts), linked into `~/.pi/agent/extensions`. |
-| Herdr agent state | Reports Pi session identity and working, blocked, or idle state to Herdr over its local socket. It does nothing unless `HERDR_ENV=1`, `HERDR_SOCKET_PATH`, and `HERDR_PANE_ID` are all set. | [`extensions/herdr-agent-state.ts`](extensions/herdr-agent-state.ts), linked into `~/.pi/agent/extensions`. Herdr owns the generated integration format. |
+| Pretty footer | Replaces the footer with model, context, usage, cache, cost, task, and extension status. | [`extensions/pretty-footer.ts`](extensions/pretty-footer.ts), loaded from this Pi package. |
+| Herdr agent state | Reports Pi session identity and working, blocked, or idle state to Herdr over its local socket. It does nothing unless `HERDR_ENV=1`, `HERDR_SOCKET_PATH`, and `HERDR_PANE_ID` are all set. | [`extensions/herdr-agent-state.ts`](extensions/herdr-agent-state.ts), loaded from this Pi package. Herdr owns the generated integration format. |
 | Session Spend Dashboard | Runs an opt-in read-only localhost dashboard for provider-reported spend, token use, projects, sessions, and subagent activity. | [`extensions/session-spend-dashboard`](extensions/session-spend-dashboard), configured by [`session-spend-dashboard.json`](session-spend-dashboard.json). See its [README](extensions/session-spend-dashboard/README.md). |
-| Warp session title | Shows the current Pi session name and project in the active Warp tab. It does nothing in other terminals. | [`extensions/warp-session-title.ts`](extensions/warp-session-title.ts), linked into `~/.pi/agent/extensions`. |
-| Clear status | Older compact usage/status implementation retained for reference but not loaded. | [`disabled-extensions/clear-status.ts`](disabled-extensions/clear-status.ts). Copied under `disabled-extensions`, not the active extension directory. |
+| Warp session title | Shows the current Pi session name and project in the active Warp tab. It does nothing in other terminals. | [`extensions/warp-session-title.ts`](extensions/warp-session-title.ts), loaded from this Pi package. |
+| Clear status | Older compact usage/status implementation retained for reference but not loaded or packaged. | [`disabled-extensions/clear-status.ts`](disabled-extensions/clear-status.ts). |
 | Warp gateway links | Private Warp gateway and fallback extensions maintained in a separate repository. | Live links are `extensions/warp-gateway.ts` and `extensions/warp-link-fallback.ts`; edit `~/webdev/warp-pi-gateway`. |
 
 `REALTIME-SYSTEM-PROMPT.md` is tracked prompt configuration, not an extension.
@@ -162,8 +188,6 @@ renders or copies into the live agent directory.
 | `prewalk.json` | Configures the Prewalk executor and analytics. |
 | `fzf.json` | Configures fuzzy-search commands and presentation. |
 | `session-spend-dashboard.json` | Configures chat and metrics retention windows. |
-| `package.json` and `package-lock.json` | Record the npm packages and exact dependency graph setup installs. |
-| `disabled-extensions/clear-status.ts` | Keeps the retired status extension outside Pi's active extension directory. |
 
 ### Retired paths
 
@@ -171,6 +195,9 @@ The manifest also lists paths that setup removes rather than installs:
 
 - `pi-explore-subagents.json`, an older subagent configuration that is no
   longer part of this setup.
+- the old per-extension links, local Prewalk and context-budget package links,
+  and root package metadata that the package-first setup no longer installs;
+  the first live migration backs these paths up before retiring them.
 - `~/.pi/agent/skills/webflow-designer-agent-browser`, the old Pi-only copy of
   the Webflow skill. The shared `~/.agents/skills` link replaces it.
 
@@ -331,7 +358,7 @@ continue if Pi is active or if a session is unreadable, malformed, truncated,
 outside scan coverage, or becomes active during deletion. Metrics can outlive
 their deleted chats until the 365-day metrics cutoff.
 
-### Setup backups and sync
+### Setup backups
 
 `setup.sh` creates a timestamped backup only when it replaces or retires a
 managed path. Restore one of those backups with:
@@ -346,17 +373,18 @@ directory's `backups/` folder instead.
 
 These are configuration backups, not machine backups. Sessions, provider
 caches, dashboard metrics, credentials, trust decisions, browser state,
-analytics, package installs, and generated data are excluded. `./sync` does not
-copy or restore them.
+analytics, package installs, and generated data are excluded. `setup.sh` does
+not copy or restore them.
 
 ## Source ownership and live paths
 
 | Part | Source of truth | Live installation or data |
 | --- | --- | --- |
 | Global configuration | This repo plus ignored `settings.local.json` | Generated files under `~/.pi/agent` |
-| Local extensions | This repo | Links under `~/.pi/agent/extensions` |
+| Personal Pi package and extensions | This repo | Loaded from this checkout by the rendered owner settings, or from Pi's managed Git checkout for a public install |
 | Shared Webflow skill | This repo | `~/.agents/skills/webflow-designer-agent-browser` |
-| Prewalk | [`pi-prewalk`](https://github.com/javonmcgilberry/pi-prewalk), included here as a pinned Git submodule | `~/.pi/agent/packages/prewalk` |
+| Prewalk | [`pi-prewalk`](https://github.com/javonmcgilberry/pi-prewalk), installed by Pi at the exact commit in `settings.json` | `~/.pi/agent/git/github.com/javonmcgilberry/pi-prewalk` |
+| Context budget | This repo | Loaded as part of this Pi package |
 | Context Mode | [`context-mode`](https://github.com/javonmcgilberry/context-mode), pinned in `settings.json` | Git checkout managed by Pi; edit `~/webdev/context-mode` |
 | pi-subagents | [`nicobailon/pi-subagents`](https://github.com/nicobailon/pi-subagents) | The unchanged release from the upstream npm package |
 | Pi core | `~/Developer/pi` ([my fork](https://github.com/javonmcgilberry/pi)) | Separate development checkout; the normal `pi` command uses the installed release |
@@ -364,8 +392,10 @@ copy or restore them.
 | Sessions | Pi runtime | `~/.pi/agent/sessions` by default; `PI_CODING_AGENT_SESSION_DIR` overrides it |
 | Dashboard metrics | Session Spend Dashboard runtime | `~/.pi/agent/session-metrics/metrics.sqlite` by default; agent-directory overrides move it |
 
-`config/manifest.json` is the authoritative list of files and paths managed by setup. Update
-it before changing setup, drift, validation, retirement, or restore behavior.
+`config/manifest.json` is the authoritative list of global files and shared
+links managed by bootstrap. Package resources are declared separately in
+`package.json`. Update the manifest before changing bootstrap, drift,
+validation, retirement, or restore behavior.
 Never edit Pi-managed code under `~/.pi/agent/npm/node_modules` or
 `~/.pi/agent/git`.
 
