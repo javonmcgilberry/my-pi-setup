@@ -97,6 +97,33 @@ test("standalone maintenance honors the custom session directory", async () => {
 	await rm(root, { recursive: true, force: true });
 });
 
+test("standalone maintenance shares agent-directory precedence with the extension", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "session-maintenance-precedence-"));
+	const home = path.join(root, "home");
+	const legacyAgentDir = path.join(root, "legacy-agent");
+	const canonicalAgentDir = path.join(root, "canonical-agent");
+	const sessionsRoot = path.join(canonicalAgentDir, "sessions");
+	const project = path.join(sessionsRoot, "--project--");
+	await mkdir(project, { recursive: true });
+	await writeFile(
+		path.join(project, "one.jsonl"),
+		`${JSON.stringify({ type: "session", id: "one", cwd: "/project", timestamp: new Date().toISOString() })}\n`,
+	);
+	const script = path.resolve(import.meta.dirname, "../../../scripts/session-maintenance.mjs");
+	const env = {
+		...process.env,
+		HOME: home,
+		PI_AGENT_DIR: legacyAgentDir,
+		PI_CODING_AGENT_DIR: canonicalAgentDir,
+	};
+	delete env.PI_CODING_AGENT_SESSION_DIR;
+	const { stdout } = await execFileAsync(process.execPath, [script], { env });
+	assert.equal(JSON.parse(stdout).scannedSessions, 1);
+	assert.equal(await exists(path.join(canonicalAgentDir, "session-metrics", "metrics.sqlite")), true);
+	assert.equal(await exists(path.join(legacyAgentDir, "session-metrics", "metrics.sqlite")), false);
+	await rm(root, { recursive: true, force: true });
+});
+
 test("refuses cleanup when scanner limits omit or truncate a transcript", async () => {
 	const agentDir = await mkdtemp(path.join(os.tmpdir(), "session-maintenance-limits-"));
 	const sessionsRoot = path.join(agentDir, "sessions");

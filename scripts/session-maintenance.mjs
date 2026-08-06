@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 
-import os from "node:os";
-import path from "node:path";
-
 import { runMaintenance } from "../extensions/session-spend-dashboard/maintenance.ts";
+import { defaultAgentDir, defaultSessionsDir } from "../extensions/session-spend-dashboard/scan.ts";
 
 const args = new Set(process.argv.slice(2));
 const known = new Set(["--apply", "--help", "-h"]);
@@ -23,11 +21,8 @@ and removes whole session trees older than the configured chat retention window.
 	process.exit(0);
 }
 
-const agentDir =
-	process.env.PI_AGENT_DIR ||
-	process.env.PI_CODING_AGENT_DIR ||
-	path.join(process.env.HOME || os.homedir(), ".pi", "agent");
-const sessionsRoot = process.env.PI_CODING_AGENT_SESSION_DIR || path.join(agentDir, "sessions");
+const agentDir = defaultAgentDir();
+const sessionsRoot = defaultSessionsDir();
 const report = await runMaintenance({
 	sessionsRoot,
 	agentDir,

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
 import os from "node:os";
@@ -8,19 +8,23 @@ import { after, before, beforeEach, test } from "node:test";
 
 import type { ExtensionAPI, ExtensionCommandContext, RegisteredCommand } from "@earendil-works/pi-coding-agent";
 
+import { listActiveSessionFiles } from "../active-sessions.ts";
 import createExtension from "../index.ts";
 
 type CommandOptions = Omit<RegisteredCommand, "name" | "sourceInfo">;
 
 interface Harness {
 	command: CommandOptions;
+	startup: LifecycleHandler;
 	shutdown: () => Promise<void>;
+	piShutdownCalls: number;
 	notices: { message: string; level?: string }[];
 	statuses: (string | undefined)[];
 	ctx: ExtensionCommandContext;
 }
 
 type AnyHandler = (...args: never[]) => unknown;
+type LifecycleHandler = (...args: unknown[]) => unknown;
 
 /**
  * The extension only consumes a few members of each Pi interface. Access to anything else
@@ -35,11 +39,13 @@ function strictStub<T extends object>(implemented: Partial<T>, label: string): T
 	}) as T;
 }
 
-function harness(): Harness {
+function harness(sessionFile?: string): Harness {
 	const notices: { message: string; level?: string }[] = [];
 	const statuses: (string | undefined)[] = [];
 	let command: CommandOptions | undefined;
+	let startup: LifecycleHandler | undefined;
 	let shutdown: (() => Promise<void>) | undefined;
+	let piShutdownCalls = 0;
 
 	const api = strictStub<ExtensionAPI>(
 		{
@@ -48,6 +54,7 @@ function harness(): Harness {
 				command = options;
 			},
 			on: (event: string, handler: AnyHandler) => {
+				if (event === "session_start") startup = handler as LifecycleHandler;
 				if (event === "session_shutdown") shutdown = handler as () => Promise<void>;
 			},
 		},
@@ -56,6 +63,7 @@ function harness(): Harness {
 
 	createExtension(api);
 	assert.ok(command, "command was not registered");
+	assert.ok(startup, "session_start handler was not registered");
 	assert.ok(shutdown, "session_shutdown handler was not registered");
 
 	const ui = strictStub<ExtensionCommandContext["ui"]>(
@@ -71,15 +79,29 @@ function harness(): Harness {
 	);
 
 	const sessionManager = strictStub<ExtensionCommandContext["sessionManager"]>(
-		{ getSessionFile: () => undefined },
+		{ getSessionFile: () => sessionFile },
 		"SessionManager",
+	);
+	const ctx = strictStub<ExtensionCommandContext>(
+		{
+			ui,
+			sessionManager,
+			shutdown: () => {
+				piShutdownCalls++;
+			},
+		},
+		"ExtensionCommandContext",
 	);
 	return {
 		command,
+		startup,
 		shutdown,
+		get piShutdownCalls() {
+			return piShutdownCalls;
+		},
 		notices,
 		statuses,
-		ctx: strictStub<ExtensionCommandContext>({ ui, sessionManager }, "ExtensionCommandContext"),
+		ctx,
 	};
 }
 
@@ -120,6 +142,28 @@ after(async () => {
 	if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
 	else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
 	await rm(cwd, { recursive: true, force: true });
+});
+
+test("registers the session marker at startup and removes it at shutdown", async () => {
+	const sessionFile = path.join(process.env.PI_CODING_AGENT_SESSION_DIR ?? "", "project", "active.jsonl");
+	const local = harness(sessionFile);
+	await local.startup({}, local.ctx);
+	assert.deepEqual([...await listActiveSessionFiles(path.join(cwd, "agent"))], [sessionFile]);
+	await local.shutdown();
+	assert.deepEqual([...await listActiveSessionFiles(path.join(cwd, "agent"))], []);
+});
+
+test("shuts Pi down when startup races with maintenance", async () => {
+	const sessionFile = path.join(process.env.PI_CODING_AGENT_SESSION_DIR ?? "", "project", "blocked.jsonl");
+	const metrics = path.join(cwd, "agent", "session-metrics");
+	await mkdir(metrics, { recursive: true });
+	await writeFile(path.join(metrics, "maintenance.lock"), "{}", "utf8");
+	const local = harness(sessionFile);
+	await local.startup({}, local.ctx);
+	assert.equal(local.piShutdownCalls, 1);
+	assert.match(local.notices[0]?.message ?? "", /cannot start safely/i);
+	assert.deepEqual([...await listActiveSessionFiles(path.join(cwd, "agent"))], [sessionFile]);
+	await local.shutdown();
 });
 
 test("describes itself and completes its actions", () => {

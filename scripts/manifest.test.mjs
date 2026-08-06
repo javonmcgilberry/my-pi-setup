@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import {
   entriesFor,
   loadManifest,
   normalizeManifest,
+  REPO_ROOT,
 } from "./manifest.mjs";
 
 const base = {
@@ -33,6 +35,15 @@ describe("managed install manifest", () => {
       entriesFor(manifest, "shared")[0].backup,
       "external-agents-skills-webflow-designer-agent-browser",
     );
+  });
+
+  it("keeps the render-cache runtime pin aligned with package metadata", () => {
+    const packageJson = JSON.parse(readFileSync(`${REPO_ROOT}/package.json`, "utf8"));
+    const settings = JSON.parse(readFileSync(`${REPO_ROOT}/settings.json`, "utf8"));
+    const declared = packageJson.dependencies["pi-render-cache"];
+    const version = declared.replace(/^[~^=]/, "");
+    assert.equal(settings.packages.filter((entry) => entry.startsWith("npm:pi-render-cache")).length, 1);
+    assert.equal(settings.packages.find((entry) => entry.startsWith("npm:pi-render-cache")), `npm:pi-render-cache@${version}`);
   });
 
   it("rejects traversal and absolute paths", () => {

@@ -16,6 +16,14 @@ export interface PrunePlan {
 	protected: SessionTreeCandidate[];
 }
 
+export interface RetentionFileOperations {
+	mkdir: typeof mkdir;
+	rename: typeof rename;
+	rm: typeof rm;
+}
+
+const DEFAULT_FILE_OPERATIONS: RetentionFileOperations = { mkdir, rename, rm };
+
 async function inspectTree(rootFile: string, companionDirectory: string): Promise<SessionTreeCandidate | undefined> {
 	let rootInfo;
 	try {
@@ -119,6 +127,7 @@ export async function pruneSessionTrees(
 	cutoffMs: number,
 	activeFiles: ReadonlySet<string> = new Set(),
 	refreshActiveFiles?: () => Promise<ReadonlySet<string>>,
+	fileOperations: RetentionFileOperations = DEFAULT_FILE_OPERATIONS,
 ): Promise<SessionTreeCandidate[]> {
 	const plan = await planSessionPrune(sessionsRoot, cutoffMs, activeFiles);
 	const removed: SessionTreeCandidate[] = [];
@@ -134,45 +143,45 @@ export async function pruneSessionTrees(
 			? path.join(quarantine, path.basename(current.companionDirectory))
 			: undefined;
 		assertInsideSessionsRoot(sessionsRoot, quarantine);
-		await mkdir(quarantine, { mode: 0o700 });
+		await fileOperations.mkdir(quarantine, { mode: 0o700 });
 		let rootStaged = false;
 		let companionStaged = false;
 		let deletionStarted = false;
 		try {
-			await rename(current.rootFile, stagedRoot);
+			await fileOperations.rename(current.rootFile, stagedRoot);
 			rootStaged = true;
 			if (current.companionDirectory && stagedCompanion) {
 				assertInsideSessionsRoot(sessionsRoot, current.companionDirectory);
-				await rename(current.companionDirectory, stagedCompanion);
+				await fileOperations.rename(current.companionDirectory, stagedCompanion);
 				companionStaged = true;
 			}
 			const afterStaging = refreshActiveFiles ? await refreshActiveFiles() : currentActive;
 			if (treeContainsActiveFile(current, afterStaging)) {
 				if (companionStaged && current.companionDirectory && stagedCompanion) {
-					await rename(stagedCompanion, current.companionDirectory);
+					await fileOperations.rename(stagedCompanion, current.companionDirectory);
 					companionStaged = false;
 				}
-				await rename(stagedRoot, current.rootFile);
+				await fileOperations.rename(stagedRoot, current.rootFile);
 				rootStaged = false;
-				await rm(quarantine, { recursive: true, force: true });
+				await fileOperations.rm(quarantine, { recursive: true, force: true });
 				continue;
 			}
 			deletionStarted = true;
-			await rm(quarantine, { recursive: true, force: false });
+			await fileOperations.rm(quarantine, { recursive: true, force: false });
 			removed.push(current);
 		} catch (error) {
 			if (!deletionStarted) {
 				let rollbackError: unknown;
 				if (companionStaged && current.companionDirectory && stagedCompanion) {
 					try {
-						await rename(stagedCompanion, current.companionDirectory);
+						await fileOperations.rename(stagedCompanion, current.companionDirectory);
 					} catch (restoreError) {
 						rollbackError = restoreError;
 					}
 				}
 				if (rootStaged) {
 					try {
-						await rename(stagedRoot, current.rootFile);
+						await fileOperations.rename(stagedRoot, current.rootFile);
 					} catch (restoreError) {
 						rollbackError ??= restoreError;
 					}
@@ -180,7 +189,7 @@ export async function pruneSessionTrees(
 				if (rollbackError) {
 					throw new AggregateError([error, rollbackError], `Cleanup rollback failed; preserved quarantine at ${quarantine}`);
 				}
-				await rm(quarantine, { recursive: true, force: true });
+				await fileOperations.rm(quarantine, { recursive: true, force: true });
 			}
 			throw error;
 		}
