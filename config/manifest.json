@@ -6,6 +6,7 @@
   "copied": [
     "AGENTS.md",
     "REALTIME-SYSTEM-PROMPT.md",
+    "agent-browser-policy.json",
     "mcp.json",
     "pi-autoname.json",
     "pi-auto-trees.json",
@@ -18,6 +19,9 @@
   "linked": {},
   "sharedSkills": {
     "webflow-designer-agent-browser": "skills/webflow-designer-agent-browser"
+  },
+  "macosLaunchAgents": {
+    "com.javonmcgilberry.pi-tmux-gui-server.plist": "config/com.javonmcgilberry.pi-tmux-gui-server.plist"
   },
   "retired": {
     "pi": [
@@ -61,10 +65,13 @@
     "browser-profile/",
     "run-history.jsonl",
     "session-metrics/",
+    "session-metadata/",
     "mcp-cache.json",
     "models-store.json",
     "cursor-sdk-model-list.json",
     "Cookies",
+    "Cookies-wal",
+    "Cookies-shm",
     "Cookies-journal",
     "Local State",
     "Login Data",

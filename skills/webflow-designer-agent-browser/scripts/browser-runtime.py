@@ -22,6 +22,8 @@ DEFAULT_ROOT = Path.home() / ".config" / "webflow-designer-agent-browser"
 DEFAULT_SOURCE_ROOT = Path.home() / "Library/Application Support/Google/Chrome"
 DEFAULT_MAX_RUNTIME_SECONDS = 1800
 MAX_RUNTIME_SECONDS = 14400
+POLICY_FILENAME = "agent-browser-policy.json"
+COOKIE_TRANSFER_SCRIPT = Path(__file__).with_name("cookie-transfer.mjs")
 CONSUMERS = {"agent_browser", "chrome_devtools_mcp"}
 SENSITIVE_PROFILE_DATABASES = {
     "Cookies",
@@ -288,7 +290,8 @@ def terminate_owned_runtime(
     try:
         os.killpg(pid, signal.SIGKILL)
     except ProcessLookupError:
-        pass
+        if not port_open(config.host, config.port):
+            return
     deadline = time.monotonic() + 2.0
     while time.monotonic() < deadline:
         if not group_alive() and not port_open(config.host, config.port):
@@ -321,6 +324,87 @@ def source_locked(config: RuntimeConfig) -> bool:
         or (config.source_root / name).is_symlink()
         for name in ("SingletonLock", "SingletonSocket", "SingletonCookie")
     )
+
+
+def policy_path(configured_override: str | None = None) -> Path:
+    configured = (
+        configured_override.strip()
+        if configured_override is not None
+        else os.environ.get("PI_AGENT_BROWSER_POLICY_CONFIG", "").strip()
+    )
+    if configured:
+        candidate = Path(configured).expanduser()
+        return candidate if candidate.is_absolute() else Path.cwd() / candidate
+    installed = Path.home() / ".pi" / "agent" / POLICY_FILENAME
+    if installed.is_file():
+        return installed
+    return Path(__file__).resolve().parents[3] / POLICY_FILENAME
+
+
+def source_cookie_database(config: RuntimeConfig) -> Path:
+    profile = resolved_source_profile(config)
+    reject_source_profile_symlinks(profile)
+    for candidate in (profile / "Network" / "Cookies", profile / "Cookies"):
+        if candidate.is_file() and not candidate.is_symlink():
+            return candidate
+    raise RuntimeFailure("cookie_database_missing", "cookie_transfer", False)
+
+
+def transfer_cookies(
+    config: RuntimeConfig,
+    *,
+    confirm: bool,
+    dry_run: bool = False,
+    policy: str | None = None,
+) -> dict[str, object]:
+    if not confirm:
+        raise RuntimeFailure(
+            "cookie_transfer_confirmation_required", "cookie_transfer", False
+        )
+    if not COOKIE_TRANSFER_SCRIPT.is_file():
+        raise RuntimeFailure("cookie_transfer_unavailable", "cookie_transfer", False)
+    selected_policy = policy_path(policy)
+    if not selected_policy.is_file():
+        raise RuntimeFailure("policy_missing", "cookie_transfer", False)
+    if not dry_run:
+        runtime = inspect_runtime(config)
+        if not runtime["cdpReady"] or not runtime["runtimeOwned"]:
+            raise RuntimeFailure("runtime_not_ready", "cookie_transfer", True)
+    node = shutil.which("node")
+    if not node:
+        raise RuntimeFailure("node_unavailable", "cookie_transfer", False)
+    database = source_cookie_database(config)
+    command = [
+        node,
+        str(COOKIE_TRANSFER_SCRIPT),
+        "--source-db",
+        str(database),
+        "--cdp-endpoint",
+        f"http://{config.host}:{config.port}",
+        "--policy",
+        str(selected_policy),
+    ]
+    if dry_run:
+        command.append("--dry-run")
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeFailure("cookie_transfer_timeout", "cookie_transfer", True) from error
+    try:
+        result = json.loads(completed.stdout)
+    except (json.JSONDecodeError, TypeError) as error:
+        raise RuntimeFailure("cookie_transfer_invalid_result", "cookie_transfer", False) from error
+    if completed.returncode != 0 or result.get("status") == "blocked":
+        error = result.get("error")
+        code = error.get("code") if isinstance(error, dict) else "cookie_transfer_failed"
+        raise RuntimeFailure(str(code), "cookie_transfer", False)
+    return result
 
 
 def copy_ignore(_directory: str, names: list[str]) -> set[str]:
@@ -614,6 +698,8 @@ def parse_args() -> argparse.Namespace:
             "status",
             "bootstrap",
             "start",
+            "ensure",
+            "transfer-cookies",
             "stop",
             "claim",
             "release",
@@ -629,6 +715,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--consumer", choices=sorted(CONSUMERS))
     parser.add_argument("--replace", action="store_true")
     parser.add_argument("--confirm-sensitive-copy", action="store_true")
+    parser.add_argument("--confirm-cookie-transfer", action="store_true")
+    parser.add_argument("--policy", help="private browser-policy JSON override")
+    parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--timeout", type=float, default=15.0)
     parser.add_argument(
         "--max-runtime-seconds",
@@ -692,7 +781,7 @@ def main() -> int:
             if not args.confirm_sensitive_copy:
                 raise RuntimeFailure("sensitive_copy_confirmation_required", "profile_bootstrap", False)
             result = bootstrap_profile(config, replace=args.replace)
-        elif args.command == "start":
+        elif args.command in {"start", "ensure"}:
             if args.timeout <= 0 or args.timeout > 120:
                 raise RuntimeFailure("invalid_timeout", "configuration", False)
             if not 60 <= args.max_runtime_seconds <= MAX_RUNTIME_SECONDS:
@@ -704,6 +793,13 @@ def main() -> int:
                 args.timeout,
                 headless=not args.headed,
                 max_runtime_seconds=args.max_runtime_seconds,
+            )
+        elif args.command == "transfer-cookies":
+            result = transfer_cookies(
+                config,
+                confirm=args.confirm_cookie_transfer,
+                dry_run=args.dry_run,
+                policy=args.policy,
             )
         elif args.command == "stop":
             result = stop_runtime(config)

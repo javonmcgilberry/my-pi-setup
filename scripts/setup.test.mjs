@@ -144,4 +144,21 @@ describe("setup bootstrap", () => {
     assert.equal(await exists(target.agentDir), false);
     assert.equal(await exists(target.skillsDir), false);
   });
+
+  it("includes automatic tmux activation in a live macOS dry run", { skip: process.platform !== "darwin" }, async () => {
+    const target = await tempTarget();
+    const env = { ...process.env, HOME: target.root };
+    delete env.PI_AGENT_DIR;
+    delete env.AGENTS_SKILLS_DIR;
+    delete env.PI_CODING_AGENT_DIR;
+
+    const result = await execFileAsync(setupScript, ["--dry-run"], {
+      cwd: repoRoot,
+      env,
+    });
+
+    assert.match(result.stdout, /would run: .*activate-macos-tmux-gui-server\.sh --auto/);
+    assert.equal(await exists(path.join(target.root, "Library/LaunchAgents")), false);
+    assert.equal(await exists(path.join(target.root, ".pi")), false);
+  });
 });

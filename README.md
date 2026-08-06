@@ -14,8 +14,6 @@ an expectation that my machine-specific integrations will work for them.
 workbench. This README is the operating manual: what is installed, what it
 does, where it is configured, and where its source lives.
 
-Inspired by [davis7dotsh/my-pi-setup](https://github.com/davis7dotsh/my-pi-setup).
-
 ## Install
 
 ```sh
@@ -40,40 +38,88 @@ without using my global settings or bootstrap:
 pi install git:github.com/javonmcgilberry/my-pi-setup@<commit>
 ```
 
-Use a temporary install to test without touching the live setup:
-
-```sh
-PI_AGENT_DIR=/tmp/pi-agent AGENTS_SKILLS_DIR=/tmp/agents-skills ./setup.sh
-```
+Use the temporary-install workflow below to test without touching the live
+setup. It isolates the Pi directory, shared skills, and session state together.
 
 ## Daily workflow
 
-Start Pi in the repository you are changing. Use this checkout only for changes
-to the setup package itself:
+The main rule is: edit the owning checkout, never the generated live install.
+
+For setup-package work, start Pi from this repository and check the repository
+state first:
 
 ```sh
 cd ~/Developer/my-pi-setup
+git status --short --branch
 pi
 ```
 
-Make setup changes here, not under `~/.pi/agent`. Validate them with:
+Edit:
+
+- `extensions/` and `packages/context-budget/` for local extensions
+- `settings.json` for tracked defaults and exact package pins
+- `package.json` for this setup package
+- `config/manifest.json` before changing bootstrap-managed files
+- `README.md` when behavior, ownership, paths, or safety rules change
+
+Validate the full setup/package boundary, not just the file you edited:
 
 ```sh
 ./scripts/check.sh
 ./scripts/drift.sh
+npm pack --dry-run
 ```
 
-`drift.sh` is read-only. Git commits, pushes, tags, and package upgrades are
-separate explicit operations. When a setup change is ready, close every Pi
-session, apply it, and verify the result:
+`drift.sh` is read-only. Code-only changes generally need a Pi restart to load.
+Changes to rendered settings, copied configuration, or bootstrap inventory
+require rerunning `setup.sh`. Git commits, pushes, tags, and package upgrades
+are separate explicit operations.
+
+### Testing without touching the live install
+
+When any Pi session is active, use one temporary directory for the complete test
+installation and start Pi with the same variables:
 
 ```sh
+tmp="$(mktemp -d)"
+export PI_AGENT_DIR="$tmp/agent"
+export AGENTS_SKILLS_DIR="$tmp/skills"
+export PI_CODING_AGENT_DIR="$PI_AGENT_DIR"
+
 ./setup.sh
+./scripts/drift.sh
+pi
+```
+
+This keeps temporary settings, package checkouts, sessions, and shared skill
+links out of the live setup. Remove the temporary directory after testing.
+
+### Applying changes live
+
+Close every Pi session first. From the setup repository, apply and verify the
+current source state:
+
+```sh
+env -u PI_AGENT_DIR -u AGENTS_SKILLS_DIR -u PI_CODING_AGENT_DIR ./setup.sh
 ./scripts/drift.sh
 ```
 
-`setup.sh` refuses to replace the live `~/.pi/agent` configuration while Pi is
-running. It never changes Git state or upgrades packages.
+Restart Pi afterward. `setup.sh` refuses to replace the live configuration while
+Pi is running; it never changes Git state or upgrades packages. `./sync` is
+retired. Setup application, validation, Git commits and pushes, and dependency
+upgrades remain separate operations.
+
+From an interactive Pi started in this repository, `/sync-me` automates that
+same safe apply boundary. After confirmation, it fast-forwards clean local Git
+package replacements, runs `check.sh` and a package dry run, schedules a
+detached helper, and shuts down the current Pi. The helper
+waits for every Pi process to exit, runs `setup.sh`, and verifies `drift.sh`.
+It does not pull the setup repository, force-close another session, push,
+commit, or upgrade pinned packages. Dirty or divergent local package checkouts
+stop the command rather than being overwritten. If another Pi remains open, the
+helper waits; its log path is shown before shutdown. Start Pi normally to apply
+the live setup, or use the same
+temporary environment variables above to apply only to a temporary test setup.
 
 Keep machine-only choices in ignored `settings.local.json`:
 
@@ -90,21 +136,107 @@ Nested settings objects are combined. Arrays replace the corresponding arrays
 from the tracked defaults. `packageReplacements` can point a tracked package to
 a local checkout without copying the entire package list.
 
+### Prewalk development and installation
+
+Prewalk is a separate package with its own owning checkout. There are two
+sources, and the local replacement wins when it is present:
+
+1. **Your development install:** ignored `settings.local.json` points Pi at the
+   owning local `pi-prewalk` checkout. Edit that checkout and restart Pi to load
+   source-only changes.
+2. **A clean or public install:** tracked `settings.json` points Pi at this
+   exact remote commit:
+
+```text
+git:github.com/javonmcgilberry/pi-prewalk@c22cf7e927b3d67d28d12a4ea9f74afbdb8b94dc
+```
+
+If the local replacement is present, Pi does **not** use the managed Git
+checkout. If it is absent, Pi installs the pinned commit into
+`~/.pi/agent/git/github.com/javonmcgilberry/pi-prewalk`. That checkout is
+generated package state; do not edit it.
+
+The local replacement looks like this:
+
+```json
+{
+  "packageReplacements": {
+    "git:github.com/javonmcgilberry/pi-prewalk":
+      "/absolute/path/to/pi-prewalk"
+  }
+}
+```
+
+The unpinned locator is intentional: the local override remains valid when the
+tracked remote SHA changes.
+
+For source-only edits in the local checkout, restart Pi. To bring a clean local
+checkout up to date with GitHub and apply the setup, use `/sync-me`; it performs
+the fast-forward pull for you. It stops instead of pulling when the checkout
+has uncommitted or divergent changes. You do **not** update the tracked SHA for
+every local edit. Only update that SHA when publishing a new default remote
+version, after the commit has been pushed. `check.sh` fetches every tracked Git
+pin from its remote, so a local-only commit is not a valid default pin.
+
 ## Core Pi settings
 
 The main defaults live in [`settings.json`](settings.json):
 
-- OpenAI Codex is the default provider and `gpt-5.6-sol` is the default model.
-- `openai-codex/gpt-5.6-terra`, `openai-codex/gpt-5.6-sol`,
-  `openai-codex/gpt-5.6-luna`, selected Anthropic models, and Cursor's Grok
-  models appear in the model-selection list.
-- The default thinking level is `medium`.
+- OpenAI Codex is the default provider and `gpt-5.6-luna` is the default model.
+- `openai-codex/gpt-5.6-luna` is the only model in the model-selection list.
+- The default thinking level is `max`.
 - Auto-compaction is enabled with 32,768 tokens reserved for the response and
   a 20,000-token recent-history target.
 - Automatic retry is enabled.
 - Subagent workers inherit the parent context; reviewers start fresh. The
-  default child model is Luna with high reasoning.
+  default child model is Luna with max reasoning.
 - Cache-miss notices are visible.
+
+### Browser policy and authentication
+
+[`agent-browser-policy.json`](agent-browser-policy.json) is the tracked,
+fail-closed policy for the native `agent_browser` extension. It allows only
+`openai-codex/gpt-5.6-luna` at `max` reasoning, disables nested upstream
+`agent-browser chat`, and keeps cookie transfer disabled. The companion
+[`extensions/agent-browser-policy.ts`](extensions/agent-browser-policy.ts)
+blocks browser tool calls from another active model before the browser process
+starts. `/agent-browser-policy` shows the effective policy without displaying
+secrets.
+
+Cookie transfer is a separate, explicit opt-in. Create a private policy file
+outside the repository with `cookieTransfer.enabled: true` and exact
+`allowedDomains`, then pass it with `--policy` or set
+`PI_AGENT_BROWSER_POLICY_CONFIG` to that file. With the dedicated runtime
+already ready, inspect first:
+
+```json
+{
+  "version": 1,
+  "models": {
+    "allowed": ["openai-codex/gpt-5.6-luna"],
+    "requiredThinkingLevel": "max"
+  },
+  "upstreamChat": { "enabled": false, "allowedModels": [] },
+  "cookieTransfer": {
+    "enabled": true,
+    "allowedDomains": ["webflow.com", "wfdev.io"]
+  }
+}
+```
+
+```sh
+python3 skills/webflow-designer-agent-browser/scripts/browser-runtime.py \
+  transfer-cookies --policy /private/path/policy.json \
+  --confirm-cookie-transfer --dry-run
+```
+
+Only after reviewing the count should the same command run without
+`--dry-run`. It snapshots only the normal Chrome Cookies database and SQLite
+sidecars, derives the macOS Chrome key through Keychain, decrypts matching
+unexpired cookies in memory, and injects them through loopback CDP. It never
+copies or launches the normal Chrome profile, writes plaintext cookie files,
+logs cookie values, or accepts wildcard domains. Manual headed login remains
+the default recovery path.
 
 Pi Codex Conversion has its own tracked config in
 [`pi-codex-conversion.json`](pi-codex-conversion.json). It uses path mode,
@@ -125,9 +257,10 @@ dependencies so these prompt and tool changes run last.
 ## Installed packages and extensions
 
 The `packages` array in `settings.json` lists the packages Pi loads.
-Those npm and Git sources are pinned there because Pi installs them in its own
-managed package directories. The root `package.json` describes this repository's
-own Pi package, and `package-lock.json` covers only dependencies needed by that
+Those npm and Git sources are pinned there for clean, reproducible installs.
+Ignored `packageReplacements` can substitute a local checkout during
+development. The root `package.json` describes this repository's own Pi
+package, and `package-lock.json` covers only dependencies needed by that
 package itself.
 
 | Component | What it does | Configuration and source |
@@ -143,11 +276,11 @@ package itself.
 | [`@howaboua/pi-auto-trees`](https://github.com/IgorWarzocha/howaboua-pi-stuff/tree/main/packages/pi-auto-trees) | Adds marker/end commands and automatic summaries for long-running incremental sessions. | [`pi-auto-trees.json`](pi-auto-trees.json) uses Luna with low reasoning for summaries. The linked package README has the command reference. |
 | [`@howaboua/pi-smart-btw`](https://github.com/IgorWarzocha/howaboua-pi-stuff/tree/main/packages/pi-smart-btw) | Runs side questions in ephemeral child Pi processes and injects answers only when requested. | [`pi-smart-btw.json`](pi-smart-btw.json) selects Luna, low reasoning, and the `Alt+Z/C/X/J/K/H/L` controls. The linked package README explains its slots and queues. |
 | [`pi-lens`](https://github.com/apmantza/pi-lens) | Runs live Language Server Protocol (LSP), lint, formatting, type, security, and structural checks around edits. | Package defaults plus Pi's generated diagnostic state. The linked repository owns the package README and rule documentation. |
-| [`pi-agent-browser-native`](https://github.com/fitchmultz/pi-agent-browser-native) | Exposes `agent-browser` as Pi's native browser automation tool. | Uses the global `agent-browser` CLI and local browser state. The linked repository owns the package README. |
+| [`pi-agent-browser-native`](https://github.com/fitchmultz/pi-agent-browser-native) | Exposes `agent-browser` as Pi's native browser automation tool. | Uses the global `agent-browser` CLI and local browser state. [`agent-browser-policy.json`](agent-browser-policy.json) and the policy extension enforce the local model/chat boundary. The linked repository owns the package README. |
 | [`pi-autoname`](https://github.com/ssdiwu/pi-autoname) | Gives a new session a short name, then checks periodically whether the topic has changed enough to rename it. | Pinned at `0.6.8`. [`pi-autoname.json`](pi-autoname.json) uses Luna, waits 10 minutes between checks, and preserves names set with `/name`. |
 | Compound Engineering | Provides planning, implementation, review, debugging, shipping, and learning skills. | Loaded from [EveryInc/compound-engineering-plugin](https://github.com/EveryInc/compound-engineering-plugin). The package owns its skill documentation. |
 | [`pi-ask-user`](https://github.com/edlsh/pi-ask-user) | Adds the interactive `ask_user` decision UI with search, choices, and freeform input. | No tracked config. The linked repository owns the package README. |
-| Prewalk | The chosen planner starts a coding task; later turns go to a configured executor in the same session. | Installed from an exact commit of [`pi-prewalk`](https://github.com/javonmcgilberry/pi-prewalk). [`prewalk.json`](prewalk.json) selects Luna at max reasoning and enables local analytics. |
+| Prewalk | The chosen planner starts a coding task; later turns go to a configured executor in the same session. | Uses the owning local checkout when `settings.local.json` provides a replacement; clean installs use the exact [`pi-prewalk`](https://github.com/javonmcgilberry/pi-prewalk) commit in `settings.json`. [`prewalk.json`](prewalk.json) selects Luna at max reasoning and enables local analytics. |
 | Context budget | Keeps the full skill catalog and the largest optional tool schemas out of the first request, then loads them when needed. | [`packages/context-budget`](packages/context-budget), loaded as part of this Pi package. Deferred groups are browser, intercom, MCP, and subagents. |
 | [`@vanillagreen/pi-tool-renderer`](https://github.com/vanillagreencom/vstack/tree/main/pi-extensions/pi-tool-renderer) | Replaces noisy tool output with compact, readable renderers. | Renderer modes are under `vstack.extensionManager.config` in `settings.json`. The linked package README has the renderer options. |
 | [`pi-render-cache`](https://github.com/axelbaumlisto/pi-render-cache) | Reduces terminal-interface (TUI) streaming work with bounded caches for text segmentation and unstyled Markdown rendering. | Loaded at version `1.1.0`; no tracked config. This is a render-performance cache, not a conversation backup. The linked repository owns the package README. |
@@ -163,7 +296,9 @@ package itself.
 | --- | --- | --- |
 | Pretty footer | Replaces the footer with model, context, usage, cache, cost, task, and extension status. | [`extensions/pretty-footer.ts`](extensions/pretty-footer.ts), loaded from this Pi package. |
 | Herdr agent state | Reports Pi session identity and working, blocked, or idle state to Herdr over its local socket. It does nothing unless `HERDR_ENV=1`, `HERDR_SOCKET_PATH`, and `HERDR_PANE_ID` are all set. | [`extensions/herdr-agent-state.ts`](extensions/herdr-agent-state.ts), loaded from this Pi package. Herdr owns the generated integration format. |
+| Agent Browser Policy | Keeps model-assisted browser usage on the configured Pi model and gates nested chat and cookie transfer. | [`agent-browser-policy.json`](agent-browser-policy.json), [`extensions/agent-browser-policy.ts`](extensions/agent-browser-policy.ts), and the shared Webflow skill. Cookie transfer is off by default. |
 | Session Spend Dashboard | Runs an opt-in read-only localhost dashboard for provider-reported spend, token use, projects, sessions, and subagent activity. | [`extensions/session-spend-dashboard`](extensions/session-spend-dashboard), configured by [`session-spend-dashboard.json`](session-spend-dashboard.json). See its [README](extensions/session-spend-dashboard/README.md). |
+| `/sync-me` | Updates clean local package checkouts, validates, and schedules a safe setup apply after Pi sessions close. | [`extensions/setup-sync.js`](extensions/setup-sync.js). It does not pull this setup repository or change its Git state. |
 | Warp session title | Shows the current Pi session name and project in the active Warp tab. It does nothing in other terminals. | [`extensions/warp-session-title.ts`](extensions/warp-session-title.ts), loaded from this Pi package. |
 | Clear status | Older compact usage/status implementation retained for reference but not loaded or packaged. | [`disabled-extensions/clear-status.ts`](disabled-extensions/clear-status.ts). |
 | Warp gateway links | Private Warp gateway and fallback extensions maintained in a separate repository. | Live links are `extensions/warp-gateway.ts` and `extensions/warp-link-fallback.ts`; edit `~/webdev/warp-pi-gateway`. |
@@ -174,13 +309,15 @@ It changes the realtime conversational mode used by Pi Codex Conversion.
 ### Managed setup files
 
 The tables above explain the components. This table lists the files that setup
-renders or copies into the live agent directory.
+renders or copies into the live agent directory, plus the macOS host file it
+installs only for a live default setup.
 
 | File | Role |
 | --- | --- |
 | `settings.json` | Rendered from tracked defaults plus `settings.local.json`; controls models, packages, compaction, retry, subagents, and shared package settings. |
 | `AGENTS.md` | Gives agents the source-ownership, validation, documentation, and publication rules for this setup. |
 | `REALTIME-SYSTEM-PROMPT.md` | Supplies Pi Codex Conversion's realtime conversational prompt. |
+| `agent-browser-policy.json` | Fail-closed model, nested-chat, and cookie-transfer defaults for the native browser extension. |
 | `mcp.json` | Registers the MCP servers listed below. |
 | `pi-codex-conversion.json` | Configures the Codex prompt/tool adapter, UI, Code Mode, transport, and native compaction choice. |
 | `pi-autoname.json` | Selects the model and cooldown for automatic session names and keeps manual names unchanged. |
@@ -189,6 +326,7 @@ renders or copies into the live agent directory.
 | `prewalk.json` | Configures the Prewalk executor and analytics. |
 | `fzf.json` | Configures fuzzy-search commands and presentation. |
 | `session-spend-dashboard.json` | Configures chat and metrics retention windows. |
+| `config/com.javonmcgilberry.pi-tmux-gui-server.plist` | Installs to `~/Library/LaunchAgents` on macOS so Moshi attaches to a GUI-owned default tmux server with Keychain access. |
 
 ### Retired paths
 
@@ -212,6 +350,50 @@ The manifest also lists paths that setup removes rather than installs:
 | Linear | Linear issue and project access through Linear's hosted MCP service. | Enabled; authentication is kept outside tracked config. |
 | Buildkite | Read-only Buildkite pipeline, build, job, and log access. | Enabled through Buildkite's read-only hosted endpoint. |
 | Chrome DevTools | Chrome inspection through the Chrome DevTools Protocol using `chrome-devtools-mcp`. | Disabled by default. Its configured browser endpoint is localhost port 9333. |
+
+### MCP OAuth from Moshi and tmux on macOS
+
+Linear and Buildkite OAuth credentials live in macOS Keychain. A tmux server
+created by Moshi's remote SSH or Mosh login inherits that remote security
+session, even after tmux is reparented to `launchd`. macOS then rejects Keychain
+writes with `User interaction is not allowed`, so `/mcp-auth` fails before it
+can open the browser. Repeatedly typing a Mac password inside tmux is neither
+necessary nor the fix.
+
+The managed LaunchAgent at
+[`config/com.javonmcgilberry.pi-tmux-gui-server.plist`](config/com.javonmcgilberry.pi-tmux-gui-server.plist)
+starts the normal default tmux server in the macOS GUI login session and keeps
+that empty server alive. Moshi still uses its normal default socket. `moshi .`
+still creates or attaches to the session for the requested directory; the
+LaunchAgent does not create, rename, select, or attach to a Moshi session. It
+only makes the server process, and every pane created later, belong to the GUI
+login session that can use Keychain.
+
+A live default `setup.sh` install copies the plist to
+`~/Library/LaunchAgents`. Temporary installs using `PI_AGENT_DIR` and
+`AGENTS_SKILLS_DIR` do not touch that directory. Setup also handles activation:
+
+- From a local Mac Terminal or Warp tab, with no sessions on the default tmux
+  server, `setup.sh` activates the LaunchAgent immediately.
+- From Moshi, SSH, Mosh, tmux, or while tmux sessions still exist, setup installs
+  the plist and safely defers activation. The next macOS login starts it
+  automatically before the first `moshi .` call.
+
+There is no separate command to remember during the normal setup workflow. The
+usual live setup command is enough:
+
+```sh
+cd ~/Developer/my-pi-setup
+env -u PI_AGENT_DIR -u AGENTS_SKILLS_DIR -u PI_CODING_AGENT_DIR ./setup.sh
+```
+
+[`scripts/activate-macos-tmux-gui-server.sh`](scripts/activate-macos-tmux-gui-server.sh)
+remains available for troubleshooting or a manual retry, but setup calls it
+automatically. The helper never kills active Moshi or tmux sessions. After
+activation, start `moshi .` normally and run `/mcp-auth linear` or
+`/mcp-auth buildkite`. A future Moshi configuration that uses a custom tmux
+socket (`-L`, `-S`, or a different `TMUX_TMPDIR`) would need a matching
+LaunchAgent; the current Moshi installation uses the default socket.
 
 ## Shared Webflow browser skill
 
@@ -318,6 +500,17 @@ honoring `PI_AGENT_DIR`. This repository still owns and installs that file. To
 test the extension against another agent directory, use an isolated `HOME` as
 well as matching `PI_AGENT_DIR` and `AGENTS_SKILLS_DIR` values.
 
+Older unnamed sessions can be backfilled with
+[`scripts/session-metadata-backfill.mjs`](scripts/session-metadata-backfill.mjs).
+Its `prepare` step extracts bounded user and assistant text, removes tool
+payloads, redacts common secret patterns, and skips active or temporary
+sessions. Luna agents produce a short title and summary from those private
+extracts. The `apply` step refuses files that changed after preparation,
+appends the title as normal Pi session metadata, and records an autoname marker
+so the title remains stable. Summaries stay in private metadata files under
+`~/.pi/agent/session-metadata/summaries/`; setup does not copy them, and the
+spend metrics database does not store them.
+
 In Warp, [`extensions/warp-session-title.ts`](extensions/warp-session-title.ts)
 sets the tab title to `π - <session name> - <project>` when a session starts or
 its name changes. It uses Pi's terminal-title API, which sends the OSC 0
@@ -370,12 +563,14 @@ managed path. Restore one of those backups with:
 
 With the default agent directory, each backup is under
 `~/.pi/agent/backups`. If `PI_AGENT_DIR` is set, the backup goes under that
-directory's `backups/` folder instead.
+directory's `backups/` folder instead. Replaced managed LaunchAgent files use
+the same backup and restore flow. Restore does not reload a running launchd job
+or restart tmux; a restored plist takes effect at the next macOS login.
 
 These are configuration backups, not machine backups. Sessions, provider
 caches, dashboard metrics, credentials, trust decisions, browser state,
-analytics, package installs, and generated data are excluded. `setup.sh` does
-not copy or restore them.
+analytics, private session summaries, package installs, and generated data are
+excluded. `setup.sh` does not copy or restore them.
 
 ## Source ownership and live paths
 
@@ -384,17 +579,18 @@ not copy or restore them.
 | Global configuration | This repo plus ignored `settings.local.json` | Generated files under `~/.pi/agent` |
 | Personal Pi package and extensions | This repo | Loaded from this checkout by the rendered owner settings, or from Pi's managed Git checkout for a public install |
 | Shared Webflow skill | This repo | `~/.agents/skills/webflow-designer-agent-browser` |
-| Prewalk | [`pi-prewalk`](https://github.com/javonmcgilberry/pi-prewalk), installed by Pi at the exact commit in `settings.json` | `~/.pi/agent/git/github.com/javonmcgilberry/pi-prewalk` |
+| Prewalk | Owning `pi-prewalk` checkout for development; exact remote commit in `settings.json` for clean installs | Local replacement when configured; otherwise `~/.pi/agent/git/github.com/javonmcgilberry/pi-prewalk` |
 | Context budget | This repo | Loaded as part of this Pi package |
 | Context Mode | [`context-mode`](https://github.com/javonmcgilberry/context-mode), pinned in `settings.json` | Git checkout managed by Pi; edit `~/webdev/context-mode` |
 | pi-subagents | [`nicobailon/pi-subagents`](https://github.com/nicobailon/pi-subagents) | The unchanged release from the upstream npm package |
 | Pi core | `~/Developer/pi` ([my fork](https://github.com/javonmcgilberry/pi)) | Separate development checkout; the normal `pi` command uses the installed release |
 | Warp gateway | Private `warp-pi-gateway` repository | Edit `~/webdev/warp-pi-gateway`; live extensions are links |
+| macOS tmux LaunchAgent | `config/com.javonmcgilberry.pi-tmux-gui-server.plist` | `~/Library/LaunchAgents/com.javonmcgilberry.pi-tmux-gui-server.plist` on a live default macOS install |
 | Sessions | Pi runtime | `~/.pi/agent/sessions` by default; `PI_CODING_AGENT_SESSION_DIR` overrides it |
 | Dashboard metrics | Session Spend Dashboard runtime | `~/.pi/agent/session-metrics/metrics.sqlite` by default; agent-directory overrides move it |
 
-`config/manifest.json` is the authoritative list of global files and shared
-links managed by bootstrap. Package resources are declared separately in
+`config/manifest.json` is the authoritative list of global files, shared
+links, and macOS LaunchAgents managed by bootstrap. Package resources are declared separately in
 `package.json`. Update the manifest before changing bootstrap, drift,
 validation, retirement, or restore behavior.
 Never edit Pi-managed code under `~/.pi/agent/npm/node_modules` or
@@ -415,6 +611,7 @@ The full exclusion list is in [`config/manifest.json`](config/manifest.json).
 ```sh
 ./scripts/check.sh
 ./scripts/drift.sh
+npm pack --dry-run
 ```
 
 The check validates JSON, tests the tracked local-settings example, checks shell syntax and

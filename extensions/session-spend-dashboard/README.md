@@ -45,6 +45,11 @@ Pi does not record that a session ended, so no state claims one did.
 The extension imports session metadata, provider-reported usage, and deduplicated tool-call
 counts into `~/.pi/agent/session-metrics/metrics.sqlite`. It does not store prompts,
 responses, tool names, tool arguments, tool results, or raw session JSON.
+Session titles come from current `session_info` entries while a chat is still
+present. If a private metadata file exists under
+`~/.pi/agent/session-metadata/summaries/`, its title remains available after
+chat retention removes the source log. Summaries are never returned by the
+dashboard or copied into the metrics database.
 
 Tracked defaults live in `session-spend-dashboard.json`:
 

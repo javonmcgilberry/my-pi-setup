@@ -589,6 +589,23 @@ class BrowserRuntimeTests(unittest.TestCase):
                         config, 1, headless=False
                     )
 
+    def test_start_reuses_a_ready_runtime_without_spawning_another_browser(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            config = self.config(base / "state", base / "source")
+            current = {
+                "cdpReady": True,
+                "runtimeOwned": True,
+                "mode": "headless",
+            }
+            with (
+                mock.patch.object(browser_runtime, "inspect_runtime", return_value=current),
+                mock.patch.object(browser_runtime.subprocess, "Popen") as popen,
+            ):
+                result = browser_runtime.start_runtime(config, 1)
+            self.assertIs(result, current)
+            popen.assert_not_called()
+
     def test_runtime_rejects_non_loopback_endpoint(self):
         with tempfile.TemporaryDirectory() as directory:
             config = browser_runtime.RuntimeConfig(
@@ -671,6 +688,52 @@ class BrowserRuntimeTests(unittest.TestCase):
                 json.loads(config.origin_path.read_text())["refreshPolicy"],
                 "manual_login_only",
             )
+
+    def test_cookie_transfer_requires_explicit_confirmation_before_reading_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            config = self.config(base / "state", base / "source")
+            with mock.patch.object(browser_runtime, "source_cookie_database") as source:
+                with self.assertRaisesRegex(
+                    browser_runtime.RuntimeFailure,
+                    "cookie_transfer_confirmation_required",
+                ):
+                    browser_runtime.transfer_cookies(config, confirm=False)
+            source.assert_not_called()
+
+    def test_cookie_transfer_dry_run_uses_node_helper_without_starting_runtime(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source_profile = base / "source" / "Default"
+            source_profile.mkdir(parents=True)
+            cookie_database = source_profile / "Cookies"
+            cookie_database.write_bytes(b"synthetic sqlite database")
+            config = self.config(base / "state", base / "source")
+            policy = base / "agent-browser-policy.json"
+            policy.write_text("{}")
+            helper = base / "cookie-transfer.mjs"
+            helper.write_text("// synthetic")
+            completed = browser_runtime.subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout='{"status":"eligible","eligibleCount":0}',
+                stderr="",
+            )
+            with (
+                mock.patch.object(browser_runtime, "policy_path", return_value=policy),
+                mock.patch.object(browser_runtime, "COOKIE_TRANSFER_SCRIPT", helper),
+                mock.patch.object(browser_runtime.shutil, "which", return_value="/usr/local/bin/node"),
+                mock.patch.object(browser_runtime.subprocess, "run", return_value=completed) as run,
+                mock.patch.object(browser_runtime, "inspect_runtime") as inspect,
+            ):
+                result = browser_runtime.transfer_cookies(
+                    config, confirm=True, dry_run=True
+                )
+            self.assertEqual(result["status"], "eligible")
+            inspect.assert_not_called()
+            command = run.call_args.args[0]
+            self.assertIn("--dry-run", command)
+            self.assertNotIn("cookie-value", " ".join(command))
 
     def test_profile_bootstrap_rejects_source_profile_traversal(self):
         with tempfile.TemporaryDirectory() as directory:

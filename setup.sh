@@ -6,6 +6,7 @@ agent_dir="${PI_AGENT_DIR:-${HOME}/.pi/agent}"
 default_agent_dir="${HOME}/.pi/agent"
 shared_skills_dir="${AGENTS_SKILLS_DIR:-${HOME}/.agents/skills}"
 default_shared_skills_dir="${HOME}/.agents/skills"
+macos_launch_agents_dir="${HOME}/Library/LaunchAgents"
 manifest_script="${repo_dir}/scripts/manifest.mjs"
 repo_real_dir="$(cd -P "$repo_dir" && pwd)"
 dry_run=false
@@ -19,6 +20,10 @@ Usage: ./setup.sh [--dry-run]
 Environment:
   PI_AGENT_DIR       Pi configuration target (default: ~/.pi/agent)
   AGENTS_SKILLS_DIR  Cross-harness skill target (default: ~/.agents/skills)
+
+On macOS, a live default install also manages the LaunchAgent that starts the
+default tmux server in the GUI login session. Temporary Pi installs do not touch
+~/Library/LaunchAgents.
 EOF
 }
 
@@ -41,6 +46,11 @@ manifest() {
 }
 
 manifest validate >/dev/null
+
+manage_macos_launch_agents=false
+if [[ "$(uname -s)" == "Darwin" && "$agent_dir" == "$default_agent_dir" && "$shared_skills_dir" == "$default_shared_skills_dir" ]]; then
+  manage_macos_launch_agents=true
+fi
 
 assert_safe_target_parent() {
   local root="$1"
@@ -109,6 +119,12 @@ while IFS=$'\t' read -r source _target _backup; do
     exit 1
   }
 done < <(manifest list copied)
+while IFS=$'\t' read -r source _target _backup; do
+  [[ -f "${repo_dir}/${source}" ]] || {
+    echo "Missing macOS LaunchAgent source: $source" >&2
+    exit 1
+  }
+done < <(manifest list macosLaunchAgents)
 
 link_resolves_into_repo() {
   local target="$1"
@@ -146,6 +162,12 @@ done < <(manifest list shared)
 while IFS=$'\t' read -r target _backup; do
   assert_safe_target_parent "$shared_skills_dir" "$target"
 done < <(manifest list retired shared)
+if "$manage_macos_launch_agents"; then
+  assert_safe_target_parent "$macos_launch_agents_dir" ""
+  while IFS=$'\t' read -r _source target _backup; do
+    assert_safe_target_parent "$macos_launch_agents_dir" "$target"
+  done < <(manifest list macosLaunchAgents)
+fi
 
 settings_override=()
 local_override_entries=()
@@ -232,6 +254,26 @@ while IFS=$'\t' read -r source relative _backup; do
   run cp -p "$source_path" "$target_path"
 done < <(manifest list copied)
 
+if "$manage_macos_launch_agents"; then
+  while IFS=$'\t' read -r source relative backup_relative; do
+    source_path="${repo_dir}/${source}"
+    target_path="${macos_launch_agents_dir}/${relative}"
+
+    if [[ -f "$target_path" && ! -L "$target_path" ]] && cmp -s "$source_path" "$target_path"; then
+      echo "unchanged: macOS LaunchAgent ${relative}"
+      continue
+    fi
+
+    if [[ -e "$target_path" || -L "$target_path" ]]; then
+      run mkdir -p "${backup_dir}/$(dirname "$backup_relative")"
+      run mv "$target_path" "${backup_dir}/${backup_relative}"
+    fi
+
+    run mkdir -p "$macos_launch_agents_dir"
+    run cp -p "$source_path" "$target_path"
+  done < <(manifest list macosLaunchAgents)
+fi
+
 link_owned() {
   local source_path="$1"
   local target_path="$2"
@@ -259,3 +301,7 @@ while IFS=$'\t' read -r source target backup_relative; do
 done < <(manifest list shared)
 
 echo "Setup complete: Pi at $agent_dir; shared skills at $shared_skills_dir"
+if "$manage_macos_launch_agents"; then
+  echo "macOS tmux LaunchAgent installed."
+  run "${repo_dir}/scripts/activate-macos-tmux-gui-server.sh" --auto
+fi

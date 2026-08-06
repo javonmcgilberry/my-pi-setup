@@ -17,6 +17,7 @@ const base = {
   copied: [],
   linked: {},
   sharedSkills: {},
+  macosLaunchAgents: {},
   retired: { pi: [], shared: [] },
   externalLinks: [],
   runtimeExclusions: [],
@@ -26,9 +27,16 @@ describe("managed install manifest", () => {
   it("normalizes the checked-in inventory for every consumer", () => {
     const manifest = loadManifest();
     assert.equal(manifest.version, 1);
-    assert.equal(manifest.copied.length, 10);
+    assert.equal(manifest.copied.length, 11);
     assert.equal(manifest.linked.length, 0);
     assert.equal(manifest.sharedSkills.length, 1);
+    assert.equal(manifest.macosLaunchAgents.length, 1);
+    assert.deepEqual(manifest.macosLaunchAgents[0], {
+      root: "macosLaunchAgents",
+      source: "config/com.javonmcgilberry.pi-tmux-gui-server.plist",
+      target: "com.javonmcgilberry.pi-tmux-gui-server.plist",
+      backup: "macos-launch-agents-com.javonmcgilberry.pi-tmux-gui-server.plist",
+    });
     assert.deepEqual(
       entriesFor(manifest, "retired", "pi").map((entry) => entry.target),
       [
@@ -55,8 +63,10 @@ describe("managed install manifest", () => {
     const packageJson = JSON.parse(readFileSync(`${REPO_ROOT}/package.json`, "utf8"));
     assert.equal(packageJson.keywords.includes("pi-package"), true);
     assert.deepEqual(packageJson.pi.extensions, [
+      "./extensions/agent-browser-policy.ts",
       "./extensions/herdr-agent-state.ts",
       "./extensions/pretty-footer.ts",
+      "./extensions/setup-sync.js",
       "./packages/context-budget",
       "./extensions/session-spend-dashboard",
       "./extensions/warp-session-title.ts",

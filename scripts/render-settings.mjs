@@ -27,6 +27,20 @@ function merge(base, override) {
   return result;
 }
 
+function findPackageReplacementIndex(packages, source) {
+  const exactIndex = packages.indexOf(source);
+  if (exactIndex !== -1) return exactIndex;
+
+  const prefix = source.endsWith("@") ? source : `${source}@`;
+  const matches = packages.flatMap((candidate, index) =>
+    candidate.startsWith(prefix) ? [index] : [],
+  );
+  if (matches.length > 1) {
+    throw new Error(`Package replacement matches multiple package sources: ${source}`);
+  }
+  return matches[0] ?? -1;
+}
+
 const args = process.argv.slice(2);
 const baseFile = args.shift();
 let localFile;
@@ -73,7 +87,7 @@ if (localFile) {
       if (typeof replacement !== "string" || replacement.length === 0) {
         throw new Error(`Replacement for ${source} must be a non-empty string`);
       }
-      const index = packages.indexOf(source);
+      const index = findPackageReplacementIndex(packages, source);
       if (index === -1) throw new Error(`Cannot replace missing package source: ${source}`);
       packages[index] = replacement;
     }

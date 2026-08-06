@@ -54,6 +54,16 @@ describe("settings renderer", () => {
     assert.deepEqual(rendered.packages, ["/work/tool", "/work/my-pi-setup"]);
   });
 
+  it("replaces a pinned package by its stable locator", async () => {
+    const { baseFile, localFile } = await fixture(
+      { packages: ["git:github.com/example/tool@fedcba98765432100123456789012345678901234"] },
+      { packageReplacements: { "git:github.com/example/tool": "/work/tool" } },
+    );
+    const { stdout } = await execFileAsync(process.execPath, [script, baseFile, localFile]);
+    const rendered = JSON.parse(stdout);
+    assert.deepEqual(rendered.packages, ["/work/tool"]);
+  });
+
   it("rejects a missing package-source value", async () => {
     const { baseFile } = await fixture({ packages: [] });
     await assert.rejects(

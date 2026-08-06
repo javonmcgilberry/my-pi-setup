@@ -4,7 +4,10 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_dir"
 
-bash -n setup.sh scripts/check.sh scripts/drift.sh scripts/restore.sh
+bash -n setup.sh scripts/check.sh scripts/drift.sh scripts/restore.sh scripts/activate-macos-tmux-gui-server.sh
+if command -v plutil >/dev/null 2>&1; then
+  plutil -lint config/com.javonmcgilberry.pi-tmux-gui-server.plist >/dev/null
+fi
 node --check scripts/render-settings.mjs
 node --check scripts/json-equal.mjs
 node --check scripts/manifest.mjs
@@ -22,6 +25,7 @@ json_files=(
   package.json
   package-lock.json
   settings.local.example.json
+  agent-browser-policy.json
   config/manifest.json
   fzf.json
   session-spend-dashboard.json
@@ -41,9 +45,15 @@ node --test scripts/manifest.test.mjs
 node scripts/check-git-pins.mjs
 node --test scripts/render-settings.test.mjs
 node --test scripts/setup.test.mjs
+node --test scripts/macos-tmux-gui-server.test.mjs
+node --test scripts/session-metadata-backfill.test.mjs
 node --test packages/context-budget/context-budget.test.mjs packages/context-budget/index.test.ts
+node --test extensions/agent-browser-policy.test.mjs
 node --test extensions/warp-session-title.test.mjs
+node --test extensions/setup-sync.test.mjs
 node --check skills/webflow-designer-agent-browser/scripts/cdp-frame-eval.mjs
+node --check skills/webflow-designer-agent-browser/scripts/cookie-transfer.mjs
+node --test skills/webflow-designer-agent-browser/scripts/cookie-transfer.test.mjs
 node --test extensions/session-spend-dashboard/test/*.test.ts
 
 file_inventory="$(git ls-files --cached --others --exclude-standard)"

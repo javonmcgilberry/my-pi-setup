@@ -5,7 +5,7 @@ description: Use agent-browser and Chrome DevTools Protocol to inspect, debug, a
 
 # Webflow Designer Agent Browser
 
-Use the best available agent-browser transport for token-efficient Designer exploration while preserving the exact browser state under test. Keep `webflow-designer-playwright` available as the deterministic Playwright baseline. Do not claim this skill replaces it until a real Designer scenario proves the required behavior.
+Use the best available agent-browser transport for token-efficient Designer exploration while preserving the exact browser state under test. Prefer native `agent_browser` when available; use the CLI fallback only when native is unavailable. This skill owns the repeatable Chrome-for-Testing lifecycle and the deterministic evidence loop; it does not attach to the user's normal Chrome profile.
 
 ## Select the browser transport by capability
 
@@ -32,13 +32,15 @@ both transports. Native actions use `agent_browser`; CLI actions use the
 2. Do not install a browser transport, download a browser, or change Chrome configuration without approval.
 3. Obtain the exact Designer URL, including `pageId`, role simulation, and local port. Prefer the URL from the live tab.
 4. Check explicit required local services and extension endpoints before diagnosing product behavior.
-5. On `profile_unavailable`, fully quit normal Chrome and run `scripts/browser-runtime.py bootstrap --confirm-sensitive-copy` once. The default source is the normal Chrome `Default` profile; pass `--source-profile <directory-name>` explicitly for another profile. Bootstrap excludes `Local State`, cookie databases, saved-login databases, and Web Data. Then run `start --headed` for a one-time Webflow login and `stop` immediately afterward. Never copy a live/locked profile or transfer cookies or credentials.
-5. Choose one mode explicitly and record it in the evidence.
+5. On `profile_unavailable`, fully quit normal Chrome, then run `scripts/browser-runtime.py bootstrap --confirm-sensitive-copy` once. The default source is the normal Chrome `Default` profile; pass `--source-profile <directory-name>` explicitly for another profile. Bootstrap excludes `Local State`, cookie databases, saved-login databases, and Web Data. Then run `start --headed` for a one-time Webflow login and `release --consumer agent_browser` immediately afterward.
+6. Choose one mode explicitly and record it in the evidence.
 
 ## Reusable helpers
 
 - Run `scripts/capability-catalog.py list [--category <name>]` for the compact deferred helper catalog. Read only the selected helper or direct reference; do not load every helper contract up front.
-- Run `scripts/browser-runtime.py status` before authenticated attached work. The runtime owns the dedicated profile, Chrome for Testing process, loopback direct-CDP readiness, bounded watchdog, and exclusive consumer lease. `start` is headless by default; use `start --headed` only for login, MFA, or visual debugging. `release` also stops the owned runtime. Use `plan`, `bootstrap`, `start`, `claim`, `release`, or `stop` only for the lifecycle phase each command names.
+- Run `scripts/browser-runtime.py status` before authenticated attached work. The runtime owns the dedicated profile, Chrome for Testing process, loopback direct-CDP readiness, bounded watchdog, and exclusive consumer lease. `ensure` is the idempotent headless default; use `start --headed` only for login, MFA, or visual debugging. `release` also stops the owned runtime. Use `plan`, `bootstrap`, `ensure`, `transfer-cookies`, `claim`, `release`, or `stop` only for the lifecycle phase each command names.
+- The tracked `agent-browser-policy.json` is the fail-closed policy seam. The default active Pi model is Luna at `max` reasoning, deterministic browser calls are allowed only from that model, nested upstream `chat` is disabled, and cookie transfer is disabled. Override the policy only with an explicit `--policy /private/path/policy.json` or `PI_AGENT_BROWSER_POLICY_CONFIG=/private/path/policy.json`; never place cookie values or secrets in that file.
+- Cookie transfer is a separate, two-factor opt-in. Enable `cookieTransfer.enabled` in a private policy override, verify the exact `allowedDomains`, then run `scripts/browser-runtime.py transfer-cookies --confirm-cookie-transfer` against an already-ready dedicated runtime. Use `--dry-run` first. The helper snapshots only the source Cookies database and sidecars, decrypts matching unexpired macOS Chrome cookies in memory through Keychain-derived material, injects them with loopback CDP `Network.setCookies`, and reports counts only. It never launches the source profile, copies a full profile, writes plaintext cookies, or transfers wildcard domains.
 - Run `scripts/discover-designer-tabs.py` to query an existing CDP endpoint and return only sanitized Designer tab metadata. Use `--ownership-url` and `--current-session` to inspect known agent-browser ownership without claiming or focusing a tab.
 - Run `scripts/discover-designer-tabs.py --attachment-config config/attachment.json --transport <native|cli>` from this skill directory before attaching. The tracked config emits the selected transport's explicit `connect <port>` action for canonical `direct_cdp`. Pass a sanitized surface fixture back with `--surface-fixture`, `--expected-title`, and the required actual `--expected-runtime-mode`; headed verification rejects `HeadlessChrome`, headless verification requires it, and both reject all-`about:blank` managed fallbacks.
 - Run `scripts/designer-session.py <attached|isolated> --transport <native|cli>` to preflight a bounded bootstrap and emit transport-specific actions plus mandatory cleanup. It never launches a browser itself. Supply each required service through `--tcp-service` or `--http-service`; a failed preflight stops plan emission and identifies the unavailable label without exposing its target.
@@ -57,10 +59,10 @@ Keep personal browsing and agent automation in separate Chrome profiles:
 - **The user's normal Chrome Work profile is user-owned.** The user may open it and browse normally while routine automation runs. Do not attach to it, close its tabs, reuse its profile directory, or terminate its processes during routine work.
 - **The copied Webflow profile is agent-owned.** It lives under `~/.config/webflow-designer-agent-browser/chrome-user-data/` and is the only profile used by `browser-runtime.py`. The user should not browse in this profile while automation is running because shared tabs, focus, navigation, and profile locks make tests nondeterministic.
 - **All managed Webflow automation uses Chrome for Testing.** Never launch `/Applications/Google Chrome.app` from this skill and never point automation at the user's normal profile directory. If Chrome for Testing is unavailable, stop with `chrome_unavailable` rather than falling back.
-- **Headless is the routine default.** Run `scripts/browser-runtime.py start` for invisible, repeatable authenticated automation. The dedicated profile remains separate from the user's normal Chrome profile. The default watchdog limit is 1,800 seconds; use a larger bounded `--max-runtime-seconds` only when the task is expected to need it.
+- **Headless is the routine default.** Run `scripts/browser-runtime.py ensure` for invisible, repeatable authenticated automation. The dedicated profile remains separate from the user's normal Chrome profile. The default watchdog limit is 1,800 seconds; use a larger bounded `--max-runtime-seconds` only when the task is expected to need it.
 - **Headed is an explicit temporary mode.** Run `scripts/browser-runtime.py start --headed` only for manual login, MFA, user observation, or visual debugging. After that work, close the managed agent-browser session and release the consumer; release stops the runtime.
 - **Never switch modes in place.** Close the managed session and release the current consumer before changing between headless and headed; release stops the owned runtime. A `runtime_mode_conflict` is a safety stop, not a reason to launch another browser against the same profile.
-- **Authentication remains manual when required.** Never collect or fill credentials, copy cookies, or manipulate tokens. If Webflow expires the dedicated session, start headed, let the user sign in directly, verify the dashboard, then return to headless mode.
+- **Authentication remains manual by default.** Never collect or fill credentials or manipulate tokens. If Webflow expires the dedicated session, start headed, let the user sign in directly, verify the dashboard, then return to headless mode. Cookie transfer is available only through the explicit policy-and-flag flow above.
 
 The normal concurrency model is therefore: the user browses in normal Chrome while agent-browser controls the dedicated profile headlessly. Running the user and agent against the same profile at the same time is unsupported.
 
@@ -92,7 +94,7 @@ Use this mode for repeatable checks where live unsaved state is not required.
 
 Use `scripts/designer-session.py isolated --transport <native|cli> --url '<exact-url>' --surface '<selector>' --dry-run` to inspect the bounded action and cleanup plan before launch.
 
-Do not print, export, persist, or commit cookies, tokens, credentials, storage state, or PII. State files are sensitive plaintext unless separately encrypted, so avoid them unless the task explicitly requires controlled persistence.
+Do not print, export, persist, or commit cookies, tokens, credentials, storage state, or PII. State files are sensitive plaintext unless separately encrypted, so avoid them unless the task explicitly requires controlled persistence. The cookie-transfer helper keeps decrypted values in memory and emits only counts and allowed domain names.
 
 ## Always clean up browser ownership
 

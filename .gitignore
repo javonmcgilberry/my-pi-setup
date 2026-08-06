@@ -16,6 +16,7 @@ backups/
 ayu/
 packages/
 prewalk/analytics/
+session-metadata/
 bin/
 git/
 npm/

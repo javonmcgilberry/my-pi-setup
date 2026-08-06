@@ -29,10 +29,12 @@ Unlike a generic Pi installation or a loose extension collection, this workspace
 ## Capabilities and Constraints
 
 - Provides custom and third-party Pi extensions, agent definitions, skills, MCP integrations, browser automation, subagent coordination, and code diagnostics.
-- The session spend dashboard's localhost HTTP surface is read-only and derives totals from provider-reported session-log costs without estimating missing prices. The separate explicit maintenance script may delete chat trees only when all Pi sessions are closed and after committing content-free usage and tool-count metrics to the local retention ledger.
+- On macOS, remote Moshi clients attach to a GUI-owned default tmux server so hosted MCP OAuth can use Keychain without plaintext credentials or repeated password prompts.
+- Browser automation has a tracked fail-closed policy: Luna at max reasoning is the default and only allowed model, nested browser chat is disabled, and Chrome cookie transfer is disabled until an explicit domain-scoped opt-in.
+- The session spend dashboard's localhost HTTP surface is read-only and derives totals from provider-reported session-log costs without estimating missing prices. It may show a session title from the chat or private local metadata, but it never returns generated summaries or stores either value in the content-free metrics ledger. The separate explicit maintenance script may delete chat trees only when all Pi sessions are closed and after committing usage and tool-count metrics to that ledger.
 - `pi-prewalk` and the session spend dashboard are intended candidates for open-source release; the exact package boundaries, names, licensing, support policy, and release timeline remain undecided.
 - This repository is the canonical portable Pi setup, while Pi core and separately owned packages retain their own repositories. `PRODUCT.md` remains at this root by design so its principles govern terminal/TUI behavior, tracked skills and extensions, localhost web surfaces, and future setup work. Scoped records may add product-specific facts but should not silently contradict this shared authority.
-- Future work must not expose credentials, private session content, machine-specific paths, or other local state in distributable packages.
+- Future work must not expose credentials, private session content, generated session summaries, machine-specific paths, or other local state in distributable packages. Private session metadata belongs under the Pi agent directory and remains outside setup backup and restore.
 - Compatibility with Pi and interactions among concurrently loaded extensions are material constraints; extension ordering, tool ownership, context hooks, provider overlays, reload behavior, and lifecycle cleanup require explicit validation.
 
 ## Brand Commitments
@@ -50,6 +52,8 @@ Unlike a generic Pi installation or a loose extension collection, this workspace
 - `docs/research/2026-08-05-pi-session-spend-dashboard.md` records comparative research and the rationale for a focused read-only dashboard.
 - `docs/research/2026-08-04-pi-tool-output-ui-options.md` records current Pi and Code Mode output-presentation constraints.
 - `settings.json` references an exact commit of the separate `pi-prewalk` repository, which retains its own history and release boundary.
+- `agent-browser-policy.json`, `extensions/agent-browser-policy.ts`, and the Webflow Designer skill runtime implement the model boundary, repeatable browser lifecycle, and opt-in cookie transfer without persisting cookie values.
+- `config/com.javonmcgilberry.pi-tmux-gui-server.plist` and its activation helper keep Moshi's normal directory-session behavior while moving the tmux server into the macOS GUI security session.
 - No confirmed testimonials, adoption metrics, pricing, release guarantees, or public-package claims are on hand; future work must not fabricate them.
 
 ## Product Principles

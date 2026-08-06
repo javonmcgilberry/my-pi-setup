@@ -9,6 +9,7 @@ import { loadRetentionConfig } from "./config.ts";
 import { defaultMetricsDatabase, MetricsLedger } from "./ledger.ts";
 import { readRunSnapshot } from "./runs.ts";
 import { SessionScanner, type SessionFile } from "./scan.ts";
+import { overlaySessionMetadataTitles, readSessionMetadataTitles } from "./session-metadata.ts";
 
 export const DEFAULT_PORT = 4310;
 export const HOST = "127.0.0.1";
@@ -103,8 +104,15 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 			ledger.ingest(files);
 			const config = await loadRetentionConfig(agentDir);
 			ledger.pruneMetricsBefore(Date.now() - config.metricsRetentionDays * 24 * 60 * 60 * 1000);
-			const runs = await readRunSnapshot();
-			state.snapshot = aggregate(overlayLiveSessionState(ledger.readSessions(), files), {
+			const [runs, metadataTitles] = await Promise.all([
+				readRunSnapshot(),
+				readSessionMetadataTitles(agentDir),
+			]);
+			const sessions = overlaySessionMetadataTitles(
+				overlayLiveSessionState(ledger.readSessions(), files),
+				metadataTitles,
+			);
+			state.snapshot = aggregate(sessions, {
 				sessionsRoot: options.sessionsRoot,
 				now: Date.now(),
 				scanDurationMs: Date.now() - started,

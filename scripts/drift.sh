@@ -3,6 +3,9 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 agent_dir="${PI_AGENT_DIR:-${HOME}/.pi/agent}"
 shared_skills_dir="${AGENTS_SKILLS_DIR:-${HOME}/.agents/skills}"
+default_agent_dir="${HOME}/.pi/agent"
+default_shared_skills_dir="${HOME}/.agents/skills"
+macos_launch_agents_dir="${HOME}/Library/LaunchAgents"
 manifest_script="${repo_dir}/scripts/manifest.mjs"
 repo_real_dir="$(cd -P "$repo_dir" && pwd)"
 assert_read_root() {
@@ -130,4 +133,19 @@ while IFS=$'\t' read -r relative _backup; do
     echo "obsolete: shared/$relative (declared retired target still exists)"; found=true
   fi
 done < <(manifest list retired shared)
+
+if [[ "$(uname -s)" == "Darwin" && "$agent_dir" == "$default_agent_dir" && "$shared_skills_dir" == "$default_shared_skills_dir" ]]; then
+  assert_read_root "$macos_launch_agents_dir"
+  while IFS=$'\t' read -r source relative _backup; do
+    assert_read_target_parent "$macos_launch_agents_dir" "$relative"
+    target="$macos_launch_agents_dir/$relative"
+    if [[ ! -e "$target" && ! -L "$target" ]]; then
+      echo "missing: macOS LaunchAgent $relative"; found=true
+    elif [[ -L "$target" ]]; then
+      echo "different: macOS LaunchAgent $relative is an unexpected link"; found=true
+    elif ! cmp -s "$repo_dir/$source" "$target"; then
+      echo "different: macOS LaunchAgent $relative"; found=true
+    fi
+  done < <(manifest list macosLaunchAgents)
+fi
 [[ "$found" == false ]] && echo "No managed file drift detected."

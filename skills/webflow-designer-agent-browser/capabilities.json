@@ -15,6 +15,19 @@
       "loadWhen": "starting, releasing, stopping, or diagnosing the authenticated browser runtime"
     },
     {
+      "id": "browser.cookie-transfer",
+      "category": "runtime",
+      "implementation": "scripts/cookie-transfer.mjs",
+      "owner": "cookie-transfer",
+      "purpose": "Explicitly transfer only allowlisted, unexpired Chrome cookies into the dedicated runtime through loopback CDP.",
+      "inputs": ["private-policy-override", "source-cookie-database", "loopback-cdp-endpoint", "explicit-confirmation"],
+      "postconditions": ["count-only-transfer-result", "source-profile-untouched", "temporary-snapshot-removed"],
+      "sensitivity": "credentials",
+      "maturity": "provisional",
+      "disposition": "keep",
+      "loadWhen": "an authenticated run explicitly opts into cookie transfer"
+    },
+    {
       "id": "designer.session",
       "category": "designer",
       "implementation": "scripts/designer-session.py",

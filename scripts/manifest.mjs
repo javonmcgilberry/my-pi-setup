@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 export const MANIFEST_VERSION = 1;
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const ROOTS = new Set(["pi", "shared"]);
+const ROOTS = new Set(["pi", "shared", "macosLaunchAgents"]);
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -38,15 +38,15 @@ function assertRelativePath(value, label, { allowTrailingSlash = false } = {}) {
 
 function assertRoot(root, label) {
   if (typeof root !== "string" || !ROOTS.has(root)) {
-    throw new Error(`${label} must be one of: pi, shared`);
+    throw new Error(`${label} must be one of: pi, shared, macosLaunchAgents`);
   }
   return root;
 }
 
 function backupPath(root, target) {
-  return root === "pi"
-    ? target
-    : `external-agents-skills-${target.replaceAll("/", "-")}`;
+  if (root === "pi") return target;
+  if (root === "shared") return `external-agents-skills-${target.replaceAll("/", "-")}`;
+  return `macos-launch-agents-${target.replaceAll("/", "-")}`;
 }
 
 function assertSource(source, label, repoRoot) {
@@ -157,6 +157,7 @@ export function normalizeManifest(raw, { repoRoot = REPO_ROOT } = {}) {
     "copied",
     "linked",
     "sharedSkills",
+    "macosLaunchAgents",
     "retired",
     "externalLinks",
     "localOverrides",
@@ -173,6 +174,13 @@ export function normalizeManifest(raw, { repoRoot = REPO_ROOT } = {}) {
   const copied = normalizeCopied(raw.copied, repoRoot);
   const linked = normalizeMap(raw.linked, "linked", "pi", repoRoot);
   const sharedSkills = normalizeMap(raw.sharedSkills, "sharedSkills", "shared", repoRoot);
+  const macosLaunchAgents = normalizeMap(
+    raw.macosLaunchAgents,
+    "macosLaunchAgents",
+    "macosLaunchAgents",
+    repoRoot,
+    { filesOnly: true },
+  );
   const retired = normalizeRetired(raw.retired);
   const externalLinks = normalizePaths(raw.externalLinks, "externalLinks");
   const localOverrides = normalizePaths(raw.localOverrides, "localOverrides");
@@ -181,10 +189,17 @@ export function normalizeManifest(raw, { repoRoot = REPO_ROOT } = {}) {
   });
 
   assertUniqueTargets(
-    [...rendered, ...copied, ...linked, ...sharedSkills, ...retired],
+    [...rendered, ...copied, ...linked, ...sharedSkills, ...macosLaunchAgents, ...retired],
     "manifest",
   );
-  const managedEntries = [...rendered, ...copied, ...linked, ...sharedSkills, ...retired];
+  const managedEntries = [
+    ...rendered,
+    ...copied,
+    ...linked,
+    ...sharedSkills,
+    ...macosLaunchAgents,
+    ...retired,
+  ];
   assertDisjointTargets(managedEntries);
   assertUniqueBackups(managedEntries);
   for (const target of externalLinks) {
@@ -210,6 +225,7 @@ export function normalizeManifest(raw, { repoRoot = REPO_ROOT } = {}) {
     copied,
     linked,
     sharedSkills,
+    macosLaunchAgents,
     retired,
     externalLinks,
     localOverrides,
@@ -224,6 +240,7 @@ export function loadManifest(manifestPath = resolve(REPO_ROOT, "config/manifest.
 
 export function entriesFor(manifest, category, root) {
   if (category === "shared") return manifest.sharedSkills;
+  if (category === "macosLaunchAgents") return manifest.macosLaunchAgents;
   if (category === "retired") return manifest.retired.filter((entry) => entry.root === root);
   if (category === "linked") {
     return manifest.linked.filter((entry) => entry.root === (root ?? "pi"));
@@ -257,6 +274,7 @@ function main(argv) {
         copied: manifest.copied.length,
         linked: manifest.linked.length,
         sharedSkills: manifest.sharedSkills.length,
+        macosLaunchAgents: manifest.macosLaunchAgents.length,
         retired: manifest.retired.length,
       })}\n`,
     );
@@ -279,7 +297,7 @@ function main(argv) {
     if (violations.length) throw new Error(`repository inventory includes runtime exclusions: ${violations.join(", ")}`);
     return;
   }
-  throw new Error("Usage: manifest.mjs validate | check-inventory | list <rendered|copied|linked|shared|retired|externalLinks|localOverrides|runtimeExclusions> [root]");
+  throw new Error("Usage: manifest.mjs validate | check-inventory | list <rendered|copied|linked|shared|macosLaunchAgents|retired|externalLinks|localOverrides|runtimeExclusions> [root]");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
