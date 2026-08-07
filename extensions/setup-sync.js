@@ -1,26 +1,205 @@
-import { closeSync, existsSync, mkdtempSync, openSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import {
+	closeSync,
+	existsSync,
+	mkdirSync,
+	openSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 
+import {
+	applyPinUpdates,
+	parsePackagePin,
+	planGitPinUpdate,
+	planNpmUpdates,
+	registryUrl,
+} from "./setup-update.js";
+
 const CHECK_TIMEOUT_MS = 15 * 60 * 1000;
-const APPLY_SCRIPT = `
+const STATUS_KEY = "sync-me";
+
+/** Fast pre-shutdown gate. The full matrix runs detached, once no Pi session is waiting on it. */
+export const CHECK_COMMAND =
+	"./scripts/check.sh --fast && npm pack --dry-run >/dev/null";
+
+/** Git never gets to open an interactive credential prompt that nobody can answer. */
+export function gitCommand(args) {
+	return ["env", ["GIT_TERMINAL_PROMPT=0", "git", ...args]];
+}
+
+export const APPLY_SCRIPT = `
 set -eu
 repo="$1"
-printf 'Waiting for every Pi process to exit...\\n'
-while pgrep -x pi >/dev/null 2>&1; do
-  sleep 1
-done
 cd "$repo"
+waited=0
+while pgrep -x pi >/dev/null 2>&1; do
+  if [ "$(( waited % 15 ))" -eq 0 ]; then
+    printf 'Waiting for these Pi processes to exit: %s\\n' "$(pgrep -x pi | tr '\\n' ' ')"
+  fi
+  sleep 1
+  waited=$(( waited + 1 ))
+done
+printf 'All Pi sessions closed. Running the full checks...\\n'
+if ! ./scripts/check.sh; then
+  printf 'FAILED: the full checks did not pass. Setup was NOT applied.\\n'
+  exit 1
+fi
 ./setup.sh
 ./scripts/drift.sh
 printf 'Setup applied and drift verified. Start Pi again from the setup repository.\\n'
 `;
 
+export function applyLogPath(env = process.env, home = homedir()) {
+	return join(env.PI_AGENT_DIR || join(home, ".pi", "agent"), "sync-me.log");
+}
+
+/** Ask npm for each package's current release. A lookup that fails just means "no update offered". */
+export async function fetchLatestVersions(names, fetchJson) {
+	const entries = await Promise.all(
+		names.map(async (name) => {
+			const version = await fetchJson(registryUrl(name));
+			return typeof version === "string" ? [name, version] : undefined;
+		}),
+	);
+	return new Map(entries.filter(Boolean));
+}
+
+async function registryVersion(url) {
+	try {
+		const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+		if (!response.ok) return undefined;
+		const body = await response.json();
+		return body?.version;
+	} catch {
+		return undefined;
+	}
+}
+
+/** Footer progress, so a multi-second step never looks like a frozen session. */
+function startProgress(ctx, label) {
+	const started = Date.now();
+	const render = () => {
+		const seconds = Math.round((Date.now() - started) / 1000);
+		ctx.ui.setStatus(STATUS_KEY, `${label} (${seconds}s)`);
+	};
+	render();
+	const timer = setInterval(render, 1000);
+	timer.unref?.();
+	return () => {
+		clearInterval(timer);
+		ctx.ui.setStatus(STATUS_KEY, undefined);
+	};
+}
+
+/** Match a local checkout back to the tracked git pin it replaces. */
+export function trackedPinFor(packages, replacementSource) {
+	return packages.find((source) => {
+		const pin = parsePackagePin(source);
+		return pin?.kind === "git" && pin.locator === replacementSource;
+	});
+}
+
+/**
+ * Bring one local checkout to a state whose HEAD is safe to pin: clean, and
+ * present on a remote branch. Dirty work is only ever committed after the user
+ * supplies a message and confirms both the commit and the push.
+ */
+export async function readyCheckoutForPinning(checkout, exec, ctx) {
+	const run = (args, timeout = 30_000) =>
+		exec(...gitCommand(["-C", checkout, ...args]), { cwd: checkout, timeout });
+	const headIsPublished = async () => {
+		const remote = await run(["branch", "-r", "--contains", "HEAD"]);
+		return remote.code === 0 && remote.stdout.trim().length > 0;
+	};
+
+	const status = await run(["status", "--porcelain"]);
+	if (status.code !== 0) {
+		return {
+			ok: false,
+			message: `Could not inspect ${checkout}: ${summarizeFailure(status)}`,
+		};
+	}
+
+	if (status.stdout.trim()) {
+		const files = status.stdout.trim().split(/\r?\n/);
+		const preview = files.slice(0, 10).join("\n");
+		const extra = files.length > 10 ? `\n...and ${files.length - 10} more` : "";
+		const message = await ctx.ui.input(
+			`Commit message for ${files.length} changed file(s) in ${checkout}`,
+			"Leave empty to cancel",
+		);
+		if (!message?.trim()) {
+			return {
+				ok: false,
+				message: `${checkout} has uncommitted changes; nothing was committed.`,
+			};
+		}
+		const confirmed = await ctx.ui.confirm(
+			`Commit and push to ${checkout}?`,
+			`${preview}${extra}\n\nMessage: ${message.trim()}\n\nThis pushes to the public remote. Nothing else is published.`,
+		);
+		if (!confirmed) {
+			return { ok: false, message: "Commit cancelled; no pin was changed." };
+		}
+		const staged = await run(["add", "-A"]);
+		if (staged.code !== 0) {
+			return {
+				ok: false,
+				message: `Could not stage ${checkout}: ${summarizeFailure(staged)}`,
+			};
+		}
+		const committed = await run(["commit", "-m", message.trim()]);
+		if (committed.code !== 0) {
+			return {
+				ok: false,
+				message: `Could not commit ${checkout}: ${summarizeFailure(committed)}`,
+			};
+		}
+	}
+
+	// A pin is only installable once the commit exists on a remote branch. A clean
+	// checkout that is already published needs no network write at all.
+	if (!(await headIsPublished())) {
+		const pushed = await run(["push"], 120_000);
+		if (pushed.code !== 0) {
+			return {
+				ok: false,
+				message: `Could not push ${checkout}: ${summarizeFailure(pushed)}`,
+			};
+		}
+		if (!(await headIsPublished())) {
+			return {
+				ok: false,
+				message: `HEAD of ${checkout} is not on any remote branch; it cannot be pinned.`,
+			};
+		}
+	}
+	const head = await run(["rev-parse", "HEAD"]);
+	if (head.code !== 0) {
+		return {
+			ok: false,
+			message: `Could not read HEAD of ${checkout}: ${summarizeFailure(head)}`,
+		};
+	}
+	return { ok: true, head: head.stdout.trim() };
+}
+
+export function describeUpdates(updates) {
+	return updates
+		.map((update) => `  ${update.name}  ${update.from} → ${update.to}`)
+		.join("\n");
+}
+
 export function findSetupRoot(cwd, fileExists = existsSync) {
 	let current = resolve(cwd);
 	while (true) {
-		if (fileExists(join(current, "setup.sh")) && fileExists(join(current, "config", "manifest.json"))) {
+		if (
+			fileExists(join(current, "setup.sh")) &&
+			fileExists(join(current, "config", "manifest.json"))
+		) {
 			return current;
 		}
 		const parent = dirname(current);
@@ -40,11 +219,27 @@ export function summarizeFailure(result) {
 export function localGitReplacements(root) {
 	const settingsPath = join(root, "settings.local.json");
 	if (!existsSync(settingsPath)) return [];
-	const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
+	let settings;
+	try {
+		settings = JSON.parse(readFileSync(settingsPath, "utf8"));
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		throw new Error(`Could not read ${settingsPath}: ${message}`, {
+			cause: error,
+		});
+	}
 	const replacements = settings?.packageReplacements;
-	if (!replacements || typeof replacements !== "object" || Array.isArray(replacements)) return [];
+	if (
+		!replacements ||
+		typeof replacements !== "object" ||
+		Array.isArray(replacements)
+	)
+		return [];
 	return Object.entries(replacements)
-		.filter(([source, target]) => source.startsWith("git:") && typeof target === "string")
+		.filter(
+			([source, target]) =>
+				source.startsWith("git:") && typeof target === "string",
+		)
 		.map(([source, target]) => ({ source, path: resolve(root, target) }));
 }
 
@@ -54,22 +249,37 @@ export async function syncLocalGitCheckouts(root, exec) {
 	for (const replacement of localGitReplacements(root)) {
 		if (seen.has(replacement.path)) continue;
 		seen.add(replacement.path);
-		const status = await exec("git", ["-C", replacement.path, "status", "--porcelain"], {
-			cwd: root,
-			timeout: 30_000,
-		});
+		const status = await exec(
+			...gitCommand(["-C", replacement.path, "status", "--porcelain"]),
+			{
+				cwd: root,
+				timeout: 30_000,
+			},
+		);
 		if (status.code !== 0) {
-			return { ok: false, message: `Could not inspect ${replacement.path}: ${summarizeFailure(status)}` };
+			return {
+				ok: false,
+				message: `Could not inspect ${replacement.path}: ${summarizeFailure(status)}`,
+			};
 		}
 		if (status.stdout.trim()) {
-			return { ok: false, message: `${replacement.path} has uncommitted changes; commit or stash them before /sync-me.` };
+			return {
+				ok: false,
+				message: `${replacement.path} has uncommitted changes; commit or stash them before /sync-me.`,
+			};
 		}
-		const pull = await exec("git", ["-C", replacement.path, "pull", "--ff-only"], {
-			cwd: root,
-			timeout: 120_000,
-		});
+		const pull = await exec(
+			...gitCommand(["-C", replacement.path, "pull", "--ff-only"]),
+			{
+				cwd: root,
+				timeout: 120_000,
+			},
+		);
 		if (pull.code !== 0) {
-			return { ok: false, message: `Could not fast-forward ${replacement.path}: ${summarizeFailure(pull)}` };
+			return {
+				ok: false,
+				message: `Could not fast-forward ${replacement.path}: ${summarizeFailure(pull)}`,
+			};
 		}
 		synced.push(replacement.path);
 	}
@@ -77,15 +287,19 @@ export async function syncLocalGitCheckouts(root, exec) {
 }
 
 function startApply(root) {
-	const directory = mkdtempSync(join(tmpdir(), "pi-sync-me-"));
-	const logPath = join(directory, "apply.log");
-	const log = openSync(logPath, "a");
+	const logPath = applyLogPath();
+	mkdirSync(dirname(logPath), { recursive: true });
+	const log = openSync(logPath, "w");
 	try {
-		const child = spawn(process.env.SHELL || "/bin/sh", ["-c", APPLY_SCRIPT, "sync-me", root], {
-			cwd: root,
-			detached: true,
-			stdio: ["ignore", log, log],
-		});
+		const child = spawn(
+			process.env.SHELL || "/bin/sh",
+			["-c", APPLY_SCRIPT, "sync-me", root],
+			{
+				cwd: root,
+				detached: true,
+				stdio: ["ignore", log, log],
+			},
+		);
 		child.unref();
 		return { logPath, pid: child.pid };
 	} finally {
@@ -93,12 +307,89 @@ function startApply(root) {
 	}
 }
 
+/**
+ * `/sync-me update`: refresh the tracked pins in this repository.
+ *
+ * It never writes live settings and never commits this repository. You review
+ * `git diff settings.json` and commit yourself, then `/sync-me` applies it.
+ */
+async function runUpdate(pi, ctx, root) {
+	const settingsPath = join(root, "settings.json");
+	const settingsText = readFileSync(settingsPath, "utf8");
+	let packages;
+	try {
+		packages = JSON.parse(settingsText).packages ?? [];
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		ctx.ui.notify(`Could not read ${settingsPath}: ${message}`, "error");
+		return;
+	}
+	const exec = (command, commandArgs, options) =>
+		pi.exec(command, commandArgs, options);
+
+	// Local checkouts first: a git pin can only move to a commit that is pushed.
+	const gitUpdates = [];
+	for (const replacement of localGitReplacements(root)) {
+		const pinned = trackedPinFor(packages, replacement.source);
+		if (!pinned) continue;
+		const ready = await readyCheckoutForPinning(replacement.path, exec, ctx);
+		if (!ready.ok) {
+			ctx.ui.notify(ready.message, "warning");
+			continue;
+		}
+		const update = planGitPinUpdate(pinned, ready.head);
+		if (update) gitUpdates.push(update);
+	}
+
+	const stopProgress = startProgress(
+		ctx,
+		"sync-me: checking npm for newer releases",
+	);
+	const npmNames = packages
+		.map((source) => parsePackagePin(source))
+		.filter((pin) => pin?.kind === "npm")
+		.map((pin) => pin.name);
+	const latest = await fetchLatestVersions(npmNames, registryVersion).finally(
+		stopProgress,
+	);
+	const updates = [...gitUpdates, ...planNpmUpdates(packages, latest)];
+
+	if (updates.length === 0) {
+		ctx.ui.notify("Every tracked pin is already current.", "info");
+		return;
+	}
+
+	const confirmed = await ctx.ui.confirm(
+		`Write ${updates.length} pin update(s) to settings.json?`,
+		`${describeUpdates(updates)}\n\nThis edits the tracked settings.json only. It does not commit this repository, touch live settings, or apply the setup.`,
+	);
+	if (!confirmed) {
+		ctx.ui.notify("No pins were changed.", "info");
+		return;
+	}
+
+	try {
+		writeFileSync(settingsPath, applyPinUpdates(settingsText, updates));
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		ctx.ui.notify(`Could not update settings.json: ${message}`, "error");
+		return;
+	}
+
+	ctx.ui.notify(
+		`Updated ${updates.length} pin(s). Review with "git diff settings.json", run ./scripts/check.sh, commit, then /sync-me to apply.`,
+		"info",
+	);
+}
+
 export default function setupSync(pi) {
 	pi.registerCommand("sync-me", {
-		description: "Validate and apply this setup after Pi sessions close",
+		description:
+			"Update tracked pins, or apply this setup after Pi sessions close",
 		handler: async (args, ctx) => {
-			if (args.trim()) {
-				ctx.ui.notify("Usage: /sync-me", "warning");
+			const subcommand = args.trim();
+			if (subcommand && subcommand !== "update") {
+				ctx.ui.notify("Usage: /sync-me [update]", "warning");
 				return;
 			}
 			if (!ctx.hasUI) {
@@ -112,9 +403,14 @@ export default function setupSync(pi) {
 				return;
 			}
 
+			if (subcommand === "update") {
+				await runUpdate(pi, ctx, root);
+				return;
+			}
+
 			const confirmed = await ctx.ui.confirm(
 				"Apply the Pi setup after shutdown?",
-				"Fast-forwards clean local Git package replacements, runs the full checks, waits for every Pi process to exit, applies the current checkout, and verifies drift. It does not pull the setup repository, push, commit, or upgrade pinned packages.",
+				"Fast-forwards clean local Git package replacements, runs the fast checks, then shuts this session down. A detached helper waits for every Pi process to exit, runs the full checks, applies the current checkout, and verifies drift. It does not pull the setup repository, push, commit, or upgrade pinned packages.",
 			);
 			if (!confirmed) {
 				ctx.ui.notify("Setup apply cancelled.", "info");
@@ -122,29 +418,49 @@ export default function setupSync(pi) {
 			}
 
 			ctx.ui.notify("Updating clean local package checkouts...", "info");
-			const localSync = await syncLocalGitCheckouts(root, (command, commandArgs, options) =>
-				pi.exec(command, commandArgs, options),
+			const stopSyncProgress = startProgress(
+				ctx,
+				"sync-me: updating local package checkouts",
 			);
+			const localSync = await syncLocalGitCheckouts(
+				root,
+				(command, commandArgs, options) =>
+					pi.exec(command, commandArgs, options),
+			).finally(stopSyncProgress);
 			if (!localSync.ok) {
-				ctx.ui.notify(`Local package sync failed: ${localSync.message}`, "error");
+				ctx.ui.notify(
+					`Local package sync failed: ${localSync.message}`,
+					"error",
+				);
 				return;
 			}
 
-			ctx.ui.notify("Local packages synced. Running setup checks before shutdown...", "info");
-			const checks = await pi.exec(
-				"bash",
-				["-c", "./scripts/check.sh && npm pack --dry-run >/dev/null"],
-				{ cwd: root, timeout: CHECK_TIMEOUT_MS },
+			ctx.ui.notify(
+				"Local packages synced. Running fast checks before shutdown...",
+				"info",
 			);
+			const stopCheckProgress = startProgress(
+				ctx,
+				"sync-me: running fast checks",
+			);
+			const checks = await pi
+				.exec("bash", ["-c", CHECK_COMMAND], {
+					cwd: root,
+					timeout: CHECK_TIMEOUT_MS,
+				})
+				.finally(stopCheckProgress);
 			if (checks.code !== 0) {
-				ctx.ui.notify(`Setup checks failed:\n${summarizeFailure(checks)}`, "error");
+				ctx.ui.notify(
+					`Fast checks failed:\n${summarizeFailure(checks)}`,
+					"error",
+				);
 				return;
 			}
 
 			try {
 				const { logPath } = startApply(root);
 				ctx.ui.notify(
-					`Checks passed. Pi will close, then setup will wait for other Pi sessions and apply the checkout. Log: ${logPath}`,
+					`Fast checks passed. Pi will close, then the helper waits for other Pi sessions, runs the full checks, and applies the checkout. Follow it with: tail -f ${logPath}`,
 					"info",
 				);
 				ctx.shutdown();

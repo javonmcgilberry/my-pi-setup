@@ -13,6 +13,7 @@
     "extensions/herdr-agent-state.ts",
     "extensions/pretty-footer.ts",
     "extensions/setup-sync.js",
+    "extensions/setup-update.js",
     "packages/context-budget/context-budget.mjs",
     "packages/context-budget/index.ts",
     "packages/context-budget/package.json",

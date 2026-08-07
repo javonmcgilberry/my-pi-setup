@@ -70,7 +70,11 @@ Validate the full setup/package boundary, not just the file you edited:
 npm pack --dry-run
 ```
 
-`drift.sh` is read-only. Code-only changes generally need a Pi restart to load.
+`./scripts/check.sh --fast` skips `scripts/setup.test.mjs`, the setup matrix
+that shells out to `setup.sh` repeatedly and accounts for most of the runtime.
+The fast tier finishes in seconds and is what `/sync-me` runs before shutdown;
+run the full checks before you call a change done. `drift.sh` is read-only.
+Code-only changes generally need a Pi restart to load.
 Changes to rendered settings, copied configuration, or bootstrap inventory
 require rerunning `setup.sh`. Git commits, pushes, tags, and package upgrades
 are separate explicit operations.
@@ -111,15 +115,56 @@ upgrades remain separate operations.
 
 From an interactive Pi started in this repository, `/sync-me` automates that
 same safe apply boundary. After confirmation, it fast-forwards clean local Git
-package replacements, runs `check.sh` and a package dry run, schedules a
-detached helper, and shuts down the current Pi. The helper
-waits for every Pi process to exit, runs `setup.sh`, and verifies `drift.sh`.
-It does not pull the setup repository, force-close another session, push,
-commit, or upgrade pinned packages. Dirty or divergent local package checkouts
-stop the command rather than being overwritten. If another Pi remains open, the
-helper waits; its log path is shown before shutdown. Start Pi normally to apply
-the live setup, or use the same
-temporary environment variables above to apply only to a temporary test setup.
+package replacements, runs `check.sh --fast` and a package dry run, schedules a
+detached helper, and shuts down the current Pi. The helper waits for every Pi
+process to exit, runs the **full** `check.sh`, runs `setup.sh`, and verifies
+`drift.sh`. Failing full checks abort the helper before `setup.sh` runs, so
+nothing is applied. It does not pull the setup repository, force-close another
+session, push, commit, or upgrade pinned packages. Dirty or divergent local
+package checkouts stop the command rather than being overwritten.
+
+While the command runs, a footer status line shows the current step and elapsed
+seconds. Everything after shutdown goes to `~/.pi/agent/sync-me.log`
+(`$PI_AGENT_DIR/sync-me.log` when that variable is set), rewritten each run:
+
+```sh
+tail -f ~/.pi/agent/sync-me.log
+```
+
+If another Pi session stays open, the helper waits for it and names the process
+IDs it is waiting on in that log, so a long wait is visible rather than silent.
+Start Pi normally to apply the live setup, or use the same temporary environment
+variables above to apply only to a temporary test setup.
+
+### Updating tracked pins
+
+`pi update` and the extension manager write to the live
+`~/.pi/agent/settings.json`, which `setup.sh` regenerates from the tracked
+`settings.json` in this repository. Their updates are therefore lost at the next
+apply. Tracked `settings.json` is the only source of truth for versions.
+
+`/sync-me update` refreshes that tracked file instead:
+
+1. For each local Git package replacement, it readies the checkout so its HEAD
+   can be pinned. A clean checkout is pushed; a dirty one prompts for a commit
+   message and needs explicit confirmation of the commit and push. Empty message
+   or declined confirmation leaves the checkout untouched and skips that pin.
+2. It asks the npm registry for the current release of every `npm:` pin. A
+   failed lookup offers no update rather than failing the command.
+3. It shows every proposed change and writes them to tracked `settings.json`
+   only after you confirm.
+
+It does not commit this repository, touch live settings, or apply the setup.
+Review and land the result yourself:
+
+```sh
+git diff settings.json
+./scripts/check.sh
+git commit -am "chore: update tracked pins"
+```
+
+Then `/sync-me` applies it. A Git pin only ever moves to a commit that is
+already on a remote branch, so a pin can never point at unpushed local work.
 
 Keep machine-only choices in ignored `settings.local.json`:
 
@@ -148,7 +193,7 @@ sources, and the local replacement wins when it is present:
    exact remote commit:
 
 ```text
-git:github.com/javonmcgilberry/pi-prewalk@c22cf7e927b3d67d28d12a4ea9f74afbdb8b94dc
+git:github.com/javonmcgilberry/pi-prewalk@a0b2a8e4d02bb38f43a64d6ff49e96cfea9e2ce4
 ```
 
 If the local replacement is present, Pi does **not** use the managed Git
@@ -177,6 +222,10 @@ has uncommitted or divergent changes. You do **not** update the tracked SHA for
 every local edit. Only update that SHA when publishing a new default remote
 version, after the commit has been pushed. `check.sh` fetches every tracked Git
 pin from its remote, so a local-only commit is not a valid default pin.
+
+`/sync-me update` performs that publish step: it pushes the checkout (prompting
+for a commit message first when the checkout is dirty) and then rewrites the
+tracked SHA to the pushed HEAD. Hand-editing the SHA is no longer necessary.
 
 ## Core Pi settings
 
@@ -307,7 +356,8 @@ package itself.
 | Herdr agent state | Reports Pi session identity and working, blocked, or idle state to Herdr over its local socket. It does nothing unless `HERDR_ENV=1`, `HERDR_SOCKET_PATH`, and `HERDR_PANE_ID` are all set. | [`extensions/herdr-agent-state.ts`](extensions/herdr-agent-state.ts), loaded from this Pi package. Herdr owns the generated integration format. |
 | Agent Browser Policy | Keeps model-assisted browser usage on the configured Pi model and gates nested chat and cookie transfer. | [`agent-browser-policy.json`](agent-browser-policy.json), [`extensions/agent-browser-policy.ts`](extensions/agent-browser-policy.ts), and the shared Webflow skill. Cookie transfer is off by default. |
 | Session Spend Dashboard | Runs an opt-in read-only localhost dashboard for provider-reported spend, token use, projects, sessions, and subagent activity. | [`extensions/session-spend-dashboard`](extensions/session-spend-dashboard), configured by [`session-spend-dashboard.json`](session-spend-dashboard.json). See its [README](extensions/session-spend-dashboard/README.md). |
-| `/sync-me` | Updates clean local package checkouts, validates, and schedules a safe setup apply after Pi sessions close. | [`extensions/setup-sync.js`](extensions/setup-sync.js). It does not pull this setup repository or change its Git state. |
+| `/sync-me` | Updates clean local package checkouts, runs the fast checks, and schedules a safe setup apply after Pi sessions close. | [`extensions/setup-sync.js`](extensions/setup-sync.js). The full checks run in the detached helper; progress appears in the footer and in `~/.pi/agent/sync-me.log`. It does not pull this setup repository or change its Git state. |
+| `/sync-me update` | Rewrites the tracked pins in `settings.json` to current npm releases and pushed local-checkout commits. | [`extensions/setup-sync.js`](extensions/setup-sync.js) with pin planning in [`extensions/setup-update.js`](extensions/setup-update.js). It never writes live settings and never commits this repository; you review the diff and commit. |
 | Warp session title | Shows the current Pi session name and project in the active Warp tab. It does nothing in other terminals. | [`extensions/warp-session-title.ts`](extensions/warp-session-title.ts), loaded from this Pi package. |
 | Clear status | Older compact usage/status implementation retained for reference but not loaded or packaged. | [`disabled-extensions/clear-status.ts`](disabled-extensions/clear-status.ts). |
 | Warp gateway links | Private Warp gateway and fallback extensions maintained in a separate repository. | Live links are `extensions/warp-gateway.ts` and `extensions/warp-link-fallback.ts`; edit `~/webdev/warp-pi-gateway`. |
@@ -640,3 +690,6 @@ dependency metadata, fetches every exact Git package ref in a temporary
 directory, verifies the tracked-file boundary, and looks for common secret
 patterns. The remote check catches a pin that exists only in an unpublished
 local checkout. It never reads or copies `auth.json`.
+
+Add `--fast` to skip the setup matrix (`scripts/setup.test.mjs`) when you want a
+quick gate; run it without `--fast` before calling a change done.
