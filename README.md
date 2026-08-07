@@ -193,7 +193,7 @@ sources, and the local replacement wins when it is present:
    exact remote commit:
 
 ```text
-git:github.com/javonmcgilberry/pi-prewalk@a0b2a8e4d02bb38f43a64d6ff49e96cfea9e2ce4
+git:github.com/javonmcgilberry/pi-prewalk@ea1d8df39249502b3ca68ea89316d9533b8861e4
 ```
 
 If the local replacement is present, Pi does **not** use the managed Git
