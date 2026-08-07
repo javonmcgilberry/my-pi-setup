@@ -30,10 +30,14 @@ test("succeeds and stages nothing when the pathspec has no changes", async () =>
 });
 
 test("does not require a message when there is nothing to commit", async () => {
-	const result = await run(["--path", "package.json", "--push"]);
-	assert.equal(result.code, 0, "a clean tree must not reach the push step");
+	const result = await run(["--path", "package.json"]);
+	assert.equal(result.code, 0, "a clean pathspec must not demand a message");
 	assert.match(result.stdout, /nothing to commit/);
 });
+
+// No test passes --push: this suite runs inside the real repository, so a case
+// that reached the push step would publish. The push branch is covered by
+// reading the script, not by executing it here.
 
 test("rejects an unknown flag instead of guessing", async () => {
 	const result = await run(["--bogus"]);
