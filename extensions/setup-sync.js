@@ -372,7 +372,10 @@ async function reviewAndCommit(pi, ctx, root, updates) {
 
 	const diff = await git(["diff", "--", "settings.json"]);
 	if (diff.code !== 0) {
-		ctx.ui.notify(`Could not read the diff: ${summarizeFailure(diff)}`, "error");
+		ctx.ui.notify(
+			`Could not read the diff: ${summarizeFailure(diff)}`,
+			"error",
+		);
 		return;
 	}
 	const changed = diff.stdout
@@ -386,13 +389,19 @@ async function reviewAndCommit(pi, ctx, root, updates) {
 			`${changed}\n\nDeclining leaves settings.json edited so you can finish by hand.`,
 		))
 	) {
-		ctx.ui.notify("Stopped before checks. settings.json is still edited.", "info");
+		ctx.ui.notify(
+			"Stopped before checks. settings.json is still edited.",
+			"info",
+		);
 		return;
 	}
 
 	const stopChecks = startProgress(ctx, "sync-me: running fast checks");
 	const checks = await pi
-		.exec("bash", ["-c", CHECK_COMMAND], { cwd: root, timeout: CHECK_TIMEOUT_MS })
+		.exec("bash", ["-c", CHECK_COMMAND], {
+			cwd: root,
+			timeout: CHECK_TIMEOUT_MS,
+		})
 		.finally(stopChecks);
 	if (checks.code !== 0) {
 		ctx.ui.notify(
