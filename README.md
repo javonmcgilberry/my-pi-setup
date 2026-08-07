@@ -143,7 +143,8 @@ variables above to apply only to a temporary test setup.
 `settings.json` in this repository. Their updates are therefore lost at the next
 apply. Tracked `settings.json` is the only source of truth for versions.
 
-`/sync-me update` refreshes that tracked file instead:
+`/sync-me update` refreshes that tracked file instead. It first works out what
+should move:
 
 1. For each local Git package replacement, it readies the checkout so its HEAD
    can be pinned. A clean checkout is pushed; a dirty one prompts for a commit
@@ -154,16 +155,27 @@ apply. Tracked `settings.json` is the only source of truth for versions.
 3. It shows every proposed change and writes them to tracked `settings.json`
    only after you confirm.
 
-It does not commit this repository, touch live settings, or apply the setup.
-Review and land the result yourself:
+It then walks the rest of the work without leaving Pi, one gate at a time.
+Continuing from the steps above:
+
+1. It shows the resulting `settings.json` diff and asks whether to run
+   `check.sh --fast`.
+2. On passing checks it offers a commit, pre-filled with a message naming every
+   pin that moved. Committing stages `settings.json` alone.
+3. It offers to apply, which runs the same shutdown-and-apply path as plain
+   `/sync-me`.
+
+Declining any gate stops the chain and leaves the edited `settings.json` in
+place, so you can always finish by hand:
 
 ```sh
 git diff settings.json
 ./scripts/check.sh
-git commit -am "chore: update tracked pins"
+git commit -m "chore: update tracked pins" -- settings.json
 ```
 
-Then `/sync-me` applies it. A Git pin only ever moves to a commit that is
+It never writes live settings, never pushes this repository, and never commits
+anything but `settings.json`. A Git pin only ever moves to a commit that is
 already on a remote branch, so a pin can never point at unpushed local work.
 
 Keep machine-only choices in ignored `settings.local.json`:
@@ -357,7 +369,7 @@ package itself.
 | Agent Browser Policy | Keeps model-assisted browser usage on the configured Pi model and gates nested chat and cookie transfer. | [`agent-browser-policy.json`](agent-browser-policy.json), [`extensions/agent-browser-policy.ts`](extensions/agent-browser-policy.ts), and the shared Webflow skill. Cookie transfer is off by default. |
 | Session Spend Dashboard | Runs an opt-in read-only localhost dashboard for provider-reported spend, token use, projects, sessions, and subagent activity. | [`extensions/session-spend-dashboard`](extensions/session-spend-dashboard), configured by [`session-spend-dashboard.json`](session-spend-dashboard.json). See its [README](extensions/session-spend-dashboard/README.md). |
 | `/sync-me` | Updates clean local package checkouts, runs the fast checks, and schedules a safe setup apply after Pi sessions close. | [`extensions/setup-sync.js`](extensions/setup-sync.js). The full checks run in the detached helper; progress appears in the footer and in `~/.pi/agent/sync-me.log`. It does not pull this setup repository or change its Git state. |
-| `/sync-me update` | Rewrites the tracked pins in `settings.json` to current npm releases and pushed local-checkout commits. | [`extensions/setup-sync.js`](extensions/setup-sync.js) with pin planning in [`extensions/setup-update.js`](extensions/setup-update.js). It never writes live settings and never commits this repository; you review the diff and commit. |
+| `/sync-me update` | Rewrites the tracked pins in `settings.json` to current npm releases and pushed local-checkout commits, then walks review, checks, commit, and apply in-session. | [`extensions/setup-sync.js`](extensions/setup-sync.js) with pin planning in [`extensions/setup-update.js`](extensions/setup-update.js). Every step is a separate confirmation; it never writes live settings, never pushes, and commits `settings.json` only. |
 | Warp session title | Shows the current Pi session name and project in the active Warp tab. It does nothing in other terminals. | [`extensions/warp-session-title.ts`](extensions/warp-session-title.ts), loaded from this Pi package. |
 | Clear status | Older compact usage/status implementation retained for reference but not loaded or packaged. | [`disabled-extensions/clear-status.ts`](disabled-extensions/clear-status.ts). |
 | Warp gateway links | Private Warp gateway and fallback extensions maintained in a separate repository. | Live links are `extensions/warp-gateway.ts` and `extensions/warp-link-fallback.ts`; edit `~/webdev/warp-pi-gateway`. |

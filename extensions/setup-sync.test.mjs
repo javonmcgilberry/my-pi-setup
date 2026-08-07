@@ -8,6 +8,7 @@ import {
 	APPLY_SCRIPT,
 	CHECK_COMMAND,
 	applyLogPath,
+	defaultCommitMessage,
 	describeUpdates,
 	fetchLatestVersions,
 	findSetupRoot,
@@ -256,6 +257,20 @@ test("refuses to pin a HEAD that never reaches a remote branch", async () => {
 
 	assert.equal(result.ok, false);
 	assert.match(result.message, /not on any remote branch/);
+});
+
+test("suggests a commit message that names what moved", () => {
+	assert.equal(
+		defaultCommitMessage([{ name: "pi-lens", from: "3.8.74", to: "3.9.0" }]),
+		"chore: update 1 tracked pin\n\npi-lens 3.8.74 -> 3.9.0\n",
+	);
+	assert.equal(
+		defaultCommitMessage([
+			{ name: "pi-lens", from: "3.8.74", to: "3.9.0" },
+			{ name: "pi-fzf", from: "0.9.0", to: "0.9.1" },
+		]),
+		"chore: update 2 tracked pins\n\npi-lens 3.8.74 -> 3.9.0\npi-fzf 0.9.0 -> 0.9.1\n",
+	);
 });
 
 test("logs the apply to a stable path that follows PI_AGENT_DIR", () => {

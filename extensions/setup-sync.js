@@ -307,11 +307,136 @@ function startApply(root) {
 	}
 }
 
+/** A commit message that names what actually moved, so history stays readable. */
+export function defaultCommitMessage(updates) {
+	const subject = `chore: update ${updates.length} tracked pin${updates.length === 1 ? "" : "s"}`;
+	return `${subject}\n\n${updates.map((update) => `${update.name} ${update.from} -> ${update.to}`).join("\n")}\n`;
+}
+
 /**
- * `/sync-me update`: refresh the tracked pins in this repository.
+ * Shut this session down and hand the apply to a detached helper. Shared by
+ * `/sync-me` and the tail of `/sync-me update`.
+ */
+async function runApply(pi, ctx, root) {
+	ctx.ui.notify("Updating clean local package checkouts...", "info");
+	const stopSyncProgress = startProgress(
+		ctx,
+		"sync-me: updating local package checkouts",
+	);
+	const localSync = await syncLocalGitCheckouts(
+		root,
+		(command, commandArgs, options) => pi.exec(command, commandArgs, options),
+	).finally(stopSyncProgress);
+	if (!localSync.ok) {
+		ctx.ui.notify(`Local package sync failed: ${localSync.message}`, "error");
+		return;
+	}
+
+	ctx.ui.notify(
+		"Local packages synced. Running fast checks before shutdown...",
+		"info",
+	);
+	const stopCheckProgress = startProgress(ctx, "sync-me: running fast checks");
+	const checks = await pi
+		.exec("bash", ["-c", CHECK_COMMAND], {
+			cwd: root,
+			timeout: CHECK_TIMEOUT_MS,
+		})
+		.finally(stopCheckProgress);
+	if (checks.code !== 0) {
+		ctx.ui.notify(`Fast checks failed:\n${summarizeFailure(checks)}`, "error");
+		return;
+	}
+
+	try {
+		const { logPath } = startApply(root);
+		ctx.ui.notify(
+			`Fast checks passed. Pi will close, then the helper waits for other Pi sessions, runs the full checks, and applies the checkout. Follow it with: tail -f ${logPath}`,
+			"info",
+		);
+		ctx.shutdown();
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		ctx.ui.notify(`Could not schedule setup apply: ${message}`, "error");
+	}
+}
+
+/**
+ * Review, validate, and commit the pin changes without leaving Pi. Each step is
+ * a gate: declining any of them stops the chain and leaves the edited
+ * settings.json in place to finish by hand.
+ */
+async function reviewAndCommit(pi, ctx, root, updates) {
+	const git = (args, timeout = 30_000) =>
+		pi.exec(...gitCommand(["-C", root, ...args]), { cwd: root, timeout });
+
+	const diff = await git(["diff", "--", "settings.json"]);
+	if (diff.code !== 0) {
+		ctx.ui.notify(`Could not read the diff: ${summarizeFailure(diff)}`, "error");
+		return;
+	}
+	const changed = diff.stdout
+		.split(/\r?\n/)
+		.filter((line) => /^[+-]\s*"/.test(line))
+		.join("\n");
+
+	if (
+		!(await ctx.ui.confirm(
+			"Run the fast checks on these changes?",
+			`${changed}\n\nDeclining leaves settings.json edited so you can finish by hand.`,
+		))
+	) {
+		ctx.ui.notify("Stopped before checks. settings.json is still edited.", "info");
+		return;
+	}
+
+	const stopChecks = startProgress(ctx, "sync-me: running fast checks");
+	const checks = await pi
+		.exec("bash", ["-c", CHECK_COMMAND], { cwd: root, timeout: CHECK_TIMEOUT_MS })
+		.finally(stopChecks);
+	if (checks.code !== 0) {
+		ctx.ui.notify(
+			`Fast checks failed, nothing was committed:\n${summarizeFailure(checks)}`,
+			"error",
+		);
+		return;
+	}
+
+	const suggested = defaultCommitMessage(updates);
+	const typed = await ctx.ui.input(
+		"Commit message (empty accepts the suggested one)",
+		suggested.split("\n", 1)[0],
+	);
+	if (typed === undefined) {
+		ctx.ui.notify("Commit cancelled. settings.json is still edited.", "info");
+		return;
+	}
+	const message = typed.trim() ? typed.trim() : suggested;
+
+	const committed = await git(["commit", "-m", message, "--", "settings.json"]);
+	if (committed.code !== 0) {
+		ctx.ui.notify(`Could not commit: ${summarizeFailure(committed)}`, "error");
+		return;
+	}
+	ctx.ui.notify("Checks passed and settings.json is committed.", "info");
+
+	if (
+		await ctx.ui.confirm(
+			"Apply the setup now?",
+			"Pi closes, then a detached helper waits for every Pi process to exit, runs the full checks, applies the checkout, and verifies drift. Decline to keep working and run /sync-me later.",
+		)
+	) {
+		await runApply(pi, ctx, root);
+		return;
+	}
+	ctx.ui.notify("Committed. Run /sync-me when you want to apply.", "info");
+}
+
+/**
+ * `/sync-me update`: refresh the tracked pins in this repository, then walk the
+ * review, check, commit, and apply gates without leaving Pi.
  *
- * It never writes live settings and never commits this repository. You review
- * `git diff settings.json` and commit yourself, then `/sync-me` applies it.
+ * It never writes live settings. Every mutation is behind its own confirmation.
  */
 async function runUpdate(pi, ctx, root) {
 	const settingsPath = join(root, "settings.json");
@@ -376,10 +501,8 @@ async function runUpdate(pi, ctx, root) {
 		return;
 	}
 
-	ctx.ui.notify(
-		`Updated ${updates.length} pin(s). Review with "git diff settings.json", run ./scripts/check.sh, commit, then /sync-me to apply.`,
-		"info",
-	);
+	ctx.ui.notify(`Updated ${updates.length} pin(s) in settings.json.`, "info");
+	await reviewAndCommit(pi, ctx, root, updates);
 }
 
 export default function setupSync(pi) {
@@ -417,57 +540,7 @@ export default function setupSync(pi) {
 				return;
 			}
 
-			ctx.ui.notify("Updating clean local package checkouts...", "info");
-			const stopSyncProgress = startProgress(
-				ctx,
-				"sync-me: updating local package checkouts",
-			);
-			const localSync = await syncLocalGitCheckouts(
-				root,
-				(command, commandArgs, options) =>
-					pi.exec(command, commandArgs, options),
-			).finally(stopSyncProgress);
-			if (!localSync.ok) {
-				ctx.ui.notify(
-					`Local package sync failed: ${localSync.message}`,
-					"error",
-				);
-				return;
-			}
-
-			ctx.ui.notify(
-				"Local packages synced. Running fast checks before shutdown...",
-				"info",
-			);
-			const stopCheckProgress = startProgress(
-				ctx,
-				"sync-me: running fast checks",
-			);
-			const checks = await pi
-				.exec("bash", ["-c", CHECK_COMMAND], {
-					cwd: root,
-					timeout: CHECK_TIMEOUT_MS,
-				})
-				.finally(stopCheckProgress);
-			if (checks.code !== 0) {
-				ctx.ui.notify(
-					`Fast checks failed:\n${summarizeFailure(checks)}`,
-					"error",
-				);
-				return;
-			}
-
-			try {
-				const { logPath } = startApply(root);
-				ctx.ui.notify(
-					`Fast checks passed. Pi will close, then the helper waits for other Pi sessions, runs the full checks, and applies the checkout. Follow it with: tail -f ${logPath}`,
-					"info",
-				);
-				ctx.shutdown();
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				ctx.ui.notify(`Could not schedule setup apply: ${message}`, "error");
-			}
+			await runApply(pi, ctx, root);
 		},
 	});
 }
