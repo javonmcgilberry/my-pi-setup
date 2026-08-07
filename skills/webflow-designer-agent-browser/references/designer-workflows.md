@@ -1,5 +1,36 @@
 # Designer Workflows
 
+## Two-stage readiness and QA handoff
+
+Local/authenticated Designer testing has two serial owners:
+
+1. A fresh setup/readiness subagent on the active default model at the highest available reasoning level inspects the HUD, starts only missing documented services, launches managed Chrome for Testing, verifies the exact authenticated Designer surface, then closes/releases the runtime.
+2. A browser executor starts only after `readiness-gate.py` emits `qaLaunchAllowed: true`. It performs the requested assertions against the proven environment and owns final browser cleanup.
+
+Never ask the QA executor to discover or repair the environment while it is also trying to test product behavior. Never overlap the two browser leases.
+
+Classify readiness with exactly these bounded states:
+
+- `hud`: the existing HUD is reachable.
+- `designer_service`: the required Designer task is running.
+- `target_http`: the exact target responds without connection refusal or gateway failure.
+- `browser_profile`: managed Chrome for Testing starts with the dedicated profile.
+- `designer_surface`: the exact authenticated tab renders the Designer readiness selector rather than login or `chrome-error://chromewebdata/`.
+
+For a successful handoff, pass each as `ready` and include `--runtime-stopped`:
+
+```sh
+python3 scripts/readiness-gate.py \
+  --check hud=ready \
+  --check designer_service=ready \
+  --check target_http=ready \
+  --check browser_profile=ready \
+  --check designer_surface=ready \
+  --runtime-stopped
+```
+
+Cold, warm, partial, and stale states all follow the same rule: setup may converge the environment, but QA cannot start until a clean READY handoff exists. `auth_required` requires manual headed login; `unavailable` and `error` remain setup blockers.
+
 ## URL and environment
 
 - Preserve the exact Designer URL, including `pageId`, `simulateRole`, host, and port. Campaign flows often use `?simulateRole=marketer&pageId=<page-id>`.

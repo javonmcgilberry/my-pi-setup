@@ -58,6 +58,24 @@ depending on repeated prompt instructions.
 
 ## Standard change workflow
 
+### Proportional execution and time discipline
+
+- Use the smallest workflow that can safely satisfy the request. Routine pin,
+  package, and configuration updates are not large-work projects.
+- For a straightforward update, confirm only the requested versions and any
+  stated runtime floor, make the edits, then run each repository-required
+  validation once. Batch final wording edits before validation so successful
+  full checks are not repeated.
+- Do not launch subagents or reviewer passes, perform broad package-source
+  research, add security audits, or build multiple smoke-test matrices for
+  routine maintenance unless the user explicitly requests that depth or a
+  concrete validation failure makes it necessary. Escalate one step at a time
+  from the actual failure.
+- If routine maintenance is likely to exceed ten minutes, needs more than one
+  retry, or starts expanding beyond the requested scope, stop and ask before
+  continuing. Report a live-application or restart boundary promptly instead
+  of turning it into a side investigation.
+
 1. Start in `~/Developer/my-pi-setup`, run `git status --short --branch`, and
    preserve existing work. Run Pi from the repository being changed.
 2. Create a branch or worktree only when the user asks for a PR or isolation.

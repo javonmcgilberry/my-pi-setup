@@ -1,20 +1,11 @@
 {
   "version": 1,
-  "models": {
-    "allowed": [
-      "openai-codex/gpt-5.6-luna"
-    ],
-    "requiredThinkingLevel": "max"
-  },
   "upstreamChat": {
     "enabled": false,
     "allowedModels": []
   },
   "cookieTransfer": {
     "enabled": false,
-    "allowedDomains": [
-      "webflow.com",
-      "wfdev.io"
-    ]
+    "allowedDomains": ["webflow.com", "wfdev.io"]
   }
 }

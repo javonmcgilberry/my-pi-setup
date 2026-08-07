@@ -7,16 +7,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const POLICY_ENV = "PI_AGENT_BROWSER_POLICY_CONFIG";
 const POLICY_FILE = "agent-browser-policy.json";
-const BROWSER_TOOLS = new Set(["agent_browser", "agent_browser_web_search"]);
-const THINKING_LEVELS = new Set([
-  "off",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-]);
+const POLICY_TOOL = "agent_browser";
 const GLOBAL_OPTIONS_WITH_VALUES = new Set([
   "--allowed-domains",
   "--cdp",
@@ -36,10 +27,6 @@ const GLOBAL_OPTIONS_WITH_VALUES = new Set([
 
 export type AgentBrowserPolicy = {
   version: 1;
-  models: {
-    allowed: string[];
-    requiredThinkingLevel: string;
-  };
   upstreamChat: {
     enabled: boolean;
     allowedModels: string[];
@@ -82,21 +69,17 @@ function requireRecord(value: unknown, path: string): Record<string, unknown> {
   return value;
 }
 
-function parseModels(value: unknown): AgentBrowserPolicy["models"] {
+function validateLegacyModels(value: unknown): void {
+  if (value === undefined) return;
   const models = requireRecord(value, "models");
   assertKnownKeys(models, ["allowed", "requiredThinkingLevel"], "models");
-  const allowed = requireStringArray(models.allowed, "models.allowed");
-  if (allowed.length === 0) {
-    throw new Error("models.allowed must contain at least one model");
-  }
-  const requiredThinkingLevel = models.requiredThinkingLevel;
+  requireStringArray(models.allowed, "models.allowed");
   if (
-    typeof requiredThinkingLevel !== "string" ||
-    !THINKING_LEVELS.has(requiredThinkingLevel)
+    typeof models.requiredThinkingLevel !== "string" ||
+    models.requiredThinkingLevel.trim() === ""
   ) {
-    throw new Error("models.requiredThinkingLevel is invalid");
+    throw new Error("models.requiredThinkingLevel must be a non-empty string");
   }
-  return { allowed, requiredThinkingLevel };
 }
 
 function parseUpstreamChat(value: unknown): AgentBrowserPolicy["upstreamChat"] {
@@ -117,9 +100,15 @@ function parseUpstreamChat(value: unknown): AgentBrowserPolicy["upstreamChat"] {
   return { enabled: upstreamChat.enabled, allowedModels: upstreamModels };
 }
 
-function parseCookieTransfer(value: unknown): AgentBrowserPolicy["cookieTransfer"] {
+function parseCookieTransfer(
+  value: unknown,
+): AgentBrowserPolicy["cookieTransfer"] {
   const cookieTransfer = requireRecord(value, "cookieTransfer");
-  assertKnownKeys(cookieTransfer, ["enabled", "allowedDomains"], "cookieTransfer");
+  assertKnownKeys(
+    cookieTransfer,
+    ["enabled", "allowedDomains"],
+    "cookieTransfer",
+  );
   if (typeof cookieTransfer.enabled !== "boolean") {
     throw new Error("cookieTransfer.enabled must be a boolean");
   }
@@ -140,10 +129,14 @@ function parseCookieTransfer(value: unknown): AgentBrowserPolicy["cookieTransfer
         /[\s\u0000-\u001f]/.test(domain),
     )
   ) {
-    throw new Error("cookieTransfer.allowedDomains accepts hostnames, not wildcards or URLs");
+    throw new Error(
+      "cookieTransfer.allowedDomains accepts hostnames, not wildcards or URLs",
+    );
   }
   if (cookieTransfer.enabled && normalizedDomains.length === 0) {
-    throw new Error("cookieTransfer.allowedDomains must not be empty when enabled");
+    throw new Error(
+      "cookieTransfer.allowedDomains must not be empty when enabled",
+    );
   }
   return {
     enabled: cookieTransfer.enabled,
@@ -156,10 +149,14 @@ export function parseAgentBrowserPolicy(value: unknown): AgentBrowserPolicy {
   if (policy.version !== 1) {
     throw new Error("agent-browser policy must be a version 1 object");
   }
-  assertKnownKeys(policy, ["version", "models", "upstreamChat", "cookieTransfer"], "policy");
+  assertKnownKeys(
+    policy,
+    ["version", "models", "upstreamChat", "cookieTransfer"],
+    "policy",
+  );
+  validateLegacyModels(policy.models);
   return {
     version: 1,
-    models: parseModels(policy.models),
     upstreamChat: parseUpstreamChat(policy.upstreamChat),
     cookieTransfer: parseCookieTransfer(policy.cookieTransfer),
   };
@@ -172,7 +169,8 @@ export function resolveAgentBrowserPolicyPath(
   if (configured) {
     return isAbsolute(configured) ? configured : resolve(configured);
   }
-  const agentDir = env.PI_AGENT_DIR?.trim() || join(env.HOME || homedir(), ".pi", "agent");
+  const agentDir =
+    env.PI_AGENT_DIR?.trim() || join(env.HOME || homedir(), ".pi", "agent");
   const installed = join(agentDir, POLICY_FILE);
   if (existsSync(installed)) return installed;
   return join(dirname(dirname(fileURLToPath(import.meta.url))), POLICY_FILE);
@@ -219,7 +217,9 @@ function explicitModel(args: unknown): string | undefined {
     const token = args[index];
     if (token === "--model") {
       const value = args[index + 1];
-      return typeof value === "string" && value.trim() ? value.trim() : undefined;
+      return typeof value === "string" && value.trim()
+        ? value.trim()
+        : undefined;
     }
     if (typeof token === "string" && token.startsWith("--model=")) {
       return token.slice("--model=".length).trim() || undefined;
@@ -255,28 +255,9 @@ export function inspectUpstreamChatRequests(input: unknown): Array<{
 type PolicyOptions = {
   toolName: string;
   input: unknown;
-  modelId?: string;
-  thinkingLevel?: string;
   policy: AgentBrowserPolicy;
   env?: NodeJS.ProcessEnv;
 };
-
-function evaluateActiveModel(options: PolicyOptions): PolicyDecision {
-  const { policy } = options;
-  if (!options.modelId || !policy.models.allowed.includes(options.modelId)) {
-    return {
-      block: true,
-      reason: `agent_browser policy allows ${policy.models.allowed.join(", ")}; active model is ${options.modelId || "unknown"}.`,
-    };
-  }
-  if (options.thinkingLevel !== policy.models.requiredThinkingLevel) {
-    return {
-      block: true,
-      reason: `agent_browser policy requires thinking level ${policy.models.requiredThinkingLevel}; active level is ${options.thinkingLevel || "unknown"}.`,
-    };
-  }
-  return undefined;
-}
 
 function evaluateUpstreamChat(options: PolicyOptions): PolicyDecision {
   const { policy } = options;
@@ -289,7 +270,9 @@ function evaluateUpstreamChat(options: PolicyOptions): PolicyDecision {
         "Nested agent-browser chat is disabled; use deterministic browser commands from the active Pi model.",
     };
   }
-  const environmentModel = (options.env ?? process.env).AI_GATEWAY_MODEL?.trim();
+  const environmentModel = (
+    options.env ?? process.env
+  ).AI_GATEWAY_MODEL?.trim();
   for (const request of chatRequests) {
     const model = request.model ?? environmentModel;
     if (!model || !policy.upstreamChat.allowedModels.includes(model)) {
@@ -302,31 +285,20 @@ function evaluateUpstreamChat(options: PolicyOptions): PolicyDecision {
   return undefined;
 }
 
-export function evaluateAgentBrowserPolicy(options: PolicyOptions): PolicyDecision {
-  if (!BROWSER_TOOLS.has(options.toolName)) return undefined;
-  const modelDecision = evaluateActiveModel(options);
-  if (modelDecision) return modelDecision;
-  if (options.toolName !== "agent_browser") return undefined;
+export function evaluateAgentBrowserPolicy(
+  options: PolicyOptions,
+): PolicyDecision {
+  if (options.toolName !== POLICY_TOOL) return undefined;
   return evaluateUpstreamChat(options);
 }
 
-function activeModelId(ctx: { model?: { provider?: unknown; id?: unknown } } | undefined): string | undefined {
-  const provider = ctx?.model?.provider;
-  const id = ctx?.model?.id;
-  return typeof provider === "string" && typeof id === "string"
-    ? `${provider}/${id}`
-    : undefined;
-}
-
 export default function agentBrowserPolicyExtension(pi: ExtensionAPI): void {
-  pi.on("tool_call", (event, ctx) => {
-    if (!BROWSER_TOOLS.has(event.toolName)) return undefined;
+  pi.on("tool_call", (event) => {
+    if (event.toolName !== POLICY_TOOL) return undefined;
     try {
       return evaluateAgentBrowserPolicy({
         toolName: event.toolName,
         input: event.input,
-        modelId: activeModelId(ctx),
-        thinkingLevel: ctx.thinkingLevel,
         policy: loadAgentBrowserPolicy(),
       });
     } catch (error) {
@@ -338,13 +310,14 @@ export default function agentBrowserPolicyExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("agent-browser-policy", {
-    description: "Show the effective model, nested-chat, and cookie-transfer policy",
+    description:
+      "Show the effective nested-chat and cookie-transfer safeguards",
     handler: (_args, ctx) => {
       try {
         const policy = loadAgentBrowserPolicy();
         ctx.ui.notify(
           [
-            `Models: ${policy.models.allowed.join(", ")} (${policy.models.requiredThinkingLevel})`,
+            "Active model: unrestricted",
             `Nested chat: ${policy.upstreamChat.enabled ? "enabled" : "disabled"}`,
             `Cookie transfer: ${policy.cookieTransfer.enabled ? "enabled" : "disabled"}`,
             `Cookie domains: ${policy.cookieTransfer.allowedDomains.join(", ") || "none"}`,

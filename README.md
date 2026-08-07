@@ -182,6 +182,9 @@ pin from its remote, so a local-only commit is not a valid default pin.
 
 The main defaults live in [`settings.json`](settings.json):
 
+- This setup targets Pi `0.84.0`. The regular TUI remains the default.
+  Fullscreen mode is optional, and interactive transcripts can render Mermaid
+  diagrams and LaTeX.
 - OpenAI Codex is the default provider and `gpt-5.6-luna` is the default model.
 - `openai-codex/gpt-5.6-luna` is the only model in the model-selection list.
 - The default thinking level is `max`.
@@ -195,13 +198,13 @@ The main defaults live in [`settings.json`](settings.json):
 ### Browser policy and authentication
 
 [`agent-browser-policy.json`](agent-browser-policy.json) is the tracked,
-fail-closed policy for the native `agent_browser` extension. It allows only
-`openai-codex/gpt-5.6-luna` at `max` reasoning, disables nested upstream
-`agent-browser chat`, and keeps cookie transfer disabled. The companion
+fail-closed policy for sensitive `agent_browser` features. Ordinary browser
+commands can run from any active Pi model and reasoning level. The policy
+disables nested upstream `agent-browser chat` and keeps cookie transfer
+disabled. The companion
 [`extensions/agent-browser-policy.ts`](extensions/agent-browser-policy.ts)
-blocks browser tool calls from another active model before the browser process
-starts. `/agent-browser-policy` shows the effective policy without displaying
-secrets.
+enforces only those nested-chat and cookie-transfer safeguards.
+`/agent-browser-policy` shows the effective safeguards without displaying secrets.
 
 Cookie transfer is a separate, explicit opt-in. Create a private policy file
 outside the repository with `cookieTransfer.enabled: true` and exact
@@ -212,10 +215,6 @@ already ready, inspect first:
 ```json
 {
   "version": 1,
-  "models": {
-    "allowed": ["openai-codex/gpt-5.6-luna"],
-    "requiredThinkingLevel": "max"
-  },
   "upstreamChat": { "enabled": false, "allowedModels": [] },
   "cookieTransfer": {
     "enabled": true,
@@ -238,11 +237,21 @@ copies or launches the normal Chrome profile, writes plaintext cookie files,
 logs cookie values, or accepts wildcard domains. Manual headed login remains
 the default recovery path.
 
+`pi-agent-browser-native` requires Pi `0.84.0` or newer. It turns off periodic
+restore autosave for headed sessions started by the wrapper because autosave can
+flash temporary tabs and delay daemon checks. The browser tool's `close` command
+still saves state. Closing the window by hand can lose newer state. Set
+`AGENT_BROWSER_AUTOSAVE_INTERVAL_MS` before a fresh launch when periodic saves
+matter.
+
 Pi Codex Conversion has its own tracked config in
 [`pi-codex-conversion.json`](pi-codex-conversion.json). It uses path mode,
 compact tool rendering, Code Mode, fast OpenAI requests, cached WebSockets, and
 low response verbosity. Native Responses API compaction is disabled, so normal
-Pi compaction handles the conversation.
+Pi compaction handles the conversation. Realtime voice seeds its startup context
+from the selected session model and reasoning level. It shows the summary in a
+display-only Voice Context entry and rebuilds it after an explicit voice
+restart. Voice sessions survive a device handoff.
 
 The local [`context-budget`](packages/context-budget) package keeps the first
 request smaller without uninstalling anything. Pi still discovers every skill,
@@ -268,24 +277,24 @@ package itself.
 | [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) | Connects Pi to MCP servers and exposes their tools. | Servers are defined in [`mcp.json`](mcp.json). The linked repository owns the package README. |
 | [`pi-web-access`](https://github.com/nicobailon/pi-web-access) | Adds web search, URL fetching, repository/PDF extraction, and video analysis. | Provider credentials and runtime choices stay local. The linked repository owns the package README. |
 | `context-mode` | Keeps large reads, command output, logs, and web payloads out of model context; indexes compact session memory for later search. | Loaded from a pinned commit of [my Context Mode fork](https://github.com/javonmcgilberry/context-mode) and registered through `mcp.json`. Edit the source checkout, not Pi's copy. |
-| [`pi-subagents`](https://github.com/nicobailon/pi-subagents) | Runs delegated agents, parallel tasks, chains, checkpoints, and separate Git worktrees. | Child model and role defaults are in `settings.json`. Uses the unchanged upstream package and its README. |
+| [`pi-subagents`](https://github.com/nicobailon/pi-subagents) | Runs delegated agents and script-based workflows, including parallel work and managed Git worktrees. | Child model and role defaults are in `settings.json`. Multi-agent workflows use `workflowScript`; the old top-level task/chain arrays and `/chain`, `/parallel`, and `/run-chain` commands are gone. Scheduled workflows are enabled by the package default. Uses the unchanged upstream package and its README. |
 | [`pi-intercom`](https://www.npmjs.com/package/pi-intercom) | Sends direct messages between local Pi sessions and supports parent/child coordination. | No tracked config. Its installed README is the reference; runtime broker state is local. |
 | [`pi-anthropic-oauth`](https://github.com/leohenon/pi-anthropic-oauth) | Adds Claude Pro/Max browser OAuth and token refresh. | OAuth credentials stay in Pi's local auth store. The linked repository owns the package README. |
-| [`pi-cursor-sdk`](https://github.com/fitchmultz/pi-cursor-sdk) | Adds models backed by Cursor's local and cloud agent libraries. | Authorization and generated model data stay local. The linked repository owns the package README. |
+| [`pi-cursor-sdk`](https://github.com/fitchmultz/pi-cursor-sdk) | Adds models backed by Cursor's local and cloud agent libraries. | Requires Pi `0.84.0` or newer and uses Cursor SDK `1.0.23`. Authorization and generated model data stay local. The linked repository owns the package README. |
 | [`@howaboua/pi-codex-conversion`](https://github.com/IgorWarzocha/howaboua-pi-stuff/tree/main/packages/pi-codex-conversion) | Adapts Pi prompts, tools, communication, and status for Codex models. | [`pi-codex-conversion.json`](pi-codex-conversion.json). The linked package README has the full command and option reference. |
 | [`@howaboua/pi-auto-trees`](https://github.com/IgorWarzocha/howaboua-pi-stuff/tree/main/packages/pi-auto-trees) | Adds marker/end commands and automatic summaries for long-running incremental sessions. | [`pi-auto-trees.json`](pi-auto-trees.json) uses Luna with low reasoning for summaries. The linked package README has the command reference. |
 | [`@howaboua/pi-smart-btw`](https://github.com/IgorWarzocha/howaboua-pi-stuff/tree/main/packages/pi-smart-btw) | Runs side questions in ephemeral child Pi processes and injects answers only when requested. | [`pi-smart-btw.json`](pi-smart-btw.json) selects Luna, low reasoning, and the `Alt+Z/C/X/J/K/H/L` controls. The linked package README explains its slots and queues. |
 | [`pi-lens`](https://github.com/apmantza/pi-lens) | Runs live Language Server Protocol (LSP), lint, formatting, type, security, and structural checks around edits. | Package defaults plus Pi's generated diagnostic state. The linked repository owns the package README and rule documentation. |
-| [`pi-agent-browser-native`](https://github.com/fitchmultz/pi-agent-browser-native) | Exposes `agent-browser` as Pi's native browser automation tool. | Uses the global `agent-browser` CLI and local browser state. [`agent-browser-policy.json`](agent-browser-policy.json) and the policy extension enforce the local model/chat boundary. The linked repository owns the package README. |
+| [`pi-agent-browser-native`](https://github.com/fitchmultz/pi-agent-browser-native) | Exposes `agent-browser` as Pi's native browser automation tool. | Uses the global `agent-browser` CLI and local browser state. [`agent-browser-policy.json`](agent-browser-policy.json) and the policy extension keep nested chat and cookie transfer fail-closed without restricting the active Pi model. The linked repository owns the package README. |
 | [`pi-autoname`](https://github.com/ssdiwu/pi-autoname) | Gives a new session a short name, then checks periodically whether the topic has changed enough to rename it. | Pinned at `0.6.8`. [`pi-autoname.json`](pi-autoname.json) uses Luna, waits 10 minutes between checks, and preserves names set with `/name`. |
 | Compound Engineering | Provides planning, implementation, review, debugging, shipping, and learning skills. | Loaded from [EveryInc/compound-engineering-plugin](https://github.com/EveryInc/compound-engineering-plugin). The package owns its skill documentation. |
 | [`pi-ask-user`](https://github.com/edlsh/pi-ask-user) | Adds the interactive `ask_user` decision UI with search, choices, and freeform input. | No tracked config. The linked repository owns the package README. |
 | Prewalk | The chosen planner starts a coding task; later turns go to a configured executor in the same session. | Uses the owning local checkout when `settings.local.json` provides a replacement; clean installs use the exact [`pi-prewalk`](https://github.com/javonmcgilberry/pi-prewalk) commit in `settings.json`. [`prewalk.json`](prewalk.json) selects Luna at max reasoning and enables local analytics. |
 | Context budget | Keeps the full skill catalog and the largest optional tool schemas out of the first request, then loads them when needed. | [`packages/context-budget`](packages/context-budget), loaded as part of this Pi package. Deferred groups are browser, intercom, MCP, and subagents. |
 | [`@vanillagreen/pi-tool-renderer`](https://github.com/vanillagreencom/vstack/tree/main/pi-extensions/pi-tool-renderer) | Replaces noisy tool output with compact, readable renderers. | Renderer modes are under `vstack.extensionManager.config` in `settings.json`. The linked package README has the renderer options. |
-| [`pi-render-cache`](https://github.com/axelbaumlisto/pi-render-cache) | Reduces terminal-interface (TUI) streaming work with bounded caches for text segmentation and unstyled Markdown rendering. | Loaded at version `1.1.0`; no tracked config. This is a render-performance cache, not a conversation backup. The linked repository owns the package README. |
-| [`@vanillagreen/pi-extension-manager`](https://github.com/vanillagreencom/vstack/tree/main/pi-extensions/pi-extension-manager) | Adds package browsing, update/uninstall actions, diagnostics, and settings editing based on package schemas. | Reads Pi package state and the `vstack` settings namespace. The linked package README has the command and settings reference. |
-| [`@kliebhan/pi-prompt-autocomplete`](https://github.com/KLIEBHAN/pi-extensions/tree/main/extensions/prompt-autocomplete) | Provides private inline AI completion while typing prompts. | No tracked config. The linked package README explains its privacy and completion behavior. |
+| [`pi-render-cache`](https://github.com/axelbaumlisto/pi-render-cache) | Reduces terminal-interface (TUI) streaming work with bounded render caches. | Loaded at version `1.1.0`; no tracked config. On Pi `0.84.0`, the text-segmentation cache loads but the Markdown cache rejects the new renderer hash and stays off, so normal uncached Markdown rendering continues with a startup warning. This is a performance cache, not a conversation backup. The linked repository owns the package README. |
+| [`@vanillagreen/pi-extension-manager`](https://github.com/vanillagreencom/vstack/tree/main/pi-extensions/pi-extension-manager) | Adds package browsing, update/uninstall actions, diagnostics, and settings editing based on package schemas. | Reads Pi package state and the `vstack` settings namespace. This repository still owns the exact pins. The manager runs npm updates directly, so stale peer ranges can stop its update action even when Pi's managed installer can reconcile the same pins. The linked package README has the command and settings reference. |
+| [`@kliebhan/pi-prompt-autocomplete`](https://github.com/KLIEBHAN/pi-extensions/tree/main/extensions/prompt-autocomplete) | Provides privacy-conscious inline AI completion while typing prompts. | If a requested model is missing or unauthenticated, autocomplete stays off instead of sending the draft to another provider. Provider text and diagnostics are cleaned before terminal display. No tracked config; the linked package README explains the bounded context sent with each request and the in-memory cache. |
 | [`@davecodes/pi-skill-tags`](https://github.com/Davidcreador/pi-skill-tags) | Adds inline skill tags and skill-name autocomplete. | No tracked config. The linked repository owns the package README. |
 | [`pi-fzf`](https://github.com/kaofelix/pi-fzf) | Adds configurable fuzzy-search commands. | [`fzf.json`](fzf.json) defines an `@` file picker, preview command, overlay placement, and scroll keys. The linked repository owns the package README. |
 | [`@juicesharp/rpiv-warp`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-warp) | Sends Pi lifecycle notifications to Warp through OSC 777. | It does nothing outside Warp. The linked package README explains terminal requirements. The separate private Warp gateway links are described below. |
@@ -403,6 +412,15 @@ directory is linked once into `~/.agents/skills`, and Pi and other compatible
 agent tools share that installation. It is deliberately not duplicated under
 `~/.pi/agent/skills`, which would cause a skill-name collision.
 
+Before local or authenticated Designer QA, the skill uses two subagents in
+sequence. The first runs on the active default model at the highest available
+reasoning level. It reuses or starts the documented HUD and Designer services,
+checks the exact target in managed Chrome for Testing, and releases the browser.
+Only then can the browser executor run the feature tests. The handoff is valid
+when `scripts/readiness-gate.py` prints `"qaLaunchAllowed": true`. This keeps
+service startup, stale tabs, expired logins, and stale browser leases out of the
+actual QA run.
+
 When available, the skill uses Pi's native `agent_browser` tool. Otherwise, it
 uses the global `agent-browser` CLI. Install the pinned CLI and the stable
 Chrome for Testing runtime it uses with:
@@ -512,11 +530,14 @@ so the title remains stable. Summaries stay in private metadata files under
 spend metrics database does not store them.
 
 In Warp, [`extensions/warp-session-title.ts`](extensions/warp-session-title.ts)
-sets the tab title to `π - <session name> - <project>` when a session starts or
-its name changes. It uses Pi's terminal-title API, which sends the OSC 0
-sequence supported by Warp. The installed `rpiv-warp` activity spinner pushes
-that title before animation and restores it when Pi stops working. If Warp's
-shell integration later replaces the title, start Pi with
+sets the tab title to `π - <session name> - <project>` whenever Pi starts or
+resumes a session and whenever its name changes. It sets the saved title again
+after startup and after Pi finishes working, so a reopened tab does not keep
+Warp's command title. It uses Pi's terminal-title API, which sends the OSC 0
+sequence supported by Warp. While the installed `rpiv-warp` activity spinner is
+running, the local extension keeps the session name in each animated title and
+restores the saved title when Pi stops working. If Warp's shell integration
+later replaces the title, start Pi with
 `WARP_DISABLE_AUTO_TITLE=true`; Warp documents that variable on its
 [Tabs page](https://docs.warp.dev/terminal/windows/tabs/).
 

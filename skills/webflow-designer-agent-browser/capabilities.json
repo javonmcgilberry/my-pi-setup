@@ -7,8 +7,16 @@
       "implementation": "scripts/browser-runtime.py",
       "owner": "browser-runtime",
       "purpose": "Own the dedicated authenticated profile, Chrome for Testing process, direct-CDP readiness, bounded watchdog, and consumer lease.",
-      "inputs": ["runtime-command", "loopback-port", "headless-or-headed-mode", "maximum-runtime"],
-      "postconditions": ["explicit-runtime-status", "verified-release-and-stop"],
+      "inputs": [
+        "runtime-command",
+        "loopback-port",
+        "headless-or-headed-mode",
+        "maximum-runtime"
+      ],
+      "postconditions": [
+        "explicit-runtime-status",
+        "verified-release-and-stop"
+      ],
       "sensitivity": "profile-metadata",
       "maturity": "provisional",
       "disposition": "keep",
@@ -20,8 +28,17 @@
       "implementation": "scripts/cookie-transfer.mjs",
       "owner": "cookie-transfer",
       "purpose": "Explicitly transfer only allowlisted, unexpired Chrome cookies into the dedicated runtime through loopback CDP.",
-      "inputs": ["private-policy-override", "source-cookie-database", "loopback-cdp-endpoint", "explicit-confirmation"],
-      "postconditions": ["count-only-transfer-result", "source-profile-untouched", "temporary-snapshot-removed"],
+      "inputs": [
+        "private-policy-override",
+        "source-cookie-database",
+        "loopback-cdp-endpoint",
+        "explicit-confirmation"
+      ],
+      "postconditions": [
+        "count-only-transfer-result",
+        "source-profile-untouched",
+        "temporary-snapshot-removed"
+      ],
       "sensitivity": "credentials",
       "maturity": "provisional",
       "disposition": "keep",
@@ -39,6 +56,22 @@
       "maturity": "stable",
       "disposition": "keep",
       "loadWhen": "bootstrapping a bounded Designer observation"
+    },
+    {
+      "id": "designer.readiness-gate",
+      "category": "designer",
+      "implementation": "scripts/readiness-gate.py",
+      "owner": "readiness-subagent",
+      "purpose": "Block QA execution until HUD, Designer service, target response, authenticated browser profile, rendered Designer surface, and runtime cleanup are all proven.",
+      "inputs": ["bounded-readiness-checks", "runtime-cleanup-state"],
+      "postconditions": [
+        "machine-readable-qa-launch-decision",
+        "named-blockers"
+      ],
+      "sensitivity": "sanitized-status-only",
+      "maturity": "provisional",
+      "disposition": "keep",
+      "loadWhen": "before launching a Designer QA executor"
     },
     {
       "id": "designer.tabs",

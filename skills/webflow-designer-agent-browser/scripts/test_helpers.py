@@ -32,6 +32,7 @@ def load(name: str, filename: str):
 
 discover = load("discover_designer_tabs", "discover-designer-tabs.py")
 session = load("designer_session", "designer-session.py")
+readiness_gate = load("readiness_gate", "readiness-gate.py")
 browser_runtime = load("browser_runtime", "browser-runtime.py")
 evidence = load("sanitize_evidence", "sanitize-evidence.py")
 automation_evidence = load("automation_evidence", "automation-evidence.py")
@@ -452,6 +453,55 @@ class SessionTests(unittest.TestCase):
     def test_service_preflight_does_not_guess_services(self):
         args = argparse.Namespace(tcp_service=[], http_service=[])
         self.assertEqual(session.build_service_checks(args), [])
+
+
+class ReadinessGateTests(unittest.TestCase):
+    def ready_checks(self):
+        return [(name, "ready") for name in readiness_gate.REQUIRED_CHECKS]
+
+    def test_warm_environment_allows_qa_only_after_runtime_cleanup(self):
+        result = readiness_gate.classify(
+            self.ready_checks(), runtime_stopped=True
+        )
+        self.assertTrue(result["qaLaunchAllowed"])
+        self.assertEqual(result["classification"], "ready_for_qa")
+        self.assertEqual(result["blockers"], [])
+
+    def test_running_hud_with_stopped_designer_blocks_before_qa(self):
+        checks = self.ready_checks()
+        checks[1] = ("designer_service", "unavailable")
+        result = readiness_gate.classify(checks, runtime_stopped=True)
+        self.assertFalse(result["qaLaunchAllowed"])
+        self.assertEqual(result["blockers"], ["designer_service"])
+
+    def test_refused_target_and_auth_redirect_block_before_qa(self):
+        checks = self.ready_checks()
+        checks[2] = ("target_http", "error")
+        checks[4] = ("designer_surface", "auth_required")
+        result = readiness_gate.classify(checks, runtime_stopped=True)
+        self.assertFalse(result["qaLaunchAllowed"])
+        self.assertEqual(
+            result["blockers"], ["target_http", "designer_surface"]
+        )
+
+    def test_stale_or_owned_runtime_blocks_handoff(self):
+        result = readiness_gate.classify(
+            self.ready_checks(), runtime_stopped=False
+        )
+        self.assertFalse(result["qaLaunchAllowed"])
+        self.assertEqual(result["blockers"], ["browser_runtime_cleanup"])
+
+    def test_missing_check_is_fail_closed_and_duplicate_is_rejected(self):
+        result = readiness_gate.classify(
+            self.ready_checks()[:-1], runtime_stopped=True
+        )
+        self.assertFalse(result["qaLaunchAllowed"])
+        self.assertEqual(result["blockers"], ["designer_surface"])
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            readiness_gate.classify(
+                [*self.ready_checks(), ("hud", "ready")],
+                runtime_stopped=True,
+            )
 
 
 class BrowserRuntimeTests(unittest.TestCase):
