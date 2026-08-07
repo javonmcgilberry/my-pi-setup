@@ -28,7 +28,10 @@ export default function (pi: ExtensionAPI) {
 			totals.cost += usage.cost?.total ?? 0;
 		}
 		const context = ctx.getContextUsage();
-		const contextText = context ? `${context.percent.toFixed(1)}% / ${compact(context.contextWindow)}` : "?";
+		const contextText =
+			context?.percent == null
+				? "?"
+				: `${context.percent.toFixed(1)}% / ${compact(context.contextWindow)}`;
 		ctx.ui.setStatus("clear-status", `Tokens ${compact(totals.input)} in · ${compact(totals.output)} out · ${compact(totals.reasoning)} thinking | Cost $${totals.cost.toFixed(3)} | Context ${contextText}`);
 	};
 

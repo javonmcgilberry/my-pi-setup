@@ -88,11 +88,16 @@ depending on repeated prompt instructions.
    the owning package's source, then run the Humanizer pass followed by the
    Chill pass. Preserve exact paths, settings, commands, safety rules, and
    uncertainty through both passes.
-5. Keep source control, dependency upgrades, validation, and live application
-   as separate operations. `setup.sh` is configuration-only; staging,
-   committing, pulling, pushing, tagging, and dependency upgrades happen
-   separately.
-6. Before completion, run `./scripts/check.sh` and use the read-only
+5. Commit through `./scripts/land.sh --message <text>`, the single supported
+   commit path. It runs `check.sh` before staging anything, so the secret scan,
+   forbidden-path scan, and manifest inventory check cannot be skipped. Use
+   `--path` to scope a commit, `--push` to publish, and `--full` for the
+   complete suite. Do not hand-roll `git add`/`git commit` here; a clean tree
+   makes the script a no-op, so it is always safe to call.
+6. Keep dependency upgrades, validation, and live application as separate
+   operations. `setup.sh` is configuration-only; pulling, tagging, and
+   dependency upgrades happen separately from landing a commit.
+7. Before completion, run `./scripts/check.sh` and use the read-only
    `./scripts/drift.sh` for comparison with the live setup. After setup or
    package changes, also run `npm pack --dry-run`.
 
@@ -113,8 +118,14 @@ configuration, and bootstrap-inventory changes require `setup.sh`.
   that apply boundary. It may fast-forward clean local Git package
   replacements, run checks, schedule setup after all Pi processes exit, and
   shut down the current session. It leaves this setup repository unpulled and
-  other Pi sessions open; commits, pushes, tags, and dependency upgrades stay
-  separate. Dirty or divergent local package checkouts stop the command.
+  other Pi sessions open; pushes, tags, and dependency upgrades stay separate.
+  Dirty or divergent local package checkouts stop the command.
+- `/sync-me` will not apply silently over uncommitted work. It lists the dirty
+  files and offers to land them through `scripts/land.sh` first, because
+  applying a dirty tree puts source into the live setup that exists in no
+  commit.
+- `/sync-me update` refreshes tracked pins, then walks review, checks, commit,
+  and apply in-session. Its commit also goes through `scripts/land.sh`.
 - Apply changed live configuration exclusively with `setup.sh`; `/reload` does
   not cross that boundary. Use only `/sync-me` for the supported sync boundary;
   `./sync` is retired.

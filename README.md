@@ -74,6 +74,20 @@ npm pack --dry-run
 that shells out to `setup.sh` repeatedly and accounts for most of the runtime.
 The fast tier finishes in seconds and is what `/sync-me` runs before shutdown;
 run the full checks before you call a change done. `drift.sh` is read-only.
+
+Commit through `land.sh`, the single supported commit path:
+
+```sh
+./scripts/land.sh --message "feat: add a thing"
+./scripts/land.sh --message "chore: bump pins" --path settings.json --push
+```
+
+It runs `check.sh` **before** staging anything, so the secret scan, the
+forbidden-path scan, and the manifest inventory check cannot be skipped by a
+commit. A hand-rolled `git commit` skips all of them. A clean tree makes the
+script a no-op that exits 0, so it is always safe to run. `--full` swaps the
+fast tier for the complete suite; `--push` publishes after a successful commit.
+
 Code-only changes generally need a Pi restart to load.
 Changes to rendered settings, copied configuration, or bootstrap inventory
 require rerunning `setup.sh`. Git commits, pushes, tags, and package upgrades
@@ -114,7 +128,10 @@ retired. Setup application, validation, Git commits and pushes, and dependency
 upgrades remain separate operations.
 
 From an interactive Pi started in this repository, `/sync-me` automates that
-same safe apply boundary. After confirmation, it fast-forwards clean local Git
+same safe apply boundary. It first refuses to apply silently over uncommitted
+work: it lists the dirty files and offers to land them through `land.sh`, since
+applying a dirty tree puts source into your live setup that exists in no commit.
+After confirmation, it fast-forwards clean local Git
 package replacements, runs `check.sh --fast` and a package dry run, schedules a
 detached helper, and shuts down the current Pi. The helper waits for every Pi
 process to exit, runs the **full** `check.sh`, runs `setup.sh`, and verifies
@@ -160,8 +177,9 @@ Continuing from the steps above:
 
 1. It shows the resulting `settings.json` diff and asks whether to run
    `check.sh --fast`.
-2. On passing checks it offers a commit, pre-filled with a message naming every
-   pin that moved. Committing stages `settings.json` alone.
+2. It offers a commit, pre-filled with a message naming every pin that moved.
+   The commit runs through `land.sh --path settings.json`, so validation runs
+   before staging and nothing but `settings.json` is committed.
 3. It offers to apply, which runs the same shutdown-and-apply path as plain
    `/sync-me`.
 

@@ -15,7 +15,7 @@ for argument in "$@"; do
 	esac
 done
 
-bash -n setup.sh scripts/check.sh scripts/drift.sh scripts/restore.sh scripts/activate-macos-tmux-gui-server.sh
+bash -n setup.sh scripts/check.sh scripts/drift.sh scripts/restore.sh scripts/land.sh scripts/activate-macos-tmux-gui-server.sh
 if command -v plutil >/dev/null 2>&1; then
 	plutil -lint config/com.javonmcgilberry.pi-tmux-gui-server.plist >/dev/null
 fi
@@ -67,6 +67,7 @@ node --test extensions/agent-browser-policy.test.mjs
 node --test extensions/warp-session-title.test.mjs
 node --test extensions/setup-sync.test.mjs
 node --test extensions/setup-update.test.mjs
+node --test scripts/land.test.mjs
 node --check skills/webflow-designer-agent-browser/scripts/cdp-frame-eval.mjs
 node --check skills/webflow-designer-agent-browser/scripts/cookie-transfer.mjs
 node --test skills/webflow-designer-agent-browser/scripts/cookie-transfer.test.mjs

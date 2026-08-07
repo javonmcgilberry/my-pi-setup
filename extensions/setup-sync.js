@@ -307,6 +307,30 @@ function startApply(root) {
 	}
 }
 
+/**
+ * Every commit this extension makes goes through scripts/land.sh, the single
+ * supported commit path. The script runs check.sh before staging, so the secret
+ * scan, forbidden-path scan, and manifest inventory check can never be skipped
+ * by committing from here.
+ */
+async function land(pi, ctx, root, { message, paths = [], push = false }) {
+	const args = ["--message", message];
+	for (const pathspec of paths) args.push("--path", pathspec);
+	if (push) args.push("--push");
+
+	const stop = startProgress(ctx, "sync-me: validating and committing");
+	const result = await pi
+		.exec("./scripts/land.sh", args, { cwd: root, timeout: CHECK_TIMEOUT_MS })
+		.finally(stop);
+	if (result.code !== 0) {
+		return {
+			ok: false,
+			message: `Nothing was committed:\n${summarizeFailure(result)}`,
+		};
+	}
+	return { ok: true, stdout: result.stdout };
+}
+
 /** A commit message that names what actually moved, so history stays readable. */
 export function defaultCommitMessage(updates) {
 	const subject = `chore: update ${updates.length} tracked pin${updates.length === 1 ? "" : "s"}`;
@@ -318,6 +342,35 @@ export function defaultCommitMessage(updates) {
  * `/sync-me` and the tail of `/sync-me update`.
  */
 async function runApply(pi, ctx, root) {
+	// Applying a dirty tree puts source into the live setup that exists in no
+	// commit, which is how the live install and the repository drift apart.
+	const status = await pi.exec(...gitCommand(["-C", root, "status", "--porcelain"]), {
+		cwd: root,
+		timeout: 30_000,
+	});
+	if (status.code === 0 && status.stdout.trim()) {
+		const files = status.stdout.trim().split(/\r?\n/);
+		const preview = files.slice(0, 10).join("\n");
+		const extra = files.length > 10 ? `\n...and ${files.length - 10} more` : "";
+		const commitFirst = await ctx.ui.confirm(
+			`Commit ${files.length} uncommitted change(s) before applying?`,
+			`${preview}${extra}\n\nApplying without committing puts source into your live setup that exists in no commit. Decline to apply anyway.`,
+		);
+		if (commitFirst) {
+			const message = await ctx.ui.input("Commit message", "Leave empty to cancel");
+			if (!message?.trim()) {
+				ctx.ui.notify("Nothing was committed and nothing was applied.", "info");
+				return;
+			}
+			const landed = await land(pi, ctx, root, { message: message.trim() });
+			if (!landed.ok) {
+				ctx.ui.notify(landed.message, "error");
+				return;
+			}
+			ctx.ui.notify("Committed. Continuing with the apply...", "info");
+		}
+	}
+
 	ctx.ui.notify("Updating clean local package checkouts...", "info");
 	const stopSyncProgress = startProgress(
 		ctx,
@@ -396,21 +449,6 @@ async function reviewAndCommit(pi, ctx, root, updates) {
 		return;
 	}
 
-	const stopChecks = startProgress(ctx, "sync-me: running fast checks");
-	const checks = await pi
-		.exec("bash", ["-c", CHECK_COMMAND], {
-			cwd: root,
-			timeout: CHECK_TIMEOUT_MS,
-		})
-		.finally(stopChecks);
-	if (checks.code !== 0) {
-		ctx.ui.notify(
-			`Fast checks failed, nothing was committed:\n${summarizeFailure(checks)}`,
-			"error",
-		);
-		return;
-	}
-
 	const suggested = defaultCommitMessage(updates);
 	const typed = await ctx.ui.input(
 		"Commit message (empty accepts the suggested one)",
@@ -420,11 +458,13 @@ async function reviewAndCommit(pi, ctx, root, updates) {
 		ctx.ui.notify("Commit cancelled. settings.json is still edited.", "info");
 		return;
 	}
-	const message = typed.trim() ? typed.trim() : suggested;
 
-	const committed = await git(["commit", "-m", message, "--", "settings.json"]);
-	if (committed.code !== 0) {
-		ctx.ui.notify(`Could not commit: ${summarizeFailure(committed)}`, "error");
+	const landed = await land(pi, ctx, root, {
+		message: typed.trim() ? typed.trim() : suggested,
+		paths: ["settings.json"],
+	});
+	if (!landed.ok) {
+		ctx.ui.notify(landed.message, "error");
 		return;
 	}
 	ctx.ui.notify("Checks passed and settings.json is committed.", "info");
