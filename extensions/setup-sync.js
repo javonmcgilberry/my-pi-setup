@@ -344,10 +344,13 @@ export function defaultCommitMessage(updates) {
 async function runApply(pi, ctx, root) {
 	// Applying a dirty tree puts source into the live setup that exists in no
 	// commit, which is how the live install and the repository drift apart.
-	const status = await pi.exec(...gitCommand(["-C", root, "status", "--porcelain"]), {
-		cwd: root,
-		timeout: 30_000,
-	});
+	const status = await pi.exec(
+		...gitCommand(["-C", root, "status", "--porcelain"]),
+		{
+			cwd: root,
+			timeout: 30_000,
+		},
+	);
 	if (status.code === 0 && status.stdout.trim()) {
 		const files = status.stdout.trim().split(/\r?\n/);
 		const preview = files.slice(0, 10).join("\n");
@@ -357,7 +360,10 @@ async function runApply(pi, ctx, root) {
 			`${preview}${extra}\n\nApplying without committing puts source into your live setup that exists in no commit. Decline to apply anyway.`,
 		);
 		if (commitFirst) {
-			const message = await ctx.ui.input("Commit message", "Leave empty to cancel");
+			const message = await ctx.ui.input(
+				"Commit message",
+				"Leave empty to cancel",
+			);
 			if (!message?.trim()) {
 				ctx.ui.notify("Nothing was committed and nothing was applied.", "info");
 				return;

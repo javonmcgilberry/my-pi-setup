@@ -1,4 +1,7 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 
 type Usage = {
 	input?: number;
@@ -20,7 +23,8 @@ export default function (pi: ExtensionAPI) {
 	const update = (ctx: ExtensionContext) => {
 		const totals = { input: 0, output: 0, reasoning: 0, cost: 0 };
 		for (const entry of ctx.sessionManager.getEntries()) {
-			if (entry.type !== "message" || entry.message.role !== "assistant") continue;
+			if (entry.type !== "message" || entry.message.role !== "assistant")
+				continue;
 			const usage = entry.message.usage as Usage;
 			totals.input += usage.input ?? 0;
 			totals.output += usage.output ?? 0;
@@ -32,7 +36,10 @@ export default function (pi: ExtensionAPI) {
 			context?.percent == null
 				? "?"
 				: `${context.percent.toFixed(1)}% / ${compact(context.contextWindow)}`;
-		ctx.ui.setStatus("clear-status", `Tokens ${compact(totals.input)} in · ${compact(totals.output)} out · ${compact(totals.reasoning)} thinking | Cost $${totals.cost.toFixed(3)} | Context ${contextText}`);
+		ctx.ui.setStatus(
+			"clear-status",
+			`Tokens ${compact(totals.input)} in · ${compact(totals.output)} out · ${compact(totals.reasoning)} thinking | Cost $${totals.cost.toFixed(3)} | Context ${contextText}`,
+		);
 	};
 
 	pi.on("session_start", async (_event, ctx) => update(ctx));

@@ -16,10 +16,16 @@ const land = path.join(repoRoot, "scripts", "land.sh");
  */
 async function run(args) {
 	try {
-		const { stdout, stderr } = await execFileAsync(land, args, { cwd: repoRoot });
+		const { stdout, stderr } = await execFileAsync(land, args, {
+			cwd: repoRoot,
+		});
 		return { code: 0, stdout, stderr };
 	} catch (error) {
-		return { code: error.code ?? 1, stdout: error.stdout ?? "", stderr: error.stderr ?? "" };
+		return {
+			code: error.code ?? 1,
+			stdout: error.stdout ?? "",
+			stderr: error.stderr ?? "",
+		};
 	}
 }
 
@@ -60,6 +66,10 @@ test("rejects a path flag with no value", async () => {
 test("documents every supported flag in its usage text", async () => {
 	const { stderr } = await run(["--bogus"]);
 	for (const flag of ["--message", "--path", "--push", "--full"]) {
-		assert.match(stderr, new RegExp(flag.replace(/-/g, "\\-")), `usage should mention ${flag}`);
+		assert.match(
+			stderr,
+			new RegExp(flag.replace(/-/g, "\\-")),
+			`usage should mention ${flag}`,
+		);
 	}
 });
