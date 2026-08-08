@@ -14,7 +14,9 @@ generated/
 intercom/
 backups/
 ayu/
-packages/
+packages/*
+!packages/context-budget/
+!packages/context-budget/**
 prewalk/analytics/
 session-metadata/
 bin/

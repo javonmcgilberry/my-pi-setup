@@ -19,7 +19,7 @@
     "npm:pi-autoname@0.6.8",
     "git:github.com/EveryInc/compound-engineering-plugin@87531aeeccc8fc686f2b4bf1447d3ea3caf58ef3",
     "npm:pi-ask-user@0.14.0",
-    "git:github.com/javonmcgilberry/pi-prewalk@ea1d8df39249502b3ca68ea89316d9533b8861e4",
+    "git:github.com/javonmcgilberry/pi-prewalk@bba2bf7792130a49428d1b63d27156993f53ee10",
     "npm:@vanillagreen/pi-tool-renderer@1.7.1",
     "npm:pi-render-cache@1.1.1",
     "npm:@vanillagreen/pi-extension-manager@1.3.2",
