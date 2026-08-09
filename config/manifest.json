@@ -2,10 +2,10 @@
   "version": 1,
   "packagePolicy": {
     "floatingNpm": true,
-    "exactNpm": [
-      "pi-subagents"
-    ],
-    "commitPinnedGit": true
+    "exactNpm": [],
+    "exactGit": [
+      "git:github.com/javonmcgilberry/pi-prewalk"
+    ]
   },
   "rendered": {
     "settings.json": "settings.json"

@@ -27,12 +27,18 @@ export function parsePinnedGitSource(source) {
 }
 
 export async function verifyGitPins(settingsPath) {
-  const settings = JSON.parse(await readFile(settingsPath, "utf8"));
-  const gitSources = settings.packages.filter(isGitPackageSource);
+  let settings;
+  try {
+    settings = JSON.parse(await readFile(settingsPath, "utf8"));
+  } catch (error) {
+    throw new Error(`Could not parse package settings ${settingsPath}`, { cause: error });
+  }
+  const pinnedGitSources = settings.packages
+    .filter(isGitPackageSource)
+    .map((source) => ({ source, parsed: parsePinnedGitSource(source) }))
+    .filter(({ parsed }) => parsed);
 
-  for (const source of gitSources) {
-    const parsed = parsePinnedGitSource(source);
-    assert.ok(parsed, `Git package must use an exact commit or tag: ${source}`);
+  for (const { source, parsed } of pinnedGitSources) {
     const { remote, ref, commit } = parsed;
     const checkout = await mkdtemp(path.join(os.tmpdir(), "my-pi-git-pin-"));
     try {
@@ -50,7 +56,7 @@ export async function verifyGitPins(settingsPath) {
     }
   }
 
-  console.log(`Verified ${gitSources.length} pinned Git package refs.`);
+  process.stdout.write(`Verified ${pinnedGitSources.length} pinned Git package refs.\n`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

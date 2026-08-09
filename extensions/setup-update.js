@@ -2,9 +2,9 @@
  * Pure Git-pin planning for `/sync-me publish`.
  *
  * Routine registry packages float and are updated by `pi update --extensions`.
- * This module handles the separate publication boundary for owned Git
- * checkouts: a tracked commit moves only after callers prove the replacement
- * checkout's HEAD exists on a remote branch.
+ * This module handles Prewalk's separate publication boundary: its tracked
+ * commit moves only after callers prove the replacement checkout's HEAD exists
+ * on a remote branch.
  *
  * No Pi imports: this module is plain data in, plain data out, so it is fully
  * testable without a session.

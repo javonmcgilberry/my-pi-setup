@@ -24,7 +24,7 @@ export const CHECK_COMMAND =
 	"./scripts/check.sh --fast && npm pack --dry-run >/dev/null";
 
 export const LEGACY_UPDATE_MESSAGE =
-	"`/sync-me update` is retired. Exit Pi and run `pi update --extensions` for registry packages, or use `/sync-me publish` to publish owned Git checkouts.";
+	"`/sync-me update` is retired. Exit Pi and run `pi update --extensions` for routine packages, or use `/sync-me publish` to publish Prewalk.";
 
 /** Git never gets to open an interactive credential prompt that nobody can answer. */
 export function gitCommand(args) {
@@ -467,8 +467,8 @@ async function reviewAndCommit(pi, ctx, root, updates) {
 }
 
 /**
- * `/sync-me publish`: advance tracked Git pins from owned local checkouts, then
- * walk the review, check, commit, and apply gates without leaving Pi.
+ * `/sync-me publish`: advance the tracked Prewalk pin from its local checkout,
+ * then walk the review, check, commit, and apply gates without leaving Pi.
  *
  * It never writes live settings. Every mutation is behind its own confirmation.
  */
@@ -501,13 +501,13 @@ async function runPublish(pi, ctx, root) {
 	}
 
 	if (gitUpdates.length === 0) {
-		ctx.ui.notify("No publishable Git pin changes were found.", "info");
+		ctx.ui.notify("No publishable Prewalk pin change was found.", "info");
 		return;
 	}
 
 	const confirmed = await ctx.ui.confirm(
-		`Write ${gitUpdates.length} Git pin update(s) to settings.json?`,
-		`${describeUpdates(gitUpdates)}\n\nThis publishes owned Git checkout commits into tracked settings.json. It does not update registry packages, touch live settings, or apply the setup.`,
+		"Write the Prewalk pin update to settings.json?",
+		`${describeUpdates(gitUpdates)}\n\nThis publishes the local Prewalk commit into tracked settings.json. It does not update routine packages, touch live settings, or apply the setup.`,
 	);
 	if (!confirmed) {
 		ctx.ui.notify("No pins were changed.", "info");
@@ -523,7 +523,7 @@ async function runPublish(pi, ctx, root) {
 	}
 
 	ctx.ui.notify(
-		`Published ${gitUpdates.length} Git pin(s) to settings.json.`,
+		"Published the Prewalk pin to settings.json.",
 		"info",
 	);
 	await reviewAndCommit(pi, ctx, root, gitUpdates);
@@ -532,7 +532,7 @@ async function runPublish(pi, ctx, root) {
 export default function setupSync(pi) {
 	pi.registerCommand("sync-me", {
 		description:
-			"Apply this setup, or publish owned Git checkout commits",
+			"Apply this setup, or publish the local Prewalk commit",
 		handler: async (args, ctx) => {
 			const subcommand = args.trim();
 			if (subcommand === "update") {
@@ -561,7 +561,7 @@ export default function setupSync(pi) {
 
 			const confirmed = await ctx.ui.confirm(
 				"Apply the Pi setup after shutdown?",
-				"Fast-forwards clean local Git package replacements, runs the fast checks, then shuts this session down. A detached helper waits for every Pi process to exit, runs the full checks, applies the current checkout, and verifies drift. It does not pull the setup repository, publish Git pins, or update registry packages.",
+				"Fast-forwards clean local Git package replacements, runs the fast checks, then shuts this session down. A detached helper waits for every Pi process to exit, runs the full checks, applies the current checkout, and verifies drift. It does not pull the setup repository, publish Prewalk, or update routine packages.",
 			);
 			if (!confirmed) {
 				ctx.ui.notify("Setup apply cancelled.", "info");

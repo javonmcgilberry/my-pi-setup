@@ -15,8 +15,8 @@ const base = {
   version: 1,
   packagePolicy: {
     floatingNpm: true,
-    exactNpm: ["pi-subagents"],
-    commitPinnedGit: true,
+    exactNpm: [],
+    exactGit: ["git:github.com/javonmcgilberry/pi-prewalk"],
   },
   rendered: { "settings.json": "settings.json" },
   copied: [],
@@ -43,8 +43,8 @@ describe("managed install manifest", () => {
     assert.equal(manifest.version, 1);
     assert.deepEqual(manifest.packagePolicy, {
       floatingNpm: true,
-      exactNpm: ["pi-subagents"],
-      commitPinnedGit: true,
+      exactNpm: [],
+      exactGit: ["git:github.com/javonmcgilberry/pi-prewalk"],
     });
     assert.equal(manifest.copied.length, 11);
     assert.equal(manifest.linked.length, 0);
@@ -99,7 +99,7 @@ describe("managed install manifest", () => {
     assert.equal(packageJson.files.some((entry) => entry.includes("webflow-designer-agent-browser")), false);
   });
 
-  it("floats routine npm packages while keeping declared npm and Git pins exact", () => {
+  it("floats packages unless the manifest declares an exact source", () => {
     const manifest = loadManifest();
     const settings = JSON.parse(readFileSync(`${REPO_ROOT}/settings.json`, "utf8"));
     const exactSemver = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
@@ -125,11 +125,20 @@ describe("managed install manifest", () => {
     );
 
     const gitPackages = settings.packages.filter(isGitPackageSource);
-    assert.ok(gitPackages.length > 0, "the setup includes commit-pinned Git packages");
+    const exactGit = new Set(manifest.packagePolicy.exactGit);
+    const pinnedGitLocators = [];
+    assert.ok(gitPackages.length > 0, "the setup includes Git packages");
     for (const source of gitPackages) {
       const parsed = parsePinnedGitSource(source);
-      assert.match(parsed?.commit ?? "", /^[0-9a-f]{40}$/i, `${source} uses a commit SHA`);
+      const locator = parsed ? source.slice(0, source.lastIndexOf("@")) : source;
+      if (exactGit.has(locator)) {
+        assert.match(parsed?.commit ?? "", /^[0-9a-f]{40}$/i, `${locator} uses a commit SHA`);
+        pinnedGitLocators.push(locator);
+      } else {
+        assert.equal(parsed, null, `${locator} must float`);
+      }
     }
+    assert.deepEqual(pinnedGitLocators.sort(), [...exactGit].sort());
   });
 
   it("rejects weakened or undeclared package-version policy", () => {
@@ -138,8 +147,18 @@ describe("managed install manifest", () => {
       /floatingNpm must be true/,
     );
     assert.throws(
-      () => normalizeManifest({ ...base, packagePolicy: { ...base.packagePolicy, commitPinnedGit: false } }),
-      /commitPinnedGit must be true/,
+      () => normalizeManifest({ ...base, packagePolicy: { ...base.packagePolicy, exactGit: "prewalk" } }),
+      /exactGit must be an array/,
+    );
+    assert.throws(
+      () => normalizeManifest({
+        ...base,
+        packagePolicy: {
+          ...base.packagePolicy,
+          exactGit: ["git:github.com/example/tool@main"],
+        },
+      }),
+      /must be an unpinned git: locator/,
     );
     assert.throws(
       () => normalizeManifest({ ...base, packagePolicy: { ...base.packagePolicy, unexpected: true } }),

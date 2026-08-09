@@ -164,23 +164,20 @@ updater:
 pi update --extensions
 ```
 
-Most npm entries in `settings.json` are stable, unversioned locators such as
-`npm:pi-intercom`. Pi can move those packages to the current registry release,
-and a later `setup.sh` run keeps the same locator instead of restoring an old
-version. Restart Pi after the update.
+Most package entries in `settings.json` are stable, unversioned locators. Pi
+updates npm packages to their current registry releases and Git packages to
+their remote default branches. A later `setup.sh` run keeps those locators
+instead of restoring old versions. Restart Pi after the update.
 
-There are two deliberate exceptions:
-
-- `pi-subagents` stays on the exact unmodified upstream release named in
-  `settings.json`. Moving it is an explicit, reviewed settings change.
-- Owned or forked Git packages stay on full commit SHAs so a clean install never
-  depends on an unpublished branch head.
+Prewalk is the only deliberate exception. Its remote fallback stays on a full
+commit SHA because publishing a locally developed Prewalk revision is a
+reviewed action.
 
 `/sync-me` isn't the package updater. It validates and applies this setup after
-Pi sessions close. Use `/sync-me publish` only when an owned Git checkout, such
-as Prewalk, is ready to become the new shared default. With confirmation, it can
-commit and push a dirty replacement checkout. It then verifies that HEAD is on
-a remote branch and proposes the matching SHA change in tracked `settings.json`.
+Pi sessions close. Use `/sync-me publish` only when Prewalk is ready to become
+the new shared default. With confirmation, it can commit and push the local
+checkout. It then verifies that HEAD is on a remote branch and proposes the
+matching SHA change in tracked `settings.json`.
 
 After you approve the Git pin change, `/sync-me publish` shows the diff and
 offers the usual check, commit, and apply steps. Declining a step leaves the
@@ -188,7 +185,7 @@ edited file in place. You can finish it from the shell with:
 
 ```sh
 git diff settings.json
-./scripts/land.sh --message "chore: publish updated Git pins" --path settings.json
+./scripts/land.sh --message "chore: publish Prewalk pin" --path settings.json
 ```
 
 The retired `/sync-me update` command now prints these two choices instead of
@@ -207,8 +204,10 @@ Keep machine-only choices in ignored `settings.local.json`:
 ```
 
 Nested settings objects are combined. Arrays replace the corresponding arrays
-from the tracked defaults. `packageReplacements` can point a tracked package to
-a local checkout without copying the entire package list.
+from the tracked defaults. An explicit `packageReplacements` entry always wins
+over the tracked remote locator. Pi does not guess based on nearby checkout
+names, because a stale or retired clone must not silently replace the intended
+package. Add a replacement only for a checkout you are actively developing.
 
 ### Prewalk development and installation
 
@@ -344,19 +343,23 @@ dependencies so these prompt and tool changes run last.
 ## Installed packages and extensions
 
 The `packages` array in `settings.json` lists the packages Pi loads.
-Most npm sources do not include a version, so `pi update --extensions` can
-install their current registry releases. `pi-subagents` is the one exact npm
-exception. Git sources stay commit-pinned for clean, reproducible installs.
-Ignored `packageReplacements` can substitute a local checkout during
+All npm sources float. Context Mode and Compound Engineering follow their Git
+default branches. Prewalk is the only exact package source. Ignored
+`packageReplacements` can substitute an explicitly chosen local checkout during
 development. The root `package.json` describes this repository's own Pi package,
 and `package-lock.json` covers only dependencies needed by that package itself.
+
+Context Mode now follows upstream directly. The previous nested Code Mode trace
+patch remains parked in the `javonmcgilberry/context-mode` fork at commit
+`19b8f73`, but this setup does not load it. Prewalk has its own Code Mode mutation
+tracking and does not depend on that patch.
 
 | Component | What it does | Configuration and source |
 | --- | --- | --- |
 | [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) | Connects Pi to MCP servers and exposes their tools. | Servers are defined in [`mcp.json`](mcp.json). The linked repository owns the package README. |
 | [`pi-web-access`](https://github.com/nicobailon/pi-web-access) | Adds web search, URL fetching, repository/PDF extraction, and video analysis. | Provider credentials and runtime choices stay local. The linked repository owns the package README. |
-| `context-mode` | Keeps large reads, command output, logs, and web payloads out of model context; indexes compact session memory for later search. | Loaded from a pinned commit of [my Context Mode fork](https://github.com/javonmcgilberry/context-mode) and registered through `mcp.json`. Edit the source checkout, not Pi's copy. |
-| [`pi-subagents`](https://github.com/nicobailon/pi-subagents) | Runs delegated agents and script-based workflows, including parallel work and managed Git worktrees. | Child model and role defaults are in `settings.json`. Multi-agent workflows use `workflowScript`; the old top-level task/chain arrays and `/chain`, `/parallel`, and `/run-chain` commands are gone. Scheduled workflows are enabled by the package default. This is the one exact npm pin and uses the unchanged upstream release. |
+| [`context-mode`](https://github.com/mksglu/context-mode) | Keeps large reads, command output, logs, and web payloads out of model context; indexes compact session memory for later search. | Follows the upstream default branch and is registered through `mcp.json`. Pi owns the managed checkout. |
+| [`pi-subagents`](https://github.com/nicobailon/pi-subagents) | Runs delegated agents and script-based workflows, including parallel work and managed Git worktrees. | Child model and role defaults are in `settings.json`. Multi-agent workflows use `workflowScript`; the old top-level task/chain arrays and `/chain`, `/parallel`, and `/run-chain` commands are gone. Scheduled workflows are enabled by the package default. Uses the unchanged, floating upstream package. |
 | [`pi-intercom`](https://www.npmjs.com/package/pi-intercom) | Sends direct messages between local Pi sessions and supports parent/child coordination. | No tracked config. Its installed README is the reference; runtime broker state is local. |
 | [`pi-anthropic-oauth`](https://github.com/leohenon/pi-anthropic-oauth) | Adds Claude Pro/Max browser OAuth and token refresh. | OAuth credentials stay in Pi's local auth store. The linked repository owns the package README. |
 | [`pi-cursor-sdk`](https://github.com/fitchmultz/pi-cursor-sdk) | Adds models backed by Cursor's local and cloud agent libraries. | Requires Pi `0.84.0` or newer and uses Cursor SDK `1.0.23`. Authorization and generated model data stay local. The linked repository owns the package README. |
@@ -366,7 +369,7 @@ and `package-lock.json` covers only dependencies needed by that package itself.
 | [`pi-lens`](https://github.com/apmantza/pi-lens) | Runs live Language Server Protocol (LSP), lint, formatting, type, security, and structural checks around edits. | Package defaults plus Pi's generated diagnostic state. The linked repository owns the package README and rule documentation. |
 | [`pi-agent-browser-native`](https://github.com/fitchmultz/pi-agent-browser-native) | Exposes `agent-browser` as Pi's native browser automation tool. | Uses the global `agent-browser` CLI and local browser state. [`agent-browser-policy.json`](agent-browser-policy.json) and the policy extension keep nested chat and cookie transfer fail-closed without restricting the active Pi model. The linked repository owns the package README. |
 | [`pi-autoname`](https://github.com/ssdiwu/pi-autoname) | Gives a new session a short name, then checks periodically whether the topic has changed enough to rename it. | [`pi-autoname.json`](pi-autoname.json) uses Luna, waits 10 minutes between checks, and preserves names set with `/name`. |
-| Compound Engineering | Provides planning, implementation, review, debugging, shipping, and learning skills. | Loaded from [EveryInc/compound-engineering-plugin](https://github.com/EveryInc/compound-engineering-plugin). The package owns its skill documentation. |
+| Compound Engineering | Provides planning, implementation, review, debugging, shipping, and learning skills. | Follows the default branch of [EveryInc/compound-engineering-plugin](https://github.com/EveryInc/compound-engineering-plugin). The package owns its skill documentation. |
 | [`pi-ask-user`](https://github.com/edlsh/pi-ask-user) | Adds the interactive `ask_user` decision UI with search, choices, and freeform input. | No tracked config. The linked repository owns the package README. |
 | Prewalk | The chosen planner starts a coding task; later turns go to a configured executor in the same session. | Uses the owning local checkout when `settings.local.json` provides a replacement; clean installs use the exact [`pi-prewalk`](https://github.com/javonmcgilberry/pi-prewalk) commit in `settings.json`. [`prewalk.json`](prewalk.json) selects Luna at max reasoning and enables local analytics. |
 | Context budget | Keeps the full skill catalog and the largest optional tool schemas out of the first request, then loads them when needed. | [`packages/context-budget`](packages/context-budget), loaded as part of this Pi package. Deferred groups are browser, intercom, MCP, and subagents. |
@@ -387,7 +390,7 @@ and `package-lock.json` covers only dependencies needed by that package itself.
 | Agent Browser Policy | Keeps model-assisted browser usage on the configured Pi model and gates nested chat and cookie transfer. | [`agent-browser-policy.json`](agent-browser-policy.json), [`extensions/agent-browser-policy.ts`](extensions/agent-browser-policy.ts), and the shared Webflow skill. Cookie transfer is off by default. |
 | Session Spend Dashboard | Runs an opt-in read-only localhost dashboard for provider-reported spend, token use, projects, sessions, and subagent activity. | [`extensions/session-spend-dashboard`](extensions/session-spend-dashboard), configured by [`session-spend-dashboard.json`](session-spend-dashboard.json). See its [README](extensions/session-spend-dashboard/README.md). |
 | `/sync-me` | Updates clean local package checkouts, runs the fast checks, and schedules a safe setup apply after Pi sessions close. | [`extensions/setup-sync.js`](extensions/setup-sync.js). The full checks run in the detached helper; progress appears in the footer and in `~/.pi/agent/sync-me.log`. It does not pull this setup repository or change its Git state. |
-| `/sync-me publish` | Publishes owned local Git checkout commits into tracked SHA pins, then walks review, checks, commit, and apply in-session. | [`extensions/setup-sync.js`](extensions/setup-sync.js) with Git pin planning in [`extensions/setup-update.js`](extensions/setup-update.js). Every write is confirmed. It does not update registry packages or write live settings, and its setup-repository commit contains only `settings.json`. |
+| `/sync-me publish` | Publishes the local Prewalk checkout into its tracked SHA, then walks review, checks, commit, and apply in-session. | [`extensions/setup-sync.js`](extensions/setup-sync.js) with Git pin planning in [`extensions/setup-update.js`](extensions/setup-update.js). Every write is confirmed. It does not update routine packages or write live settings, and its setup-repository commit contains only `settings.json`. |
 | Warp session title | Shows the current Pi session name and project in the active Warp tab. It does nothing in other terminals. | [`extensions/warp-session-title.ts`](extensions/warp-session-title.ts), loaded from this Pi package. |
 | Clear status | Older compact usage/status implementation retained for reference but not loaded or packaged. | [`disabled-extensions/clear-status.ts`](disabled-extensions/clear-status.ts). |
 | Warp gateway links | Private Warp gateway and fallback extensions maintained in a separate repository. | Live links are `extensions/warp-gateway.ts` and `extensions/warp-link-fallback.ts`; edit `~/webdev/warp-pi-gateway`. |
@@ -682,7 +685,7 @@ excluded. `setup.sh` does not copy or restore them.
 | Shared Webflow skill | This repo | `~/.agents/skills/webflow-designer-agent-browser` |
 | Prewalk | Owning `pi-prewalk` checkout for development; exact remote commit in `settings.json` for clean installs | Local replacement when configured; otherwise `~/.pi/agent/git/github.com/javonmcgilberry/pi-prewalk` |
 | Context budget | This repo | Loaded as part of this Pi package |
-| Context Mode | [`context-mode`](https://github.com/javonmcgilberry/context-mode), pinned in `settings.json` | Git checkout managed by Pi; edit `~/webdev/context-mode` |
+| Context Mode | [`mksglu/context-mode`](https://github.com/mksglu/context-mode), following its default branch | Git checkout managed by Pi |
 | pi-subagents | [`nicobailon/pi-subagents`](https://github.com/nicobailon/pi-subagents) | The unchanged release from the upstream npm package |
 | Pi core | `~/Developer/pi` ([my fork](https://github.com/javonmcgilberry/pi)) | Separate development checkout; the normal `pi` command uses the installed release |
 | Warp gateway | Private `warp-pi-gateway` repository | Edit `~/webdev/warp-pi-gateway`; live extensions are links |

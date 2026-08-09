@@ -19,7 +19,7 @@ test("parses exact Git sources into locator and ref", () => {
 
 test("ignores registry, local, and floating Git sources", () => {
 	assert.equal(parseGitPin("npm:pi-lens"), null);
-	assert.equal(parseGitPin("npm:pi-subagents@0.43.0"), null);
+	assert.equal(parseGitPin("npm:pi-subagents"), null);
 	assert.equal(parseGitPin("git:github.com/example/tool"), null);
 	assert.equal(parseGitPin("./local/path"), null);
 });

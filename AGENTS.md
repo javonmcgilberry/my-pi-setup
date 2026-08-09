@@ -9,9 +9,10 @@ repository that owns each change; `~/.pi/agent` contains installed output.
   extensions here. Local extensions live in `extensions/`, the context-budget
   package lives in `packages/context-budget/`, tracked defaults and package
   locators live in `settings.json`, and package metadata lives in
-  `package.json`. Routine npm packages float so Pi's native
-  `pi update --extensions` command can update them; exact npm exceptions and
-  commit-pinned Git packages are declared in `config/manifest.json`.
+  `package.json`. Routine npm and Git packages float so Pi's native
+  `pi update --extensions` command can update them. Packages with an explicit
+  publication boundary are declared in `config/manifest.json`; Prewalk is the
+  only current exact source.
 - Treat `config/manifest.json` as the authoritative managed-install inventory.
   Update it before changing setup, drift, validation, retirement, or restore
   behavior.
@@ -20,11 +21,13 @@ repository that owns each change; `~/.pi/agent` contains installed output.
 - Make Pi core changes in `~/Developer/pi`, rather than the globally installed
   package. Keep Pi-managed checkouts under `~/.pi/agent/npm/node_modules` and
   `~/.pi/agent/git` read-only.
-- Use the exact unmodified upstream `npm:pi-subagents` release named in
-  `settings.json`. Keep the retired custom fork and its Prewalk
-  execution-profile policy retired.
+- Use the unmodified upstream `npm:pi-subagents` package. Keep the retired
+  custom fork and its Prewalk execution-profile policy retired.
 - Put machine-only overrides in ignored `settings.local.json`. Keep credentials,
   browser profiles, cookies, and runtime data outside tracked files.
+- An explicit `packageReplacements` entry in `settings.local.json` always wins
+  over its tracked remote locator. Do not infer replacements from checkout
+  names or nearby directories; stale and retired clones must not load silently.
 
 This repository is an installable personal Pi package. Its bootstrap renders
 global settings plus the few files and shared links that Pi packages cannot
@@ -84,9 +87,9 @@ depending on repeated prompt instructions.
    preserve existing work. Run Pi from the repository being changed.
 2. Create a branch or worktree only when the user asks for a PR or isolation.
    Remove merged temporary branches and worktrees when the work is complete.
-3. Use `pi update --extensions` for routine registry-package updates. Update an
-   exact npm exception or publish a new Git commit pin only for an explicit
-   request, then review that change like code.
+3. Use `pi update --extensions` for routine package updates. Add or move an
+   exact package source only when the user wants a reviewed publication
+   boundary, then review that change like code.
 4. When installed components, configuration, commands, ownership, live paths,
    user-visible behavior, safety rules, or data handling change, update root
    `README.md` in the same change. Check the wording against this repository or
@@ -129,10 +132,10 @@ configuration, and bootstrap-inventory changes require `setup.sh`.
   files and offers to land them through `scripts/land.sh` first, because
   applying a dirty tree puts source into the live setup that exists in no
   commit.
-- `/sync-me publish` advances tracked Git pins from their owning local
-  checkouts, then walks review, checks, commit, and apply in-session. It does
-  not update registry packages; use `pi update --extensions` for those. Its
-  commit also goes through `scripts/land.sh`.
+- `/sync-me publish` advances the tracked Prewalk pin from its owning local
+  checkout, then walks review, checks, commit, and apply in-session. It does not
+  update routine packages; use `pi update --extensions` for those. Its commit
+  also goes through `scripts/land.sh`.
 - Apply changed live configuration exclusively with `setup.sh`; `/reload` does
   not cross that boundary. Use only `/sync-me` for the supported sync boundary;
   `./sync` is retired.
