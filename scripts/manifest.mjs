@@ -111,6 +111,37 @@ function normalizePaths(value, label, { allowTrailingSlash = false } = {}) {
   );
 }
 
+function normalizePackagePolicy(value) {
+  const policy = assertRecord(value, "packagePolicy");
+  const allowedKeys = new Set(["floatingNpm", "exactNpm", "commitPinnedGit"]);
+  const unknownKeys = Object.keys(policy).filter((key) => !allowedKeys.has(key));
+  if (unknownKeys.length) {
+    throw new Error(`unknown packagePolicy keys: ${unknownKeys.join(", ")}`);
+  }
+  if (policy.floatingNpm !== true) {
+    throw new Error("packagePolicy.floatingNpm must be true");
+  }
+  if (policy.commitPinnedGit !== true) {
+    throw new Error("packagePolicy.commitPinnedGit must be true");
+  }
+  if (!Array.isArray(policy.exactNpm)) {
+    throw new Error("packagePolicy.exactNpm must be an array");
+  }
+  const exactNpm = policy.exactNpm.map((name, index) => {
+    if (
+      typeof name !== "string" ||
+      !/^(?:@[^/@]+\/)?[^/@]+$/.test(name)
+    ) {
+      throw new Error(`packagePolicy.exactNpm[${index}] must be an npm package name`);
+    }
+    return name;
+  });
+  if (new Set(exactNpm).size !== exactNpm.length) {
+    throw new Error("packagePolicy.exactNpm contains duplicate package names");
+  }
+  return { floatingNpm: true, exactNpm, commitPinnedGit: true };
+}
+
 function assertUniqueTargets(entries, label) {
   const seen = new Map();
   for (const entry of entries) {
@@ -153,6 +184,7 @@ export function normalizeManifest(raw, { repoRoot = REPO_ROOT } = {}) {
   assertRecord(raw, "manifest");
   const allowedKeys = new Set([
     "version",
+    "packagePolicy",
     "rendered",
     "copied",
     "linked",
@@ -169,6 +201,7 @@ export function normalizeManifest(raw, { repoRoot = REPO_ROOT } = {}) {
     throw new Error(`manifest version must be ${MANIFEST_VERSION}`);
   }
 
+  const packagePolicy = normalizePackagePolicy(raw.packagePolicy);
   const rendered = normalizeMap(raw.rendered, "rendered", "pi", repoRoot, { filesOnly: true });
   if (rendered.length !== 1) throw new Error("rendered must contain exactly one settings entry");
   const copied = normalizeCopied(raw.copied, repoRoot);
@@ -221,6 +254,7 @@ export function normalizeManifest(raw, { repoRoot = REPO_ROOT } = {}) {
 
   return {
     version: MANIFEST_VERSION,
+    packagePolicy,
     rendered,
     copied,
     linked,
@@ -234,7 +268,12 @@ export function normalizeManifest(raw, { repoRoot = REPO_ROOT } = {}) {
 }
 
 export function loadManifest(manifestPath = resolve(REPO_ROOT, "config/manifest.json"), options = {}) {
-  const raw = JSON.parse(readFileSync(manifestPath, "utf8"));
+  let raw;
+  try {
+    raw = JSON.parse(readFileSync(manifestPath, "utf8"));
+  } catch (error) {
+    throw new Error(`could not parse manifest ${manifestPath}`, { cause: error });
+  }
   return normalizeManifest(raw, { repoRoot: options.repoRoot ?? REPO_ROOT });
 }
 

@@ -13,6 +13,11 @@ import {
 
 const base = {
   version: 1,
+  packagePolicy: {
+    floatingNpm: true,
+    exactNpm: ["pi-subagents"],
+    commitPinnedGit: true,
+  },
   rendered: { "settings.json": "settings.json" },
   copied: [],
   linked: {},
@@ -23,10 +28,24 @@ const base = {
   runtimeExclusions: [],
 };
 
+const NPM_SOURCE = /^npm:(?<name>@[^/@]+\/[^/@]+|[^@]+)(?:@(?<version>.+))?$/;
+
+function parseNpmSource(source) {
+  const match = NPM_SOURCE.exec(source);
+  return match?.groups
+    ? { name: match.groups.name, version: match.groups.version }
+    : null;
+}
+
 describe("managed install manifest", () => {
   it("normalizes the checked-in inventory for every consumer", () => {
     const manifest = loadManifest();
     assert.equal(manifest.version, 1);
+    assert.deepEqual(manifest.packagePolicy, {
+      floatingNpm: true,
+      exactNpm: ["pi-subagents"],
+      commitPinnedGit: true,
+    });
     assert.equal(manifest.copied.length, 11);
     assert.equal(manifest.linked.length, 0);
     assert.equal(manifest.sharedSkills.length, 1);
@@ -80,20 +99,52 @@ describe("managed install manifest", () => {
     assert.equal(packageJson.files.some((entry) => entry.includes("webflow-designer-agent-browser")), false);
   });
 
-  it("keeps every managed npm and Git package source pinned", () => {
+  it("floats routine npm packages while keeping declared npm and Git pins exact", () => {
+    const manifest = loadManifest();
     const settings = JSON.parse(readFileSync(`${REPO_ROOT}/settings.json`, "utf8"));
     const exactSemver = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
-    const floating = settings.packages.filter((entry) => {
-      if (entry.startsWith("npm:")) {
-        const separator = entry.lastIndexOf("@");
-        const source = entry.slice(4, separator);
-        const version = entry.slice(separator + 1);
-        return separator <= 4 || source.endsWith("@") || !exactSemver.test(version);
+    const npmPackages = settings.packages
+      .filter((entry) => entry.startsWith("npm:"))
+      .map((entry) => {
+        const parsed = parseNpmSource(entry);
+        assert.ok(parsed, `valid npm package source: ${entry}`);
+        return { source: entry, ...parsed };
+      });
+    const exactNames = new Set(manifest.packagePolicy.exactNpm);
+
+    for (const pkg of npmPackages) {
+      if (exactNames.has(pkg.name)) {
+        assert.match(pkg.version ?? "", exactSemver, `${pkg.name} stays exact`);
+      } else {
+        assert.equal(pkg.version, undefined, `${pkg.name} must float`);
       }
-      if (isGitPackageSource(entry)) return !parsePinnedGitSource(entry);
-      return false;
-    });
-    assert.deepEqual(floating, []);
+    }
+    assert.deepEqual(
+      npmPackages.filter((pkg) => pkg.version).map((pkg) => pkg.name).sort(),
+      [...exactNames].sort(),
+    );
+
+    const gitPackages = settings.packages.filter(isGitPackageSource);
+    assert.ok(gitPackages.length > 0, "the setup includes commit-pinned Git packages");
+    for (const source of gitPackages) {
+      const parsed = parsePinnedGitSource(source);
+      assert.match(parsed?.commit ?? "", /^[0-9a-f]{40}$/i, `${source} uses a commit SHA`);
+    }
+  });
+
+  it("rejects weakened or undeclared package-version policy", () => {
+    assert.throws(
+      () => normalizeManifest({ ...base, packagePolicy: { ...base.packagePolicy, floatingNpm: false } }),
+      /floatingNpm must be true/,
+    );
+    assert.throws(
+      () => normalizeManifest({ ...base, packagePolicy: { ...base.packagePolicy, commitPinnedGit: false } }),
+      /commitPinnedGit must be true/,
+    );
+    assert.throws(
+      () => normalizeManifest({ ...base, packagePolicy: { ...base.packagePolicy, unexpected: true } }),
+      /unknown packagePolicy keys/,
+    );
   });
 
   it("resolves every supported exact Git source without rewriting its protocol", () => {

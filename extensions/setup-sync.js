@@ -11,11 +11,9 @@ import { dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 
 import {
-	applyPinUpdates,
-	parsePackagePin,
+	applyGitPinUpdates,
+	parseGitPin,
 	planGitPinUpdate,
-	planNpmUpdates,
-	registryUrl,
 } from "./setup-update.js";
 
 const CHECK_TIMEOUT_MS = 15 * 60 * 1000;
@@ -24,6 +22,9 @@ const STATUS_KEY = "sync-me";
 /** Fast pre-shutdown gate. The full matrix runs detached, once no Pi session is waiting on it. */
 export const CHECK_COMMAND =
 	"./scripts/check.sh --fast && npm pack --dry-run >/dev/null";
+
+export const LEGACY_UPDATE_MESSAGE =
+	"`/sync-me update` is retired. Exit Pi and run `pi update --extensions` for registry packages, or use `/sync-me publish` to publish owned Git checkouts.";
 
 /** Git never gets to open an interactive credential prompt that nobody can answer. */
 export function gitCommand(args) {
@@ -56,28 +57,6 @@ export function applyLogPath(env = process.env, home = homedir()) {
 	return join(env.PI_AGENT_DIR || join(home, ".pi", "agent"), "sync-me.log");
 }
 
-/** Ask npm for each package's current release. A lookup that fails just means "no update offered". */
-export async function fetchLatestVersions(names, fetchJson) {
-	const entries = await Promise.all(
-		names.map(async (name) => {
-			const version = await fetchJson(registryUrl(name));
-			return typeof version === "string" ? [name, version] : undefined;
-		}),
-	);
-	return new Map(entries.filter(Boolean));
-}
-
-async function registryVersion(url) {
-	try {
-		const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-		if (!response.ok) return undefined;
-		const body = await response.json();
-		return body?.version;
-	} catch {
-		return undefined;
-	}
-}
-
 /** Footer progress, so a multi-second step never looks like a frozen session. */
 function startProgress(ctx, label) {
 	const started = Date.now();
@@ -97,8 +76,8 @@ function startProgress(ctx, label) {
 /** Match a local checkout back to the tracked git pin it replaces. */
 export function trackedPinFor(packages, replacementSource) {
 	return packages.find((source) => {
-		const pin = parsePackagePin(source);
-		return pin?.kind === "git" && pin.locator === replacementSource;
+		const pin = parseGitPin(source);
+		return pin?.locator === replacementSource;
 	});
 }
 
@@ -339,7 +318,7 @@ export function defaultCommitMessage(updates) {
 
 /**
  * Shut this session down and hand the apply to a detached helper. Shared by
- * `/sync-me` and the tail of `/sync-me update`.
+ * `/sync-me` and the tail of `/sync-me publish`.
  */
 async function runApply(pi, ctx, root) {
 	// Applying a dirty tree puts source into the live setup that exists in no
@@ -488,12 +467,12 @@ async function reviewAndCommit(pi, ctx, root, updates) {
 }
 
 /**
- * `/sync-me update`: refresh the tracked pins in this repository, then walk the
- * review, check, commit, and apply gates without leaving Pi.
+ * `/sync-me publish`: advance tracked Git pins from owned local checkouts, then
+ * walk the review, check, commit, and apply gates without leaving Pi.
  *
  * It never writes live settings. Every mutation is behind its own confirmation.
  */
-async function runUpdate(pi, ctx, root) {
+async function runPublish(pi, ctx, root) {
 	const settingsPath = join(root, "settings.json");
 	const settingsText = readFileSync(settingsPath, "utf8");
 	let packages;
@@ -521,27 +500,14 @@ async function runUpdate(pi, ctx, root) {
 		if (update) gitUpdates.push(update);
 	}
 
-	const stopProgress = startProgress(
-		ctx,
-		"sync-me: checking npm for newer releases",
-	);
-	const npmNames = packages
-		.map((source) => parsePackagePin(source))
-		.filter((pin) => pin?.kind === "npm")
-		.map((pin) => pin.name);
-	const latest = await fetchLatestVersions(npmNames, registryVersion).finally(
-		stopProgress,
-	);
-	const updates = [...gitUpdates, ...planNpmUpdates(packages, latest)];
-
-	if (updates.length === 0) {
-		ctx.ui.notify("Every tracked pin is already current.", "info");
+	if (gitUpdates.length === 0) {
+		ctx.ui.notify("No publishable Git pin changes were found.", "info");
 		return;
 	}
 
 	const confirmed = await ctx.ui.confirm(
-		`Write ${updates.length} pin update(s) to settings.json?`,
-		`${describeUpdates(updates)}\n\nThis edits the tracked settings.json only. It does not commit this repository, touch live settings, or apply the setup.`,
+		`Write ${gitUpdates.length} Git pin update(s) to settings.json?`,
+		`${describeUpdates(gitUpdates)}\n\nThis publishes owned Git checkout commits into tracked settings.json. It does not update registry packages, touch live settings, or apply the setup.`,
 	);
 	if (!confirmed) {
 		ctx.ui.notify("No pins were changed.", "info");
@@ -549,25 +515,32 @@ async function runUpdate(pi, ctx, root) {
 	}
 
 	try {
-		writeFileSync(settingsPath, applyPinUpdates(settingsText, updates));
+		writeFileSync(settingsPath, applyGitPinUpdates(settingsText, gitUpdates));
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		ctx.ui.notify(`Could not update settings.json: ${message}`, "error");
 		return;
 	}
 
-	ctx.ui.notify(`Updated ${updates.length} pin(s) in settings.json.`, "info");
-	await reviewAndCommit(pi, ctx, root, updates);
+	ctx.ui.notify(
+		`Published ${gitUpdates.length} Git pin(s) to settings.json.`,
+		"info",
+	);
+	await reviewAndCommit(pi, ctx, root, gitUpdates);
 }
 
 export default function setupSync(pi) {
 	pi.registerCommand("sync-me", {
 		description:
-			"Update tracked pins, or apply this setup after Pi sessions close",
+			"Apply this setup, or publish owned Git checkout commits",
 		handler: async (args, ctx) => {
 			const subcommand = args.trim();
-			if (subcommand && subcommand !== "update") {
-				ctx.ui.notify("Usage: /sync-me [update]", "warning");
+			if (subcommand === "update") {
+				ctx.ui.notify(LEGACY_UPDATE_MESSAGE, "warning");
+				return;
+			}
+			if (subcommand && subcommand !== "publish") {
+				ctx.ui.notify("Usage: /sync-me [publish]", "warning");
 				return;
 			}
 			if (!ctx.hasUI) {
@@ -581,14 +554,14 @@ export default function setupSync(pi) {
 				return;
 			}
 
-			if (subcommand === "update") {
-				await runUpdate(pi, ctx, root);
+			if (subcommand === "publish") {
+				await runPublish(pi, ctx, root);
 				return;
 			}
 
 			const confirmed = await ctx.ui.confirm(
 				"Apply the Pi setup after shutdown?",
-				"Fast-forwards clean local Git package replacements, runs the fast checks, then shuts this session down. A detached helper waits for every Pi process to exit, runs the full checks, applies the current checkout, and verifies drift. It does not pull the setup repository, push, commit, or upgrade pinned packages.",
+				"Fast-forwards clean local Git package replacements, runs the fast checks, then shuts this session down. A detached helper waits for every Pi process to exit, runs the full checks, applies the current checkout, and verifies drift. It does not pull the setup repository, publish Git pins, or update registry packages.",
 			);
 			if (!confirmed) {
 				ctx.ui.notify("Setup apply cancelled.", "info");

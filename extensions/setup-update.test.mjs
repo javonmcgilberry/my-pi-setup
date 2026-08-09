@@ -2,95 +2,29 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-	applyPinUpdates,
-	compareVersions,
-	parsePackagePin,
+	applyGitPinUpdates,
+	parseGitPin,
 	planGitPinUpdate,
-	planNpmUpdates,
-	registryUrl,
 } from "./setup-update.js";
 
-test("parses npm pins, including scoped names", () => {
-	assert.deepEqual(parsePackagePin("npm:pi-lens@3.8.74"), {
-		kind: "npm",
-		name: "pi-lens",
-		version: "3.8.74",
-	});
-	assert.deepEqual(parsePackagePin("npm:@howaboua/pi-auto-trees@0.1.11"), {
-		kind: "npm",
-		name: "@howaboua/pi-auto-trees",
-		version: "0.1.11",
-	});
-});
-
-test("parses git pins into locator and ref", () => {
+test("parses exact Git sources into locator and ref", () => {
 	assert.deepEqual(
-		parsePackagePin("git:github.com/javonmcgilberry/pi-prewalk@c22cf7e9"),
+		parseGitPin("git:github.com/javonmcgilberry/pi-prewalk@c22cf7e9"),
 		{
-			kind: "git",
 			locator: "git:github.com/javonmcgilberry/pi-prewalk",
 			ref: "c22cf7e9",
 		},
 	);
 });
 
-test("ignores sources that are not pinned packages", () => {
-	assert.equal(parsePackagePin("npm:pi-lens"), null);
-	assert.equal(parsePackagePin("./local/path"), null);
+test("ignores registry, local, and floating Git sources", () => {
+	assert.equal(parseGitPin("npm:pi-lens"), null);
+	assert.equal(parseGitPin("npm:pi-subagents@0.43.0"), null);
+	assert.equal(parseGitPin("git:github.com/example/tool"), null);
+	assert.equal(parseGitPin("./local/path"), null);
 });
 
-test("builds registry URLs that survive scoped names", () => {
-	assert.equal(
-		registryUrl("pi-lens"),
-		"https://registry.npmjs.org/pi-lens/latest",
-	);
-	assert.equal(
-		registryUrl("@howaboua/pi-auto-trees"),
-		"https://registry.npmjs.org/@howaboua%2Fpi-auto-trees/latest",
-	);
-});
-
-test("orders versions numerically, not lexically", () => {
-	assert.ok(compareVersions("3.8.74", "3.8.9") > 0);
-	assert.ok(compareVersions("0.2.0", "0.1.62") > 0);
-	assert.ok(compareVersions("1.0.0", "1.0.0") === 0);
-	assert.ok(compareVersions("1.2.0", "1.10.0") < 0);
-});
-
-test("treats a prerelease as older than its release", () => {
-	assert.ok(compareVersions("1.0.0", "1.0.0-beta.1") > 0);
-	assert.ok(compareVersions("1.0.0-beta.1", "1.0.0") < 0);
-});
-
-test("plans only genuine npm upgrades", () => {
-	const packages = [
-		"npm:pi-lens@3.8.74",
-		"npm:pi-fzf@0.9.0",
-		"npm:pi-render-cache@1.1.0",
-		"git:github.com/example/tool@abc",
-	];
-	const latest = new Map([
-		["pi-lens", "3.9.0"],
-		["pi-fzf", "0.9.0"],
-		["pi-render-cache", "1.0.9"],
-	]);
-
-	assert.deepEqual(planNpmUpdates(packages, latest), [
-		{
-			source: "npm:pi-lens@3.8.74",
-			next: "npm:pi-lens@3.9.0",
-			name: "pi-lens",
-			from: "3.8.74",
-			to: "3.9.0",
-		},
-	]);
-});
-
-test("skips npm packages whose latest version could not be resolved", () => {
-	assert.deepEqual(planNpmUpdates(["npm:pi-lens@3.8.74"], new Map()), []);
-});
-
-test("plans a git pin bump toward an already-pushed head", () => {
+test("plans a Git pin bump toward an already-pushed head", () => {
 	const head = "a0b2a8e4d02bb38f43a64d6ff49e96cfea9e2ce4";
 	assert.deepEqual(
 		planGitPinUpdate(
@@ -108,25 +42,29 @@ test("plans a git pin bump toward an already-pushed head", () => {
 	);
 });
 
-test("plans no git bump when the pin already matches head", () => {
+test("plans no change for a matching head or a non-Git source", () => {
 	const head = "a0b2a8e4d02bb38f43a64d6ff49e96cfea9e2ce4";
 	assert.equal(
 		planGitPinUpdate(`git:github.com/example/tool@${head}`, head),
 		null,
 	);
+	assert.equal(planGitPinUpdate("npm:pi-intercom", head), null);
 });
 
-test("rewrites pins without reformatting the rest of settings.json", () => {
+test("rewrites Git pins without touching floating npm locators or formatting", () => {
 	const original = `{
   "theme": "dark",
   "packages": [
-    "npm:pi-lens@3.8.74",
-    "npm:pi-fzf@0.9.0"
+    "npm:pi-intercom",
+    "git:github.com/example/tool@old-head"
   ]
 }
 `;
-	const updated = applyPinUpdates(original, [
-		{ source: "npm:pi-lens@3.8.74", next: "npm:pi-lens@3.9.0" },
+	const updated = applyGitPinUpdates(original, [
+		{
+			source: "git:github.com/example/tool@old-head",
+			next: "git:github.com/example/tool@new-head",
+		},
 	]);
 
 	assert.equal(
@@ -134,37 +72,58 @@ test("rewrites pins without reformatting the rest of settings.json", () => {
 		`{
   "theme": "dark",
   "packages": [
-    "npm:pi-lens@3.9.0",
-    "npm:pi-fzf@0.9.0"
+    "npm:pi-intercom",
+    "git:github.com/example/tool@new-head"
   ]
 }
 `,
 	);
 });
 
-test("refuses to rewrite a pin that is not present exactly once", () => {
-	const settings = `{ "packages": ["npm:pi-lens@3.8.74", "npm:pi-lens@3.8.74"] }`;
+test("refuses to rewrite a Git pin that is missing or duplicated", () => {
+	const duplicate =
+		`{ "packages": [` +
+		`"git:github.com/example/tool@old",` +
+		`"git:github.com/example/tool@old"] }`;
 	assert.throws(
 		() =>
-			applyPinUpdates(settings, [
-				{ source: "npm:pi-lens@3.8.74", next: "npm:pi-lens@3.9.0" },
+			applyGitPinUpdates(duplicate, [
+				{
+					source: "git:github.com/example/tool@old",
+					next: "git:github.com/example/tool@new",
+				},
 			]),
 		/exactly once/,
 	);
 	assert.throws(
 		() =>
-			applyPinUpdates(`{ "packages": [] }`, [
-				{ source: "npm:missing@1.0.0", next: "npm:missing@2.0.0" },
+			applyGitPinUpdates(`{ "packages": [] }`, [
+				{
+					source: "git:github.com/example/missing@old",
+					next: "git:github.com/example/missing@new",
+				},
 			]),
 		/exactly once/,
 	);
 });
 
-test("applies every planned update in one pass", () => {
-	const original = `["npm:a@1.0.0","npm:b@2.0.0"]`;
-	const updated = applyPinUpdates(original, [
-		{ source: "npm:a@1.0.0", next: "npm:a@1.1.0" },
-		{ source: "npm:b@2.0.0", next: "npm:b@2.1.0" },
+test("applies every planned Git pin in one pass", () => {
+	const original =
+		`["git:github.com/example/a@old-a",` +
+		`"git:github.com/example/b@old-b"]`;
+	const updated = applyGitPinUpdates(original, [
+		{
+			source: "git:github.com/example/a@old-a",
+			next: "git:github.com/example/a@new-a",
+		},
+		{
+			source: "git:github.com/example/b@old-b",
+			next: "git:github.com/example/b@new-b",
+		},
 	]);
-	assert.equal(updated, `["npm:a@1.1.0","npm:b@2.1.0"]`);
+	assert.equal(
+		updated,
+		`["git:github.com/example/a@new-a",` +
+			`"git:github.com/example/b@new-b"]`,
+	);
 });

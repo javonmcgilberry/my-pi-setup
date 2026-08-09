@@ -2,7 +2,7 @@
 
 This repository is the portable, maintained source for my
 [Pi](https://github.com/earendil-works/pi) setup. It records the configuration,
-extensions, skills, and package versions I want to keep. Credentials, chats,
+extensions, skills, and package sources I want to keep. Credentials, chats,
 caches, analytics databases, browser profiles, and other machine state stay
 local.
 
@@ -57,7 +57,8 @@ pi
 Edit:
 
 - `extensions/` and `packages/context-budget/` for local extensions
-- `settings.json` for tracked defaults and exact package pins
+- `settings.json` for tracked defaults, floating npm locators, and deliberate
+  package pins
 - `package.json` for this setup package
 - `config/manifest.json` before changing bootstrap-managed files
 - `README.md` when behavior, ownership, paths, or safety rules change
@@ -137,8 +138,9 @@ detached helper, and shuts down the current Pi. The helper waits for every Pi
 process to exit, runs the **full** `check.sh`, runs `setup.sh`, and verifies
 `drift.sh`. Failing full checks abort the helper before `setup.sh` runs, so
 nothing is applied. It does not pull the setup repository, force-close another
-session, push, commit, or upgrade pinned packages. Dirty or divergent local
-package checkouts stop the command rather than being overwritten.
+session, push, commit, publish Git pins, or update registry packages. Dirty or
+divergent local package checkouts stop the command rather than being
+overwritten.
 
 While the command runs, a footer status line shows the current step and elapsed
 seconds. Everything after shutdown goes to `~/.pi/agent/sync-me.log`
@@ -153,48 +155,45 @@ IDs it is waiting on in that log, so a long wait is visible rather than silent.
 Start Pi normally to apply the live setup, or use the same temporary environment
 variables above to apply only to a temporary test setup.
 
-### Updating tracked pins
+### Updating extensions
 
-`pi update` and the extension manager write to the live
-`~/.pi/agent/settings.json`, which `setup.sh` regenerates from the tracked
-`settings.json` in this repository. Their updates are therefore lost at the next
-apply. Tracked `settings.json` is the only source of truth for versions.
+Exit Pi before replacing extensions it has already loaded, then use Pi's native
+updater:
 
-`/sync-me update` refreshes that tracked file instead. It first works out what
-should move:
+```sh
+pi update --extensions
+```
 
-1. For each local Git package replacement, it readies the checkout so its HEAD
-   can be pinned. A clean checkout is pushed; a dirty one prompts for a commit
-   message and needs explicit confirmation of the commit and push. Empty message
-   or declined confirmation leaves the checkout untouched and skips that pin.
-2. It asks the npm registry for the current release of every `npm:` pin. A
-   failed lookup offers no update rather than failing the command.
-3. It shows every proposed change and writes them to tracked `settings.json`
-   only after you confirm.
+Most npm entries in `settings.json` are stable, unversioned locators such as
+`npm:pi-intercom`. Pi can move those packages to the current registry release,
+and a later `setup.sh` run keeps the same locator instead of restoring an old
+version. Restart Pi after the update.
 
-It then walks the rest of the work without leaving Pi, one gate at a time.
-Continuing from the steps above:
+There are two deliberate exceptions:
 
-1. It shows the resulting `settings.json` diff and asks whether to run
-   `check.sh --fast`.
-2. It offers a commit, pre-filled with a message naming every pin that moved.
-   The commit runs through `land.sh --path settings.json`, so validation runs
-   before staging and nothing but `settings.json` is committed.
-3. It offers to apply, which runs the same shutdown-and-apply path as plain
-   `/sync-me`.
+- `pi-subagents` stays on the exact unmodified upstream release named in
+  `settings.json`. Moving it is an explicit, reviewed settings change.
+- Owned or forked Git packages stay on full commit SHAs so a clean install never
+  depends on an unpublished branch head.
 
-Declining any gate stops the chain and leaves the edited `settings.json` in
-place, so you can always finish by hand:
+`/sync-me` isn't the package updater. It validates and applies this setup after
+Pi sessions close. Use `/sync-me publish` only when an owned Git checkout, such
+as Prewalk, is ready to become the new shared default. With confirmation, it can
+commit and push a dirty replacement checkout. It then verifies that HEAD is on
+a remote branch and proposes the matching SHA change in tracked `settings.json`.
+
+After you approve the Git pin change, `/sync-me publish` shows the diff and
+offers the usual check, commit, and apply steps. Declining a step leaves the
+edited file in place. You can finish it from the shell with:
 
 ```sh
 git diff settings.json
-./scripts/check.sh
-git commit -m "chore: update tracked pins" -- settings.json
+./scripts/land.sh --message "chore: publish updated Git pins" --path settings.json
 ```
 
-It never writes live settings, never pushes this repository, and never commits
-anything but `settings.json`. A Git pin only ever moves to a commit that is
-already on a remote branch, so a pin can never point at unpushed local work.
+The retired `/sync-me update` command now prints these two choices instead of
+guessing which kind of update you meant. A published Git pin can only point to a
+commit that is already on a remote branch.
 
 Keep machine-only choices in ignored `settings.local.json`:
 
@@ -253,7 +252,7 @@ every local edit. Only update that SHA when publishing a new default remote
 version, after the commit has been pushed. `check.sh` fetches every tracked Git
 pin from its remote, so a local-only commit is not a valid default pin.
 
-`/sync-me update` performs that publish step: it pushes the checkout (prompting
+`/sync-me publish` performs that publish step: it pushes the checkout (prompting
 for a commit message first when the checkout is dirty) and then rewrites the
 tracked SHA to the pushed HEAD. Hand-editing the SHA is no longer necessary.
 
@@ -345,18 +344,19 @@ dependencies so these prompt and tool changes run last.
 ## Installed packages and extensions
 
 The `packages` array in `settings.json` lists the packages Pi loads.
-Those npm and Git sources are pinned there for clean, reproducible installs.
+Most npm sources do not include a version, so `pi update --extensions` can
+install their current registry releases. `pi-subagents` is the one exact npm
+exception. Git sources stay commit-pinned for clean, reproducible installs.
 Ignored `packageReplacements` can substitute a local checkout during
-development. The root `package.json` describes this repository's own Pi
-package, and `package-lock.json` covers only dependencies needed by that
-package itself.
+development. The root `package.json` describes this repository's own Pi package,
+and `package-lock.json` covers only dependencies needed by that package itself.
 
 | Component | What it does | Configuration and source |
 | --- | --- | --- |
 | [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) | Connects Pi to MCP servers and exposes their tools. | Servers are defined in [`mcp.json`](mcp.json). The linked repository owns the package README. |
 | [`pi-web-access`](https://github.com/nicobailon/pi-web-access) | Adds web search, URL fetching, repository/PDF extraction, and video analysis. | Provider credentials and runtime choices stay local. The linked repository owns the package README. |
 | `context-mode` | Keeps large reads, command output, logs, and web payloads out of model context; indexes compact session memory for later search. | Loaded from a pinned commit of [my Context Mode fork](https://github.com/javonmcgilberry/context-mode) and registered through `mcp.json`. Edit the source checkout, not Pi's copy. |
-| [`pi-subagents`](https://github.com/nicobailon/pi-subagents) | Runs delegated agents and script-based workflows, including parallel work and managed Git worktrees. | Child model and role defaults are in `settings.json`. Multi-agent workflows use `workflowScript`; the old top-level task/chain arrays and `/chain`, `/parallel`, and `/run-chain` commands are gone. Scheduled workflows are enabled by the package default. Uses the unchanged upstream package and its README. |
+| [`pi-subagents`](https://github.com/nicobailon/pi-subagents) | Runs delegated agents and script-based workflows, including parallel work and managed Git worktrees. | Child model and role defaults are in `settings.json`. Multi-agent workflows use `workflowScript`; the old top-level task/chain arrays and `/chain`, `/parallel`, and `/run-chain` commands are gone. Scheduled workflows are enabled by the package default. This is the one exact npm pin and uses the unchanged upstream release. |
 | [`pi-intercom`](https://www.npmjs.com/package/pi-intercom) | Sends direct messages between local Pi sessions and supports parent/child coordination. | No tracked config. Its installed README is the reference; runtime broker state is local. |
 | [`pi-anthropic-oauth`](https://github.com/leohenon/pi-anthropic-oauth) | Adds Claude Pro/Max browser OAuth and token refresh. | OAuth credentials stay in Pi's local auth store. The linked repository owns the package README. |
 | [`pi-cursor-sdk`](https://github.com/fitchmultz/pi-cursor-sdk) | Adds models backed by Cursor's local and cloud agent libraries. | Requires Pi `0.84.0` or newer and uses Cursor SDK `1.0.23`. Authorization and generated model data stay local. The linked repository owns the package README. |
@@ -365,14 +365,14 @@ package itself.
 | [`@howaboua/pi-smart-btw`](https://github.com/IgorWarzocha/howaboua-pi-stuff/tree/main/packages/pi-smart-btw) | Runs side questions in ephemeral child Pi processes and injects answers only when requested. | [`pi-smart-btw.json`](pi-smart-btw.json) selects Luna, low reasoning, and the `Alt+Z/C/X/J/K/H/L` controls. The linked package README explains its slots and queues. |
 | [`pi-lens`](https://github.com/apmantza/pi-lens) | Runs live Language Server Protocol (LSP), lint, formatting, type, security, and structural checks around edits. | Package defaults plus Pi's generated diagnostic state. The linked repository owns the package README and rule documentation. |
 | [`pi-agent-browser-native`](https://github.com/fitchmultz/pi-agent-browser-native) | Exposes `agent-browser` as Pi's native browser automation tool. | Uses the global `agent-browser` CLI and local browser state. [`agent-browser-policy.json`](agent-browser-policy.json) and the policy extension keep nested chat and cookie transfer fail-closed without restricting the active Pi model. The linked repository owns the package README. |
-| [`pi-autoname`](https://github.com/ssdiwu/pi-autoname) | Gives a new session a short name, then checks periodically whether the topic has changed enough to rename it. | Pinned at `0.6.8`. [`pi-autoname.json`](pi-autoname.json) uses Luna, waits 10 minutes between checks, and preserves names set with `/name`. |
+| [`pi-autoname`](https://github.com/ssdiwu/pi-autoname) | Gives a new session a short name, then checks periodically whether the topic has changed enough to rename it. | [`pi-autoname.json`](pi-autoname.json) uses Luna, waits 10 minutes between checks, and preserves names set with `/name`. |
 | Compound Engineering | Provides planning, implementation, review, debugging, shipping, and learning skills. | Loaded from [EveryInc/compound-engineering-plugin](https://github.com/EveryInc/compound-engineering-plugin). The package owns its skill documentation. |
 | [`pi-ask-user`](https://github.com/edlsh/pi-ask-user) | Adds the interactive `ask_user` decision UI with search, choices, and freeform input. | No tracked config. The linked repository owns the package README. |
 | Prewalk | The chosen planner starts a coding task; later turns go to a configured executor in the same session. | Uses the owning local checkout when `settings.local.json` provides a replacement; clean installs use the exact [`pi-prewalk`](https://github.com/javonmcgilberry/pi-prewalk) commit in `settings.json`. [`prewalk.json`](prewalk.json) selects Luna at max reasoning and enables local analytics. |
 | Context budget | Keeps the full skill catalog and the largest optional tool schemas out of the first request, then loads them when needed. | [`packages/context-budget`](packages/context-budget), loaded as part of this Pi package. Deferred groups are browser, intercom, MCP, and subagents. |
 | [`@vanillagreen/pi-tool-renderer`](https://github.com/vanillagreencom/vstack/tree/main/pi-extensions/pi-tool-renderer) | Replaces noisy tool output with compact, readable renderers. | Renderer modes are under `vstack.extensionManager.config` in `settings.json`. The linked package README has the renderer options. |
-| [`pi-render-cache`](https://github.com/axelbaumlisto/pi-render-cache) | Reduces terminal-interface (TUI) streaming work with bounded render caches. | Loaded at version `1.1.0`; no tracked config. On Pi `0.84.0`, the text-segmentation cache loads but the Markdown cache rejects the new renderer hash and stays off, so normal uncached Markdown rendering continues with a startup warning. This is a performance cache, not a conversation backup. The linked repository owns the package README. |
-| [`@vanillagreen/pi-extension-manager`](https://github.com/vanillagreencom/vstack/tree/main/pi-extensions/pi-extension-manager) | Adds package browsing, update/uninstall actions, diagnostics, and settings editing based on package schemas. | Reads Pi package state and the `vstack` settings namespace. This repository still owns the exact pins. The manager runs npm updates directly, so stale peer ranges can stop its update action even when Pi's managed installer can reconcile the same pins. The linked package README has the command and settings reference. |
+| [`pi-render-cache`](https://github.com/axelbaumlisto/pi-render-cache) | Reduces terminal-interface (TUI) streaming work with bounded render caches. | No tracked config. If a release does not recognize Pi's current renderer hash, it disables that cache and leaves normal uncached rendering available. This is a performance cache, not a conversation backup. The linked repository owns the package README. |
+| [`@vanillagreen/pi-extension-manager`](https://github.com/vanillagreencom/vstack/tree/main/pi-extensions/pi-extension-manager) | Adds package browsing, update/uninstall actions, diagnostics, and settings editing based on package schemas. | Reads Pi package state and the `vstack` settings namespace. Most npm entries now have no version, and `pi update --extensions` is the shell updater. The linked package README has the command and settings reference. |
 | [`@kliebhan/pi-prompt-autocomplete`](https://github.com/KLIEBHAN/pi-extensions/tree/main/extensions/prompt-autocomplete) | Provides privacy-conscious inline AI completion while typing prompts. | If a requested model is missing or unauthenticated, autocomplete stays off instead of sending the draft to another provider. Provider text and diagnostics are cleaned before terminal display. No tracked config; the linked package README explains the bounded context sent with each request and the in-memory cache. |
 | [`@davecodes/pi-skill-tags`](https://github.com/Davidcreador/pi-skill-tags) | Adds inline skill tags and skill-name autocomplete. | No tracked config. The linked repository owns the package README. |
 | [`pi-fzf`](https://github.com/kaofelix/pi-fzf) | Adds configurable fuzzy-search commands. | [`fzf.json`](fzf.json) defines an `@` file picker, preview command, overlay placement, and scroll keys. The linked repository owns the package README. |
@@ -387,7 +387,7 @@ package itself.
 | Agent Browser Policy | Keeps model-assisted browser usage on the configured Pi model and gates nested chat and cookie transfer. | [`agent-browser-policy.json`](agent-browser-policy.json), [`extensions/agent-browser-policy.ts`](extensions/agent-browser-policy.ts), and the shared Webflow skill. Cookie transfer is off by default. |
 | Session Spend Dashboard | Runs an opt-in read-only localhost dashboard for provider-reported spend, token use, projects, sessions, and subagent activity. | [`extensions/session-spend-dashboard`](extensions/session-spend-dashboard), configured by [`session-spend-dashboard.json`](session-spend-dashboard.json). See its [README](extensions/session-spend-dashboard/README.md). |
 | `/sync-me` | Updates clean local package checkouts, runs the fast checks, and schedules a safe setup apply after Pi sessions close. | [`extensions/setup-sync.js`](extensions/setup-sync.js). The full checks run in the detached helper; progress appears in the footer and in `~/.pi/agent/sync-me.log`. It does not pull this setup repository or change its Git state. |
-| `/sync-me update` | Rewrites the tracked pins in `settings.json` to current npm releases and pushed local-checkout commits, then walks review, checks, commit, and apply in-session. | [`extensions/setup-sync.js`](extensions/setup-sync.js) with pin planning in [`extensions/setup-update.js`](extensions/setup-update.js). Every step is a separate confirmation; it never writes live settings, never pushes, and commits `settings.json` only. |
+| `/sync-me publish` | Publishes owned local Git checkout commits into tracked SHA pins, then walks review, checks, commit, and apply in-session. | [`extensions/setup-sync.js`](extensions/setup-sync.js) with Git pin planning in [`extensions/setup-update.js`](extensions/setup-update.js). Every write is confirmed. It does not update registry packages or write live settings, and its setup-repository commit contains only `settings.json`. |
 | Warp session title | Shows the current Pi session name and project in the active Warp tab. It does nothing in other terminals. | [`extensions/warp-session-title.ts`](extensions/warp-session-title.ts), loaded from this Pi package. |
 | Clear status | Older compact usage/status implementation retained for reference but not loaded or packaged. | [`disabled-extensions/clear-status.ts`](disabled-extensions/clear-status.ts). |
 | Warp gateway links | Private Warp gateway and fallback extensions maintained in a separate repository. | Live links are `extensions/warp-gateway.ts` and `extensions/warp-link-fallback.ts`; edit `~/webdev/warp-pi-gateway`. |

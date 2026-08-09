@@ -4,13 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import {
+import setupSync, {
 	APPLY_SCRIPT,
 	CHECK_COMMAND,
+	LEGACY_UPDATE_MESSAGE,
 	applyLogPath,
 	defaultCommitMessage,
 	describeUpdates,
-	fetchLatestVersions,
 	findSetupRoot,
 	readyCheckoutForPinning,
 	summarizeFailure,
@@ -134,7 +134,7 @@ test("runs the full checks in the detached helper before applying setup", () => 
 
 test("matches a local checkout to the tracked git pin it replaces", () => {
 	const packages = [
-		"npm:pi-lens@3.8.74",
+		"npm:pi-lens",
 		"git:github.com/javonmcgilberry/pi-prewalk@c22cf7e9",
 		"git:github.com/other/tool@abc1234",
 	];
@@ -148,25 +148,38 @@ test("matches a local checkout to the tracked git pin it replaces", () => {
 	);
 });
 
-test("collects registry versions and tolerates lookup failures", async () => {
-	const latest = await fetchLatestVersions(
-		["pi-lens", "pi-fzf"],
-		async (url) => (url.includes("pi-lens") ? "3.9.0" : undefined),
-	);
-	assert.deepEqual([...latest], [["pi-lens", "3.9.0"]]);
+test("retires the ambiguous update subcommand with actionable guidance", async () => {
+	let command;
+	setupSync({
+		registerCommand: (name, definition) => {
+			assert.equal(name, "sync-me");
+			command = definition;
+		},
+	});
+	const notifications = [];
+	await command.handler("update", {
+		ui: {
+			notify: (message, level) => notifications.push({ message, level }),
+		},
+	});
+
+	assert.deepEqual(notifications, [
+		{ message: LEGACY_UPDATE_MESSAGE, level: "warning" },
+	]);
+	assert.match(LEGACY_UPDATE_MESSAGE, /pi update --extensions/);
+	assert.match(LEGACY_UPDATE_MESSAGE, /\/sync-me publish/);
 });
 
 test("renders an update table the user can actually read", () => {
 	assert.equal(
 		describeUpdates([
-			{ name: "pi-lens", from: "3.8.74", to: "3.9.0" },
 			{
 				name: "github.com/javonmcgilberry/pi-prewalk",
 				from: "c22cf7e",
 				to: "a0b2a8e",
 			},
 		]),
-		"  pi-lens  3.8.74 \u2192 3.9.0\n  github.com/javonmcgilberry/pi-prewalk  c22cf7e \u2192 a0b2a8e",
+		"  github.com/javonmcgilberry/pi-prewalk  c22cf7e \u2192 a0b2a8e",
 	);
 });
 
@@ -261,15 +274,17 @@ test("refuses to pin a HEAD that never reaches a remote branch", async () => {
 
 test("suggests a commit message that names what moved", () => {
 	assert.equal(
-		defaultCommitMessage([{ name: "pi-lens", from: "3.8.74", to: "3.9.0" }]),
-		"chore: update 1 tracked pin\n\npi-lens 3.8.74 -> 3.9.0\n",
+		defaultCommitMessage([
+			{ name: "github.com/example/a", from: "old-a", to: "new-a" },
+		]),
+		"chore: update 1 tracked pin\n\ngithub.com/example/a old-a -> new-a\n",
 	);
 	assert.equal(
 		defaultCommitMessage([
-			{ name: "pi-lens", from: "3.8.74", to: "3.9.0" },
-			{ name: "pi-fzf", from: "0.9.0", to: "0.9.1" },
+			{ name: "github.com/example/a", from: "old-a", to: "new-a" },
+			{ name: "github.com/example/b", from: "old-b", to: "new-b" },
 		]),
-		"chore: update 2 tracked pins\n\npi-lens 3.8.74 -> 3.9.0\npi-fzf 0.9.0 -> 0.9.1\n",
+		"chore: update 2 tracked pins\n\ngithub.com/example/a old-a -> new-a\ngithub.com/example/b old-b -> new-b\n",
 	);
 });
 

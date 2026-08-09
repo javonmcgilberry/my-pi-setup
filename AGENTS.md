@@ -7,8 +7,11 @@ repository that owns each change; `~/.pi/agent` contains installed output.
 
 - Edit tracked configuration, package metadata, scripts, skills, and linked
   extensions here. Local extensions live in `extensions/`, the context-budget
-  package lives in `packages/context-budget/`, tracked defaults and exact pins
-  live in `settings.json`, and package metadata lives in `package.json`.
+  package lives in `packages/context-budget/`, tracked defaults and package
+  locators live in `settings.json`, and package metadata lives in
+  `package.json`. Routine npm packages float so Pi's native
+  `pi update --extensions` command can update them; exact npm exceptions and
+  commit-pinned Git packages are declared in `config/manifest.json`.
 - Treat `config/manifest.json` as the authoritative managed-install inventory.
   Update it before changing setup, drift, validation, retirement, or restore
   behavior.
@@ -37,8 +40,9 @@ place.
   `git:github.com/javonmcgilberry/pi-prewalk@...` pin in `settings.json`; Pi
   owns the generated checkout under `~/.pi/agent/git`.
 - To publish a new default remote version, pull or test the owning checkout,
-  push its commit first, then update the tracked SHA here. `scripts/check.sh`
-  verifies that each exact Git pin is remotely fetchable.
+  push its commit first, then use `/sync-me publish` or update the tracked SHA
+  here. `scripts/check.sh` verifies that each exact Git pin is remotely
+  fetchable.
 
 ### Shared Webflow skill
 
@@ -80,8 +84,9 @@ depending on repeated prompt instructions.
    preserve existing work. Run Pi from the repository being changed.
 2. Create a branch or worktree only when the user asks for a PR or isolation.
    Remove merged temporary branches and worktrees when the work is complete.
-3. Update exact npm or Git pins only for an explicit upgrade request, then
-   review those updates like code.
+3. Use `pi update --extensions` for routine registry-package updates. Update an
+   exact npm exception or publish a new Git commit pin only for an explicit
+   request, then review that change like code.
 4. When installed components, configuration, commands, ownership, live paths,
    user-visible behavior, safety rules, or data handling change, update root
    `README.md` in the same change. Check the wording against this repository or
@@ -124,8 +129,10 @@ configuration, and bootstrap-inventory changes require `setup.sh`.
   files and offers to land them through `scripts/land.sh` first, because
   applying a dirty tree puts source into the live setup that exists in no
   commit.
-- `/sync-me update` refreshes tracked pins, then walks review, checks, commit,
-  and apply in-session. Its commit also goes through `scripts/land.sh`.
+- `/sync-me publish` advances tracked Git pins from their owning local
+  checkouts, then walks review, checks, commit, and apply in-session. It does
+  not update registry packages; use `pi update --extensions` for those. Its
+  commit also goes through `scripts/land.sh`.
 - Apply changed live configuration exclusively with `setup.sh`; `/reload` does
   not cross that boundary. Use only `/sync-me` for the supported sync boundary;
   `./sync` is retired.

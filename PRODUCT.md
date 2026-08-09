@@ -36,6 +36,7 @@ Unlike a generic Pi installation or a loose extension collection, this workspace
 - This repository is the canonical portable Pi setup, while Pi core and separately owned packages retain their own repositories. `PRODUCT.md` remains at this root by design so its principles govern terminal/TUI behavior, tracked skills and extensions, localhost web surfaces, and future setup work. Scoped records may add product-specific facts but should not silently contradict this shared authority.
 - Future work must not expose credentials, private session content, generated session summaries, machine-specific paths, or other local state in distributable packages. Private session metadata belongs under the Pi agent directory and remains outside setup backup and restore.
 - Compatibility with Pi and interactions among concurrently loaded extensions are material constraints; extension ordering, tool ownership, context hooks, provider overlays, reload behavior, and lifecycle cleanup require explicit validation.
+- Routine registry packages use floating locators so Pi's native `pi update --extensions` command performs the update it advertises. Exact npm exceptions and commit-pinned Git packages remain explicit review and publication boundaries rather than a competing everyday updater.
 
 ## Brand Commitments
 
@@ -63,3 +64,4 @@ Unlike a generic Pi installation or a loose extension collection, this workspace
 3. **Compose safely.** Treat extension ordering, shared tools, context mutation, provider ownership, and cleanup as product-level reliability concerns.
 4. **Separate personal state from public product.** Preserve the freedom of a bespoke local setup while giving open-source packages explicit boundaries, documentation, tests, and privacy guarantees.
 5. **Prefer truthful evidence.** Report recorded data and validated behavior; do not invent costs, compatibility, adoption, or product claims.
+6. **Give each command one job.** Native Pi commands own routine package updates, setup sync owns validation and application, and publishing an owned Git checkout stays an explicit separate action.

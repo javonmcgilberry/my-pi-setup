@@ -1,5 +1,12 @@
 {
   "version": 1,
+  "packagePolicy": {
+    "floatingNpm": true,
+    "exactNpm": [
+      "pi-subagents"
+    ],
+    "commitPinnedGit": true
+  },
   "rendered": {
     "settings.json": "settings.json"
   },
