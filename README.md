@@ -57,8 +57,7 @@ pi
 Edit:
 
 - `extensions/` and `packages/context-budget/` for local extensions
-- `settings.json` for tracked defaults, floating npm locators, and deliberate
-  package pins
+- `settings.json` for tracked defaults and floating package locators
 - `package.json` for this setup package
 - `config/manifest.json` before changing bootstrap-managed files
 - `README.md` when behavior, ownership, paths, or safety rules change
@@ -80,7 +79,7 @@ Commit through `land.sh`, the single supported commit path:
 
 ```sh
 ./scripts/land.sh --message "feat: add a thing"
-./scripts/land.sh --message "chore: publish Prewalk pin" --path settings.json --push
+./scripts/land.sh --message "chore: update setup" --push
 ```
 
 It runs `check.sh` **before** staging anything, so the secret scan, the
@@ -148,19 +147,9 @@ The command applies those locators, invokes Pi's native
 to their current registry releases and Git packages move to their remote default
 branches. Restart Pi afterward.
 
-Prewalk is the only deliberate exception. Its remote fallback stays on a full
-commit SHA because publishing a locally developed Prewalk revision is a
-reviewed action.
-
-To publish a new Prewalk default, commit and push its owning checkout first,
-then replace the Prewalk SHA in tracked `settings.json` and run:
-
-```sh
-pi-update-all "chore: publish Prewalk pin"
-```
-
-A published Git pin can only point to a commit that is already on a remote
-branch. `check.sh` verifies that before the setup commit can land.
+Prewalk follows the same update rule. Your explicit local replacement wins on
+this machine; clean installs follow the current remote default branch. To share
+Prewalk work, commit and push its own repository. No setup edit is required.
 
 Keep machine-only choices in ignored `settings.local.json`:
 
@@ -187,15 +176,15 @@ sources, and the local replacement wins when it is present:
 1. **Your development install:** ignored `settings.local.json` points Pi at the
    owning local `pi-prewalk` checkout. Edit that checkout and restart Pi to load
    source-only changes.
-2. **A clean or public install:** tracked `settings.json` points Pi at this
-   exact remote commit:
+2. **A clean or public install:** tracked `settings.json` points Pi at the
+   floating remote package:
 
 ```text
-git:github.com/javonmcgilberry/pi-prewalk@9c9001b37d00d9b3a33145e8cf322182068fafc1
+git:github.com/javonmcgilberry/pi-prewalk
 ```
 
 If the local replacement is present, Pi does **not** use the managed Git
-checkout. If it is absent, Pi installs the pinned commit into
+checkout. If it is absent, Pi installs and updates the remote default branch in
 `~/.pi/agent/git/github.com/javonmcgilberry/pi-prewalk`. That checkout is
 generated package state; do not edit it.
 
@@ -210,14 +199,9 @@ The local replacement looks like this:
 }
 ```
 
-The unpinned locator is intentional: the local override remains valid when the
-tracked remote SHA changes.
-
-For source-only edits in the local checkout, restart Pi. You do **not** update
-the tracked SHA for every local edit. Only update that SHA when publishing a new
-default remote version, after the commit has been pushed. `check.sh` fetches
-every tracked Git pin from its remote, so a local-only commit is not a valid
-default pin.
+For source-only edits in the local checkout, restart Pi. To share those changes,
+commit and push the Prewalk repository. The setup repository needs no matching
+version change.
 
 ## Core Pi settings
 
@@ -307,8 +291,7 @@ dependencies so these prompt and tool changes run last.
 ## Installed packages and extensions
 
 The `packages` array in `settings.json` lists the packages Pi loads.
-All npm sources float. Compound Engineering follows its Git default branch.
-Prewalk is the only exact package source. Ignored
+All remote package sources float. Ignored
 `packageReplacements` can substitute an explicitly chosen local checkout during
 development. The root `package.json` describes this repository's own Pi package,
 and `package-lock.json` covers only dependencies needed by that package itself.
@@ -335,7 +318,7 @@ Mode mutation tracking and does not depend on that patch.
 | [`pi-autoname`](https://github.com/ssdiwu/pi-autoname) | Gives a new session a short name, then checks periodically whether the topic has changed enough to rename it. | [`pi-autoname.json`](pi-autoname.json) uses Luna, waits 10 minutes between checks, and preserves names set with `/name`. |
 | Compound Engineering | Provides planning, implementation, review, debugging, shipping, and learning skills. | Follows the default branch of [EveryInc/compound-engineering-plugin](https://github.com/EveryInc/compound-engineering-plugin). The package owns its skill documentation. |
 | [`pi-ask-user`](https://github.com/edlsh/pi-ask-user) | Adds the interactive `ask_user` decision UI with search, choices, and freeform input. | No tracked config. The linked repository owns the package README. |
-| Prewalk | The chosen planner starts a coding task; later turns go to a configured executor in the same session. | Uses the owning local checkout when `settings.local.json` provides a replacement; clean installs use the exact [`pi-prewalk`](https://github.com/javonmcgilberry/pi-prewalk) commit in `settings.json`. [`prewalk.json`](prewalk.json) selects Luna at max reasoning and enables local analytics. |
+| Prewalk | The chosen planner starts a coding task; later turns go to a configured executor in the same session. | Uses the owning local checkout when `settings.local.json` provides a replacement; clean installs follow the default branch of [`pi-prewalk`](https://github.com/javonmcgilberry/pi-prewalk). [`prewalk.json`](prewalk.json) selects Luna at max reasoning and enables local analytics. |
 | Context budget | Keeps the full skill catalog and the largest optional tool schemas out of the first request, then loads them when needed. | [`packages/context-budget`](packages/context-budget), loaded as part of this Pi package. Deferred groups are browser, intercom, MCP, and subagents. |
 | [`@vanillagreen/pi-tool-renderer`](https://github.com/vanillagreencom/vstack/tree/main/pi-extensions/pi-tool-renderer) | Replaces noisy tool output with compact, readable renderers. | Renderer modes are under `vstack.extensionManager.config` in `settings.json`. The linked package README has the renderer options. |
 | [`pi-render-cache`](https://github.com/axelbaumlisto/pi-render-cache) | Reduces terminal-interface (TUI) streaming work with bounded render caches. | No tracked config. If a release does not recognize Pi's current renderer hash, it disables that cache and leaves normal uncached rendering available. This is a performance cache, not a conversation backup. The linked repository owns the package README. |
@@ -648,7 +631,7 @@ excluded. `setup.sh` does not copy or restore them.
 | Update command | `scripts/pi-update-all` | `~/.local/bin/pi-update-all` |
 | Personal Pi package and extensions | This repo | Loaded from this checkout by the rendered owner settings, or from Pi's managed Git checkout for a public install |
 | Shared Webflow skill | This repo | `~/.agents/skills/webflow-designer-agent-browser` |
-| Prewalk | Owning `pi-prewalk` checkout for development; exact remote commit in `settings.json` for clean installs | Local replacement when configured; otherwise `~/.pi/agent/git/github.com/javonmcgilberry/pi-prewalk` |
+| Prewalk | Owning `pi-prewalk` checkout for development; floating GitHub source for clean installs | Local replacement when configured; otherwise `~/.pi/agent/git/github.com/javonmcgilberry/pi-prewalk` |
 | Context budget | This repo | Loaded as part of this Pi package |
 | Context Mode | [`mksglu/context-mode`](https://github.com/mksglu/context-mode), distributed as [`context-mode`](https://www.npmjs.com/package/context-mode) | npm package managed by Pi |
 | pi-subagents | [`nicobailon/pi-subagents`](https://github.com/nicobailon/pi-subagents) | The unchanged release from the upstream npm package |
@@ -683,11 +666,9 @@ The full exclusion list is in [`config/manifest.json`](config/manifest.json).
 npm pack --dry-run
 ```
 
-The check validates JSON, tests the tracked local-settings example, checks shell syntax and
-dependency metadata, fetches every exact Git package ref in a temporary
-directory, verifies the tracked-file boundary, and looks for common secret
-patterns. The remote check catches a pin that exists only in an unpublished
-local checkout. It never reads or copies `auth.json`.
+The check validates JSON, tests the tracked local-settings example, checks shell
+syntax and dependency metadata, verifies the tracked-file boundary, and looks
+for common secret patterns. It never reads or copies `auth.json`.
 
 Add `--fast` to skip the setup matrix (`scripts/setup.test.mjs`) when you want a
 quick gate; run it without `--fast` before calling a change done.

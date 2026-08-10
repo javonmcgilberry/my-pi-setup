@@ -10,9 +10,7 @@ repository that owns each change; `~/.pi/agent` contains installed output.
   package lives in `packages/context-budget/`, tracked defaults and package
   locators live in `settings.json`, and package metadata lives in
   `package.json`. Routine npm and Git packages float so Pi's native
-  `pi update --extensions` command can update them. Packages with an explicit
-  publication boundary are declared in `config/manifest.json`; Prewalk is the
-  only current exact source.
+  `pi update --extensions` command can update them.
 - Treat `config/manifest.json` as the authoritative managed-install inventory,
   including the `pi-update-all` shell command. Update it before changing setup,
   drift, validation, retirement, or restore behavior.
@@ -36,15 +34,13 @@ place.
 ### Prewalk source boundary
 
 - Edit Prewalk in its owning checkout. During local development, use the
-  ignored `settings.local.json` replacement; its unpinned package locator stays
-  valid when the tracked SHA changes. For source-only changes, restart Pi and
-  leave the tracked SHA unchanged.
-- Without that replacement, clean installs use the exact remotely fetchable
-  `git:github.com/javonmcgilberry/pi-prewalk@...` pin in `settings.json`; Pi
-  owns the generated checkout under `~/.pi/agent/git`.
-- To publish a new default remote version, pull or test the owning checkout,
-  push its commit first, then update the tracked SHA here. `scripts/check.sh`
-  verifies that each exact Git pin is remotely fetchable.
+  ignored `settings.local.json` replacement. For source-only changes, restart
+  Pi; no setup edit is needed.
+- Without that replacement, clean installs follow the default branch of
+  `git:github.com/javonmcgilberry/pi-prewalk`; Pi owns the generated checkout
+  under `~/.pi/agent/git`.
+- To share Prewalk changes, test, commit, and push its owning checkout. Do not
+  duplicate its version in this setup repository.
 
 ### Shared Webflow skill
 
@@ -66,8 +62,8 @@ depending on repeated prompt instructions.
 
 ### Proportional execution and time discipline
 
-- Use the smallest workflow that can safely satisfy the request. Routine pin,
-  package, and configuration updates are not large-work projects.
+- Use the smallest workflow that can safely satisfy the request. Routine
+  package and configuration updates are not large-work projects.
 - For a straightforward update, confirm only the requested versions and any
   stated runtime floor, make the edits, then run each repository-required
   validation once. Batch final wording edits before validation so successful
@@ -86,9 +82,8 @@ depending on repeated prompt instructions.
    preserve existing work. Run Pi from the repository being changed.
 2. Create a branch or worktree only when the user asks for a PR or isolation.
    Remove merged temporary branches and worktrees when the work is complete.
-3. Use `pi update --extensions` for routine package updates. Add or move an
-   exact package source only when the user wants a reviewed publication
-   boundary, then review that change like code.
+3. Keep remote package sources floating and use `pi update --extensions` for
+   routine package updates.
 4. When installed components, configuration, commands, ownership, live paths,
    user-visible behavior, safety rules, or data handling change, update root
    `README.md` in the same change. Check the wording against this repository or

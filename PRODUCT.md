@@ -36,7 +36,7 @@ Unlike a generic Pi installation or a loose extension collection, this workspace
 - This repository is the canonical portable Pi setup, while Pi core and separately owned packages retain their own repositories. `PRODUCT.md` remains at this root by design so its principles govern terminal/TUI behavior, tracked skills and extensions, localhost web surfaces, and future setup work. Scoped records may add product-specific facts but should not silently contradict this shared authority.
 - Future work must not expose credentials, private session content, generated session summaries, machine-specific paths, or other local state in distributable packages. Private session metadata belongs under the Pi agent directory and remains outside setup backup and restore.
 - Compatibility with Pi and interactions among concurrently loaded extensions are material constraints; extension ordering, tool ownership, context hooks, provider overlays, reload behavior, and lifecycle cleanup require explicit validation.
-- Routine npm and Git packages use floating locators so Pi's native `pi update --extensions` command performs the update it advertises. An exact source is reserved for an actively curated publication boundary; Prewalk is the only current example.
+- Every remote npm and Git package uses a floating locator so Pi's native `pi update --extensions` command performs the update it advertises. Local package replacements remain explicit machine choices.
 
 ## Brand Commitments
 
@@ -52,7 +52,7 @@ Unlike a generic Pi installation or a loose extension collection, this workspace
 - `extensions/session-spend-dashboard/README.md` documents the dashboard's commands, data model, routes, refresh behavior, and security guarantees.
 - `docs/research/2026-08-05-pi-session-spend-dashboard.md` records comparative research and the rationale for a focused read-only dashboard.
 - `docs/research/2026-08-04-pi-tool-output-ui-options.md` records current Pi and Code Mode output-presentation constraints.
-- `settings.json` references an exact commit of the separate `pi-prewalk` repository, which retains its own history and release boundary.
+- `settings.json` references the floating remote `pi-prewalk` repository; the explicit local replacement remains authoritative during development.
 - `agent-browser-policy.json`, `extensions/agent-browser-policy.ts`, and the Webflow Designer skill runtime keep nested browser chat and cookie transfer fail-closed, allow ordinary browser calls from the active model, and provide a repeatable browser lifecycle without persisting cookie values.
 - `config/com.javonmcgilberry.pi-tmux-gui-server.plist` and its activation helper keep Moshi's normal directory-session behavior while moving the tmux server into the macOS GUI security session.
 - No confirmed testimonials, adoption metrics, pricing, release guarantees, or public-package claims are on hand; future work must not fabricate them.

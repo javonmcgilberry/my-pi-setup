@@ -38,7 +38,7 @@ describe("settings renderer", () => {
   });
 
   it("applies package replacements before adding the local setup package", async () => {
-    const source = "git:github.com/example/tool@0123456789012345678901234567890123456789";
+    const source = "git:github.com/example/tool";
     const { baseFile, localFile } = await fixture(
       { packages: [source] },
       { packageReplacements: { [source]: "/work/tool" } },
@@ -52,16 +52,6 @@ describe("settings renderer", () => {
     ]);
     const rendered = JSON.parse(stdout);
     assert.deepEqual(rendered.packages, ["/work/tool", "/work/my-pi-setup"]);
-  });
-
-  it("replaces a pinned package by its stable locator", async () => {
-    const { baseFile, localFile } = await fixture(
-      { packages: ["git:github.com/example/tool@fedcba98765432100123456789012345678901234"] },
-      { packageReplacements: { "git:github.com/example/tool": "/work/tool" } },
-    );
-    const { stdout } = await execFileAsync(process.execPath, [script, baseFile, localFile]);
-    const rendered = JSON.parse(stdout);
-    assert.deepEqual(rendered.packages, ["/work/tool"]);
   });
 
   it("rejects a missing package-source value", async () => {

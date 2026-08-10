@@ -2,8 +2,6 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
-import { isGitPackageSource, parsePinnedGitSource } from "./check-git-pins.mjs";
-
 import {
   entriesFor,
   loadManifest,
@@ -13,10 +11,6 @@ import {
 
 const base = {
   version: 1,
-  packagePolicy: {
-    floatingNpm: true,
-    exactGit: ["git:github.com/javonmcgilberry/pi-prewalk"],
-  },
   rendered: { "settings.json": "settings.json" },
   copied: [],
   linked: {},
@@ -41,10 +35,6 @@ describe("managed install manifest", () => {
   it("normalizes the checked-in inventory for every consumer", () => {
     const manifest = loadManifest();
     assert.equal(manifest.version, 1);
-    assert.deepEqual(manifest.packagePolicy, {
-      floatingNpm: true,
-      exactGit: ["git:github.com/javonmcgilberry/pi-prewalk"],
-    });
     assert.equal(manifest.copied.length, 11);
     assert.equal(manifest.linked.length, 0);
     assert.deepEqual(manifest.commands, [{
@@ -103,8 +93,7 @@ describe("managed install manifest", () => {
     assert.equal(packageJson.files.some((entry) => entry.includes("webflow-designer-agent-browser")), false);
   });
 
-  it("floats every npm source and pins only declared Git sources", () => {
-    const manifest = loadManifest();
+  it("floats every remote package source", () => {
     const settings = JSON.parse(readFileSync(`${REPO_ROOT}/settings.json`, "utf8"));
     const npmPackages = settings.packages
       .filter((entry) => entry.startsWith("npm:"))
@@ -117,73 +106,11 @@ describe("managed install manifest", () => {
       assert.equal(pkg.version, undefined, `${pkg.name} must float`);
     }
 
-    const gitPackages = settings.packages.filter(isGitPackageSource);
-    const exactGit = new Set(manifest.packagePolicy.exactGit);
-    const pinnedGitLocators = [];
+    const gitPackages = settings.packages.filter((source) => source.startsWith("git:"));
     assert.ok(gitPackages.length > 0, "the setup includes Git packages");
     for (const source of gitPackages) {
-      const parsed = parsePinnedGitSource(source);
-      const locator = parsed ? source.slice(0, source.lastIndexOf("@")) : source;
-      if (exactGit.has(locator)) {
-        assert.match(parsed?.commit ?? "", /^[0-9a-f]{40}$/i, `${locator} uses a commit SHA`);
-        pinnedGitLocators.push(locator);
-      } else {
-        assert.equal(parsed, null, `${locator} must float`);
-      }
+      assert.match(source, /^git:[^@]+$/, `${source} must float`);
     }
-    assert.deepEqual(pinnedGitLocators.sort(), [...exactGit].sort());
-  });
-
-  it("rejects weakened or undeclared package-version policy", () => {
-    assert.throws(
-      () => normalizeManifest({ ...base, packagePolicy: { ...base.packagePolicy, floatingNpm: false } }),
-      /floatingNpm must be true/,
-    );
-    assert.throws(
-      () => normalizeManifest({ ...base, packagePolicy: { ...base.packagePolicy, exactGit: "prewalk" } }),
-      /exactGit must be an array/,
-    );
-    assert.throws(
-      () => normalizeManifest({
-        ...base,
-        packagePolicy: {
-          ...base.packagePolicy,
-          exactGit: ["git:github.com/example/tool@main"],
-        },
-      }),
-      /must be an unpinned git: locator/,
-    );
-    assert.throws(
-      () => normalizeManifest({ ...base, packagePolicy: { ...base.packagePolicy, unexpected: true } }),
-      /unknown packagePolicy keys/,
-    );
-    assert.throws(
-      () => normalizeManifest({ ...base, packagePolicy: { ...base.packagePolicy, exactNpm: [] } }),
-      /unknown packagePolicy keys/,
-    );
-  });
-
-  it("resolves every supported exact Git source without rewriting its protocol", () => {
-    const commit = "a".repeat(40);
-    assert.deepEqual(parsePinnedGitSource(`git:github.com/owner/repo@${commit}`), {
-      remote: "https://github.com/owner/repo.git",
-      ref: commit,
-      commit,
-    });
-    for (const remote of [
-      "https://github.com/owner/repo.git",
-      "ssh://git@github.com/owner/repo.git",
-      "git://github.com/owner/repo.git",
-    ]) {
-      assert.deepEqual(parsePinnedGitSource(`${remote}@${commit}`), { remote, ref: commit, commit });
-    }
-    assert.deepEqual(parsePinnedGitSource("https://github.com/owner/repo.git@v1.2.3"), {
-      remote: "https://github.com/owner/repo.git",
-      ref: "v1.2.3",
-      commit: null,
-    });
-    assert.equal(parsePinnedGitSource("https://github.com/owner/repo.git@main"), null);
-    assert.equal(parsePinnedGitSource("npm:example@1.0.0"), null);
   });
 
   it("rejects traversal and absolute paths", () => {

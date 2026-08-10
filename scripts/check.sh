@@ -22,7 +22,6 @@ fi
 node --check scripts/render-settings.mjs
 node --check scripts/json-equal.mjs
 node --check scripts/manifest.mjs
-node --check scripts/check-git-pins.mjs
 node --check scripts/session-maintenance.mjs
 
 json_files=(
@@ -53,7 +52,6 @@ python3 -B -m unittest discover \
 	-p 'test_*.py'
 python3 -B skills/webflow-designer-agent-browser/scripts/capability-catalog.py validate
 node --test scripts/manifest.test.mjs
-node scripts/check-git-pins.mjs
 node --test scripts/render-settings.test.mjs
 if [[ "$fast" -eq 1 ]]; then
 	echo "Fast mode: skipping scripts/setup.test.mjs (the full setup.sh matrix)"
