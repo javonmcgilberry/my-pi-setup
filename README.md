@@ -73,14 +73,14 @@ npm pack --dry-run
 
 `./scripts/check.sh --fast` skips `scripts/setup.test.mjs`, the setup matrix
 that shells out to `setup.sh` repeatedly and accounts for most of the runtime.
-The fast tier finishes in seconds and is what `/sync-me` runs before shutdown;
-run the full checks before you call a change done. `drift.sh` is read-only.
+The fast tier finishes in seconds; run the full checks before you call a change
+done. `drift.sh` is read-only.
 
 Commit through `land.sh`, the single supported commit path:
 
 ```sh
 ./scripts/land.sh --message "feat: add a thing"
-./scripts/land.sh --message "chore: bump pins" --path settings.json --push
+./scripts/land.sh --message "chore: publish Prewalk pin" --path settings.json --push
 ```
 
 It runs `check.sh` **before** staging anything, so the secret scan, the
@@ -121,39 +121,14 @@ current source state:
 ```sh
 env -u PI_AGENT_DIR -u AGENTS_SKILLS_DIR -u PI_CODING_AGENT_DIR ./setup.sh
 ./scripts/drift.sh
+pi update --extensions
 ```
 
-Restart Pi afterward. `setup.sh` refuses to replace the live configuration while
-Pi is running; it never changes Git state or upgrades packages. `./sync` is
-retired. Setup application, validation, Git commits and pushes, and dependency
-upgrades remain separate operations.
-
-From an interactive Pi started in this repository, `/sync-me` automates that
-same safe apply boundary. It first refuses to apply silently over uncommitted
-work: it lists the dirty files and offers to land them through `land.sh`, since
-applying a dirty tree puts source into your live setup that exists in no commit.
-After confirmation, it fast-forwards clean local Git
-package replacements, runs `check.sh --fast` and a package dry run, schedules a
-detached helper, and shuts down the current Pi. The helper waits for every Pi
-process to exit, runs the **full** `check.sh`, runs `setup.sh`, and verifies
-`drift.sh`. Failing full checks abort the helper before `setup.sh` runs, so
-nothing is applied. It does not pull the setup repository, force-close another
-session, push, commit, publish Git pins, or update registry packages. Dirty or
-divergent local package checkouts stop the command rather than being
-overwritten.
-
-While the command runs, a footer status line shows the current step and elapsed
-seconds. Everything after shutdown goes to `~/.pi/agent/sync-me.log`
-(`$PI_AGENT_DIR/sync-me.log` when that variable is set), rewritten each run:
-
-```sh
-tail -f ~/.pi/agent/sync-me.log
-```
-
-If another Pi session stays open, the helper waits for it and names the process
-IDs it is waiting on in that log, so a long wait is visible rather than silent.
-Start Pi normally to apply the live setup, or use the same temporary environment
-variables above to apply only to a temporary test setup.
+Restart Pi afterward. This is the complete live-apply sequence after tracked or
+local settings change. `setup.sh` refuses to replace the live configuration
+while Pi is running; it never changes Git state or upgrades packages. The final
+command performs the package update. There is no detached helper or in-session
+sync command.
 
 ### Updating extensions
 
@@ -164,33 +139,30 @@ updater:
 pi update --extensions
 ```
 
-Most package entries in `settings.json` are stable, unversioned locators. Pi
-updates npm packages to their current registry releases and Git packages to
+Every routine package entry in `settings.json` is a stable, unversioned locator.
+Pi updates npm packages to their current registry releases and Git packages to
 their remote default branches. A later `setup.sh` run keeps those locators
 instead of restoring old versions. Restart Pi after the update.
+
+If `settings.json` or `settings.local.json` changed, apply it with `setup.sh`
+before running the updater. Otherwise the live settings may still contain old
+exact versions, and Pi will correctly leave those versions alone.
 
 Prewalk is the only deliberate exception. Its remote fallback stays on a full
 commit SHA because publishing a locally developed Prewalk revision is a
 reviewed action.
 
-`/sync-me` isn't the package updater. It validates and applies this setup after
-Pi sessions close. Use `/sync-me publish` only when Prewalk is ready to become
-the new shared default. With confirmation, it can commit and push the local
-checkout. It then verifies that HEAD is on a remote branch and proposes the
-matching SHA change in tracked `settings.json`.
-
-After you approve the Git pin change, `/sync-me publish` shows the diff and
-offers the usual check, commit, and apply steps. Declining a step leaves the
-edited file in place. You can finish it from the shell with:
+To publish a new Prewalk default, commit and push its owning checkout first,
+then replace the Prewalk SHA in tracked `settings.json`. Review and land that
+single settings change with:
 
 ```sh
 git diff settings.json
 ./scripts/land.sh --message "chore: publish Prewalk pin" --path settings.json
 ```
 
-The retired `/sync-me update` command now prints these two choices instead of
-guessing which kind of update you meant. A published Git pin can only point to a
-commit that is already on a remote branch.
+A published Git pin can only point to a commit that is already on a remote
+branch. `check.sh` verifies that before the setup commit can land.
 
 Keep machine-only choices in ignored `settings.local.json`:
 
@@ -243,17 +215,11 @@ The local replacement looks like this:
 The unpinned locator is intentional: the local override remains valid when the
 tracked remote SHA changes.
 
-For source-only edits in the local checkout, restart Pi. To bring a clean local
-checkout up to date with GitHub and apply the setup, use `/sync-me`; it performs
-the fast-forward pull for you. It stops instead of pulling when the checkout
-has uncommitted or divergent changes. You do **not** update the tracked SHA for
-every local edit. Only update that SHA when publishing a new default remote
-version, after the commit has been pushed. `check.sh` fetches every tracked Git
-pin from its remote, so a local-only commit is not a valid default pin.
-
-`/sync-me publish` performs that publish step: it pushes the checkout (prompting
-for a commit message first when the checkout is dirty) and then rewrites the
-tracked SHA to the pushed HEAD. Hand-editing the SHA is no longer necessary.
+For source-only edits in the local checkout, restart Pi. You do **not** update
+the tracked SHA for every local edit. Only update that SHA when publishing a new
+default remote version, after the commit has been pushed. `check.sh` fetches
+every tracked Git pin from its remote, so a local-only commit is not a valid
+default pin.
 
 ## Core Pi settings
 
@@ -375,7 +341,8 @@ Mode mutation tracking and does not depend on that patch.
 | Context budget | Keeps the full skill catalog and the largest optional tool schemas out of the first request, then loads them when needed. | [`packages/context-budget`](packages/context-budget), loaded as part of this Pi package. Deferred groups are browser, intercom, MCP, and subagents. |
 | [`@vanillagreen/pi-tool-renderer`](https://github.com/vanillagreencom/vstack/tree/main/pi-extensions/pi-tool-renderer) | Replaces noisy tool output with compact, readable renderers. | Renderer modes are under `vstack.extensionManager.config` in `settings.json`. The linked package README has the renderer options. |
 | [`pi-render-cache`](https://github.com/axelbaumlisto/pi-render-cache) | Reduces terminal-interface (TUI) streaming work with bounded render caches. | No tracked config. If a release does not recognize Pi's current renderer hash, it disables that cache and leaves normal uncached rendering available. This is a performance cache, not a conversation backup. The linked repository owns the package README. |
-| [`@vanillagreen/pi-extension-manager`](https://github.com/vanillagreencom/vstack/tree/main/pi-extensions/pi-extension-manager) | Adds package browsing, update/uninstall actions, diagnostics, and settings editing based on package schemas. | Reads Pi package state and the `vstack` settings namespace. Most npm entries now have no version, and `pi update --extensions` is the shell updater. The linked package README has the command and settings reference. |
+| [`@vanillagreen/pi-extension-manager`](https://github.com/vanillagreencom/vstack/tree/main/pi-extensions/pi-extension-manager) | Adds package browsing, update/uninstall actions, diagnostics, and settings editing based on package schemas. | Reads Pi package state and the `vstack` settings namespace. Routine package entries float, and `pi update --extensions` is the shell updater. The linked package README has the command and settings reference. |
+| [`pi-model-control`](https://www.npmjs.com/package/pi-model-control) | Adds model-variant and thinking-level commands. | No tracked config. Pi manages the floating npm package. |
 | [`@kliebhan/pi-prompt-autocomplete`](https://github.com/KLIEBHAN/pi-extensions/tree/main/extensions/prompt-autocomplete) | Provides privacy-conscious inline AI completion while typing prompts. | If a requested model is missing or unauthenticated, autocomplete stays off instead of sending the draft to another provider. Provider text and diagnostics are cleaned before terminal display. No tracked config; the linked package README explains the bounded context sent with each request and the in-memory cache. |
 | [`@davecodes/pi-skill-tags`](https://github.com/Davidcreador/pi-skill-tags) | Adds inline skill tags and skill-name autocomplete. | No tracked config. The linked repository owns the package README. |
 | [`pi-fzf`](https://github.com/kaofelix/pi-fzf) | Adds configurable fuzzy-search commands. | [`fzf.json`](fzf.json) defines an `@` file picker, preview command, overlay placement, and scroll keys. The linked repository owns the package README. |
@@ -389,8 +356,6 @@ Mode mutation tracking and does not depend on that patch.
 | Herdr agent state | Reports Pi session identity and working, blocked, or idle state to Herdr over its local socket. It does nothing unless `HERDR_ENV=1`, `HERDR_SOCKET_PATH`, and `HERDR_PANE_ID` are all set. | [`extensions/herdr-agent-state.ts`](extensions/herdr-agent-state.ts), loaded from this Pi package. Herdr owns the generated integration format. |
 | Agent Browser Policy | Keeps model-assisted browser usage on the configured Pi model and gates nested chat and cookie transfer. | [`agent-browser-policy.json`](agent-browser-policy.json), [`extensions/agent-browser-policy.ts`](extensions/agent-browser-policy.ts), and the shared Webflow skill. Cookie transfer is off by default. |
 | Session Spend Dashboard | Runs an opt-in read-only localhost dashboard for provider-reported spend, token use, projects, sessions, and subagent activity. | [`extensions/session-spend-dashboard`](extensions/session-spend-dashboard), configured by [`session-spend-dashboard.json`](session-spend-dashboard.json). See its [README](extensions/session-spend-dashboard/README.md). |
-| `/sync-me` | Updates clean local package checkouts, runs the fast checks, and schedules a safe setup apply after Pi sessions close. | [`extensions/setup-sync.js`](extensions/setup-sync.js). The full checks run in the detached helper; progress appears in the footer and in `~/.pi/agent/sync-me.log`. It does not pull this setup repository or change its Git state. |
-| `/sync-me publish` | Publishes the local Prewalk checkout into its tracked SHA, then walks review, checks, commit, and apply in-session. | [`extensions/setup-sync.js`](extensions/setup-sync.js) with Git pin planning in [`extensions/setup-update.js`](extensions/setup-update.js). Every write is confirmed. It does not update routine packages or write live settings, and its setup-repository commit contains only `settings.json`. |
 | Warp session title | Shows the current Pi session name and project in the active Warp tab. It does nothing in other terminals. | [`extensions/warp-session-title.ts`](extensions/warp-session-title.ts), loaded from this Pi package. |
 | Clear status | Older compact usage/status implementation retained for reference but not loaded or packaged. | [`disabled-extensions/clear-status.ts`](disabled-extensions/clear-status.ts). |
 | Warp gateway links | Private Warp gateway and fallback extensions maintained in a separate repository. | Live links are `extensions/warp-gateway.ts` and `extensions/warp-link-fallback.ts`; edit `~/webdev/warp-pi-gateway`. |

@@ -43,9 +43,8 @@ place.
   `git:github.com/javonmcgilberry/pi-prewalk@...` pin in `settings.json`; Pi
   owns the generated checkout under `~/.pi/agent/git`.
 - To publish a new default remote version, pull or test the owning checkout,
-  push its commit first, then use `/sync-me publish` or update the tracked SHA
-  here. `scripts/check.sh` verifies that each exact Git pin is remotely
-  fetchable.
+  push its commit first, then update the tracked SHA here. `scripts/check.sh`
+  verifies that each exact Git pin is remotely fetchable.
 
 ### Shared Webflow skill
 
@@ -121,24 +120,12 @@ configuration, and bootstrap-inventory changes require `setup.sh`.
   closed.
 - To apply live changes, close every Pi session, then run
   `env -u PI_AGENT_DIR -u AGENTS_SKILLS_DIR -u PI_CODING_AGENT_DIR ./setup.sh`,
-  run `./scripts/drift.sh`, and restart Pi.
-- From an interactive Pi started in this repository, use `/sync-me` only for
-  that apply boundary. It may fast-forward clean local Git package
-  replacements, run checks, schedule setup after all Pi processes exit, and
-  shut down the current session. It leaves this setup repository unpulled and
-  other Pi sessions open; pushes, tags, and dependency upgrades stay separate.
-  Dirty or divergent local package checkouts stop the command.
-- `/sync-me` will not apply silently over uncommitted work. It lists the dirty
-  files and offers to land them through `scripts/land.sh` first, because
-  applying a dirty tree puts source into the live setup that exists in no
-  commit.
-- `/sync-me publish` advances the tracked Prewalk pin from its owning local
-  checkout, then walks review, checks, commit, and apply in-session. It does not
-  update routine packages; use `pi update --extensions` for those. Its commit
-  also goes through `scripts/land.sh`.
+  run `./scripts/drift.sh`, run `pi update --extensions`, and restart Pi.
 - Apply changed live configuration exclusively with `setup.sh`; `/reload` does
-  not cross that boundary. Use only `/sync-me` for the supported sync boundary;
-  `./sync` is retired.
+  not cross that boundary. There is no in-session or detached setup helper.
+- After package locators change, apply `setup.sh` before running
+  `pi update --extensions`. Routine updates need only the native Pi command and
+  a restart.
 
 ## Related-session coordination
 

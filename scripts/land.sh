@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # The one supported way to commit in this repository.
 #
-# Every caller — Pi's /sync-me, a terminal, another agent — goes through here,
-# so no commit can skip validation. scripts/check.sh already carries the secret
+# Every caller — a terminal or another agent — goes through here, so no commit
+# can skip validation. scripts/check.sh already carries the secret
 # scan, the forbidden-path scan, and the manifest inventory check, so running it
 # before staging is what makes a commit trustworthy. Hand-rolled `git commit`
 # skips all of that.

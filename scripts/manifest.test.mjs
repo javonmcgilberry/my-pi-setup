@@ -83,7 +83,6 @@ describe("managed install manifest", () => {
       "./extensions/agent-browser-policy.ts",
       "./extensions/herdr-agent-state.ts",
       "./extensions/pretty-footer.ts",
-      "./extensions/setup-sync.js",
       "./packages/context-budget",
       "./extensions/session-spend-dashboard",
       "./extensions/warp-session-title.ts",

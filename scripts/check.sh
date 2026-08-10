@@ -65,8 +65,6 @@ node --test scripts/session-metadata-backfill.test.mjs
 node --test packages/context-budget/context-budget.test.mjs packages/context-budget/index.test.ts
 node --test extensions/agent-browser-policy.test.mjs
 node --test extensions/warp-session-title.test.mjs
-node --test extensions/setup-sync.test.mjs
-node --test extensions/setup-update.test.mjs
 node --test scripts/land.test.mjs
 node --check skills/webflow-designer-agent-browser/scripts/cdp-frame-eval.mjs
 node --check skills/webflow-designer-agent-browser/scripts/cookie-transfer.mjs

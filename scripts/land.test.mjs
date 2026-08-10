@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const land = path.join(repoRoot, "scripts", "land.sh");
+const cleanPathspec = "scripts/__land_test_no_changes__";
 
 /**
  * Only non-mutating invocations belong here. Every case below either short
@@ -30,13 +31,13 @@ async function run(args) {
 }
 
 test("succeeds and stages nothing when the pathspec has no changes", async () => {
-	const result = await run(["--path", "package.json"]);
+	const result = await run(["--path", cleanPathspec]);
 	assert.equal(result.code, 0);
 	assert.match(result.stdout, /nothing to commit/);
 });
 
 test("does not require a message when there is nothing to commit", async () => {
-	const result = await run(["--path", "package.json"]);
+	const result = await run(["--path", cleanPathspec]);
 	assert.equal(result.code, 0, "a clean pathspec must not demand a message");
 	assert.match(result.stdout, /nothing to commit/);
 });

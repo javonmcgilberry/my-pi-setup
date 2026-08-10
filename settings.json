@@ -23,6 +23,7 @@
     "npm:@vanillagreen/pi-tool-renderer",
     "npm:pi-render-cache",
     "npm:@vanillagreen/pi-extension-manager",
+    "npm:pi-model-control",
     "npm:@kliebhan/pi-prompt-autocomplete",
     "npm:@davecodes/pi-skill-tags",
     "npm:pi-fzf",
