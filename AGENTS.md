@@ -13,9 +13,9 @@ repository that owns each change; `~/.pi/agent` contains installed output.
   `pi update --extensions` command can update them. Packages with an explicit
   publication boundary are declared in `config/manifest.json`; Prewalk is the
   only current exact source.
-- Treat `config/manifest.json` as the authoritative managed-install inventory.
-  Update it before changing setup, drift, validation, retirement, or restore
-  behavior.
+- Treat `config/manifest.json` as the authoritative managed-install inventory,
+  including the `pi-update-all` shell command. Update it before changing setup,
+  drift, validation, retirement, or restore behavior.
 - Treat root `PRODUCT.md` as shared product authority for tracked skills,
   extensions, terminal/TUI behavior, and localhost interfaces.
 - Make Pi core changes in `~/Developer/pi`, rather than the globally installed
@@ -109,7 +109,9 @@ depending on repeated prompt instructions.
    package changes, also run `npm pack --dry-run`.
 
 Code-only changes generally need a Pi restart. Rendered settings, copied
-configuration, and bootstrap-inventory changes require `setup.sh`.
+configuration, and bootstrap-inventory changes require `setup.sh`. The
+installed `pi-update-all` command handles setup, package updates, and drift
+verification after Pi closes.
 
 ### Isolated validation and live application
 
@@ -118,14 +120,14 @@ configuration, and bootstrap-inventory changes require `setup.sh`.
   `./setup.sh` and `./scripts/drift.sh` there, and start the test Pi process with
   those same variables. Use the live defaults only after every Pi session has
   closed.
-- To apply live changes, close every Pi session, then run
-  `env -u PI_AGENT_DIR -u AGENTS_SKILLS_DIR -u PI_CODING_AGENT_DIR ./setup.sh`,
-  run `./scripts/drift.sh`, run `pi update --extensions`, and restart Pi.
+- To apply or update the live setup, close every Pi session and run
+  `pi-update-all`. When the setup repository is dirty, pass one commit message:
+  `pi-update-all "describe the change"`. It lands and pushes the setup before
+  applying it.
 - Apply changed live configuration exclusively with `setup.sh`; `/reload` does
-  not cross that boundary. There is no in-session or detached setup helper.
-- After package locators change, apply `setup.sh` before running
-  `pi update --extensions`. Routine updates need only the native Pi command and
-  a restart.
+  not cross that boundary. `pi-update-all` invokes `setup.sh` and Pi's native
+  updater from a normal shell; it refuses to run while Pi is open. There is no
+  in-session or detached setup helper.
 
 ## Related-session coordination
 

@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+	cat <<'USAGE'
+Usage:
+  pi-update-all
+  pi-update-all "commit message"
+
+With a clean setup repository, updates the live setup and every floating Pi
+package. With uncommitted setup changes, the commit message is required; the
+command validates, commits, and pushes those changes first.
+USAGE
+}
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+	usage
+	exit 0
+fi
+
+source_path="${BASH_SOURCE[0]}"
+while [[ -L "$source_path" ]]; do
+	source_dir="$(cd -P "$(dirname "$source_path")" && pwd)"
+	source_path="$(readlink "$source_path")"
+	[[ "$source_path" == /* ]] || source_path="$source_dir/$source_path"
+done
+repo_dir="$(cd -P "$(dirname "$source_path")/.." && pwd)"
+
+if pgrep -x pi >/dev/null 2>&1; then
+	echo "Pi is running. Close every Pi session, then run pi-update-all again." >&2
+	exit 1
+fi
+
+pi_bin="$(command -v pi || true)"
+if [[ -z "$pi_bin" ]]; then
+	echo "Could not find pi on PATH." >&2
+	exit 1
+fi
+
+message="$*"
+if [[ -n "$(git -C "$repo_dir" status --porcelain)" ]]; then
+	if [[ -z "$message" ]]; then
+		echo "The setup repository has uncommitted changes. Pass a commit message:" >&2
+		echo '  pi-update-all "describe the change"' >&2
+		exit 2
+	fi
+	"$repo_dir/scripts/land.sh" --full --message "$message" --push
+else
+	if [[ -n "$message" ]]; then
+		echo "The setup repository is clean; no commit message is needed."
+	fi
+	"$repo_dir/scripts/land.sh" --push
+fi
+
+clean_env=(env -u PI_AGENT_DIR -u AGENTS_SKILLS_DIR -u PI_CODING_AGENT_DIR -u PI_COMMANDS_DIR)
+
+echo "Applying the live Pi setup..."
+"${clean_env[@]}" "$repo_dir/setup.sh"
+"${clean_env[@]}" "$repo_dir/scripts/drift.sh"
+
+echo "Updating Pi extensions..."
+"${clean_env[@]}" "$pi_bin" update --extensions
+
+"${clean_env[@]}" "$repo_dir/scripts/drift.sh"
+echo "Pi setup and extensions are current. Start Pi normally."

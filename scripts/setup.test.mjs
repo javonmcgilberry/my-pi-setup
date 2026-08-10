@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { access, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, mkdtemp, readFile, readlink, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -24,6 +24,7 @@ async function tempTarget() {
     root,
     agentDir: path.join(root, "agent"),
     skillsDir: path.join(root, "skills"),
+    commandsDir: path.join(root, "bin"),
   };
 }
 
@@ -65,6 +66,9 @@ describe("setup bootstrap", () => {
 
     const sharedSkill = path.join(target.skillsDir, "webflow-designer-agent-browser");
     assert.equal((await lstat(sharedSkill)).isSymbolicLink(), true);
+    const command = path.join(target.commandsDir, "pi-update-all");
+    assert.equal((await lstat(command)).isSymbolicLink(), true);
+    assert.equal(await readlink(command), path.join(repoRoot, "scripts/pi-update-all"));
   });
 
   it("backs up retired paths and restores them", async () => {
@@ -143,6 +147,7 @@ describe("setup bootstrap", () => {
     assert.match(result.stdout, /would render: settings\.json/);
     assert.equal(await exists(target.agentDir), false);
     assert.equal(await exists(target.skillsDir), false);
+    assert.equal(await exists(target.commandsDir), false);
   });
 
   it("includes automatic tmux activation in a live macOS dry run", { skip: process.platform !== "darwin" }, async () => {

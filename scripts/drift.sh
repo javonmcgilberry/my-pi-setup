@@ -6,6 +6,14 @@ shared_skills_dir="${AGENTS_SKILLS_DIR:-${HOME}/.agents/skills}"
 default_agent_dir="${HOME}/.pi/agent"
 default_shared_skills_dir="${HOME}/.agents/skills"
 macos_launch_agents_dir="${HOME}/Library/LaunchAgents"
+default_commands_dir="${HOME}/.local/bin"
+if [[ -n "${PI_COMMANDS_DIR:-}" ]]; then
+  commands_dir="$PI_COMMANDS_DIR"
+elif [[ "$agent_dir" != "$default_agent_dir" ]]; then
+  commands_dir="$(dirname "$agent_dir")/bin"
+else
+  commands_dir="$default_commands_dir"
+fi
 manifest_script="${repo_dir}/scripts/manifest.mjs"
 repo_real_dir="$(cd -P "$repo_dir" && pwd)"
 assert_read_root() {
@@ -26,6 +34,7 @@ assert_read_root() {
 }
 assert_read_root "$agent_dir"
 assert_read_root "$shared_skills_dir"
+assert_read_root "$commands_dir"
 assert_read_target_parent() {
   local root="$1"
   local relative="$2"
@@ -50,6 +59,9 @@ done < <(node "$manifest_script" list copied)
 while IFS=$'\t' read -r _source target _backup; do
   assert_read_target_parent "$agent_dir" "$target"
 done < <(node "$manifest_script" list linked pi)
+while IFS=$'\t' read -r _source target _backup; do
+  assert_read_target_parent "$commands_dir" "$target"
+done < <(node "$manifest_script" list commands)
 while IFS=$'\t' read -r target _backup; do
   assert_read_target_parent "$agent_dir" "$target"
 done < <(node "$manifest_script" list retired pi)
@@ -62,9 +74,12 @@ done < <(node "$manifest_script" list shared)
 while IFS=$'\t' read -r target _backup; do
   assert_read_target_parent "$shared_skills_dir" "$target"
 done < <(node "$manifest_script" list retired shared)
+while IFS=$'\t' read -r target _backup; do
+  assert_read_target_parent "$commands_dir" "$target"
+done < <(node "$manifest_script" list retired commands)
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/my-pi-drift.XXXXXX")"
 trap 'rm -rf "$tmp_dir"' EXIT
-PI_AGENT_DIR="$tmp_dir/agent" AGENTS_SKILLS_DIR="$tmp_dir/shared-skills" "$repo_dir/setup.sh" >/dev/null
+PI_AGENT_DIR="$tmp_dir/agent" AGENTS_SKILLS_DIR="$tmp_dir/shared-skills" PI_COMMANDS_DIR="$tmp_dir/bin" "$repo_dir/setup.sh" >/dev/null
 manifest() {
   node "$manifest_script" "$@"
 }
@@ -104,6 +119,17 @@ while IFS=$'\t' read -r source relative _backup; do
 done < <(manifest list linked pi)
 
 while IFS=$'\t' read -r source relative _backup; do
+  target="$commands_dir/$relative"
+  if [[ ! -e "$repo_dir/$source" ]]; then
+    echo "different: command/${relative} (repository source is missing)"; found=true
+  elif [[ ! -L "$target" ]]; then
+    echo "different: command/${relative} (expected repository link)"; found=true
+  elif [[ "$(readlink "$target")" != "$repo_dir/$source" ]]; then
+    echo "different: command/${relative} -> $(readlink "$target")"; found=true
+  fi
+done < <(manifest list commands)
+
+while IFS=$'\t' read -r source relative _backup; do
   target="$shared_skills_dir/$relative"
   if [[ ! -e "$repo_dir/$source" ]]; then
     echo "different: shared/${relative} (repository source is missing)"; found=true
@@ -133,6 +159,12 @@ while IFS=$'\t' read -r relative _backup; do
     echo "obsolete: shared/$relative (declared retired target still exists)"; found=true
   fi
 done < <(manifest list retired shared)
+while IFS=$'\t' read -r relative _backup; do
+  target="$commands_dir/$relative"
+  if [[ -e "$target" || -L "$target" ]]; then
+    echo "obsolete: command/$relative (declared retired target still exists)"; found=true
+  fi
+done < <(manifest list retired commands)
 
 if [[ "$(uname -s)" == "Darwin" && "$agent_dir" == "$default_agent_dir" && "$shared_skills_dir" == "$default_shared_skills_dir" ]]; then
   assert_read_root "$macos_launch_agents_dir"

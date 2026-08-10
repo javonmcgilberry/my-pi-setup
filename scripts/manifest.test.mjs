@@ -20,9 +20,10 @@ const base = {
   rendered: { "settings.json": "settings.json" },
   copied: [],
   linked: {},
+  commands: {},
   sharedSkills: {},
   macosLaunchAgents: {},
-  retired: { pi: [], shared: [] },
+  retired: { pi: [], shared: [], commands: [] },
   externalLinks: [],
   runtimeExclusions: [],
 };
@@ -46,6 +47,12 @@ describe("managed install manifest", () => {
     });
     assert.equal(manifest.copied.length, 11);
     assert.equal(manifest.linked.length, 0);
+    assert.deepEqual(manifest.commands, [{
+      root: "commands",
+      source: "scripts/pi-update-all",
+      target: "pi-update-all",
+      backup: "local-bin-pi-update-all",
+    }]);
     assert.equal(manifest.sharedSkills.length, 1);
     assert.equal(manifest.macosLaunchAgents.length, 1);
     assert.deepEqual(manifest.macosLaunchAgents[0], {

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 export const MANIFEST_VERSION = 1;
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const ROOTS = new Set(["pi", "shared", "macosLaunchAgents"]);
+const ROOTS = new Set(["pi", "shared", "commands", "macosLaunchAgents"]);
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -38,7 +38,7 @@ function assertRelativePath(value, label, { allowTrailingSlash = false } = {}) {
 
 function assertRoot(root, label) {
   if (typeof root !== "string" || !ROOTS.has(root)) {
-    throw new Error(`${label} must be one of: pi, shared, macosLaunchAgents`);
+    throw new Error(`${label} must be one of: pi, shared, commands, macosLaunchAgents`);
   }
   return root;
 }
@@ -46,6 +46,7 @@ function assertRoot(root, label) {
 function backupPath(root, target) {
   if (root === "pi") return target;
   if (root === "shared") return `external-agents-skills-${target.replaceAll("/", "-")}`;
+  if (root === "commands") return `local-bin-${target.replaceAll("/", "-")}`;
   return `macos-launch-agents-${target.replaceAll("/", "-")}`;
 }
 
@@ -91,7 +92,7 @@ function normalizeCopied(value, repoRoot) {
 function normalizeRetired(value) {
   const roots = assertRecord(value ?? {}, "retired");
   const entries = [];
-  for (const root of ["pi", "shared"]) {
+  for (const root of ["pi", "shared", "commands"]) {
     const targets = roots[root] ?? [];
     if (!Array.isArray(targets)) throw new Error(`retired.${root} must be an array`);
     for (const [index, item] of targets.entries()) {
@@ -182,6 +183,7 @@ export function normalizeManifest(raw, { repoRoot = REPO_ROOT } = {}) {
     "rendered",
     "copied",
     "linked",
+    "commands",
     "sharedSkills",
     "macosLaunchAgents",
     "retired",
@@ -200,6 +202,9 @@ export function normalizeManifest(raw, { repoRoot = REPO_ROOT } = {}) {
   if (rendered.length !== 1) throw new Error("rendered must contain exactly one settings entry");
   const copied = normalizeCopied(raw.copied, repoRoot);
   const linked = normalizeMap(raw.linked, "linked", "pi", repoRoot);
+  const commands = normalizeMap(raw.commands, "commands", "commands", repoRoot, {
+    filesOnly: true,
+  });
   const sharedSkills = normalizeMap(raw.sharedSkills, "sharedSkills", "shared", repoRoot);
   const macosLaunchAgents = normalizeMap(
     raw.macosLaunchAgents,
@@ -216,13 +221,14 @@ export function normalizeManifest(raw, { repoRoot = REPO_ROOT } = {}) {
   });
 
   assertUniqueTargets(
-    [...rendered, ...copied, ...linked, ...sharedSkills, ...macosLaunchAgents, ...retired],
+    [...rendered, ...copied, ...linked, ...commands, ...sharedSkills, ...macosLaunchAgents, ...retired],
     "manifest",
   );
   const managedEntries = [
     ...rendered,
     ...copied,
     ...linked,
+    ...commands,
     ...sharedSkills,
     ...macosLaunchAgents,
     ...retired,
@@ -252,6 +258,7 @@ export function normalizeManifest(raw, { repoRoot = REPO_ROOT } = {}) {
     rendered,
     copied,
     linked,
+    commands,
     sharedSkills,
     macosLaunchAgents,
     retired,
@@ -273,6 +280,7 @@ export function loadManifest(manifestPath = resolve(REPO_ROOT, "config/manifest.
 
 export function entriesFor(manifest, category, root) {
   if (category === "shared") return manifest.sharedSkills;
+  if (category === "commands") return manifest.commands;
   if (category === "macosLaunchAgents") return manifest.macosLaunchAgents;
   if (category === "retired") return manifest.retired.filter((entry) => entry.root === root);
   if (category === "linked") {
@@ -306,6 +314,7 @@ function main(argv) {
         version: manifest.version,
         copied: manifest.copied.length,
         linked: manifest.linked.length,
+        commands: manifest.commands.length,
         sharedSkills: manifest.sharedSkills.length,
         macosLaunchAgents: manifest.macosLaunchAgents.length,
         retired: manifest.retired.length,
@@ -330,7 +339,7 @@ function main(argv) {
     if (violations.length) throw new Error(`repository inventory includes runtime exclusions: ${violations.join(", ")}`);
     return;
   }
-  throw new Error("Usage: manifest.mjs validate | check-inventory | list <rendered|copied|linked|shared|macosLaunchAgents|retired|externalLinks|localOverrides|runtimeExclusions> [root]");
+  throw new Error("Usage: manifest.mjs validate | check-inventory | list <rendered|copied|linked|commands|shared|macosLaunchAgents|retired|externalLinks|localOverrides|runtimeExclusions> [root]");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

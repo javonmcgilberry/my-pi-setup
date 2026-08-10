@@ -23,6 +23,9 @@
     "session-spend-dashboard.json"
   ],
   "linked": {},
+  "commands": {
+    "pi-update-all": "scripts/pi-update-all"
+  },
   "sharedSkills": {
     "webflow-designer-agent-browser": "skills/webflow-designer-agent-browser"
   },
@@ -43,7 +46,8 @@
       "packages/prewalk",
       "skills/webflow-designer-agent-browser"
     ],
-    "shared": []
+    "shared": [],
+    "commands": []
   },
   "externalLinks": [
     "extensions/warp-gateway.ts",

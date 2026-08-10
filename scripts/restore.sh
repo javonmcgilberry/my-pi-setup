@@ -7,10 +7,18 @@ shared_skills_dir="${AGENTS_SKILLS_DIR:-${HOME}/.agents/skills}"
 default_agent_dir="${HOME}/.pi/agent"
 default_shared_skills_dir="${HOME}/.agents/skills"
 macos_launch_agents_dir="${HOME}/Library/LaunchAgents"
+default_commands_dir="${HOME}/.local/bin"
+if [[ -n "${PI_COMMANDS_DIR:-}" ]]; then
+  commands_dir="$PI_COMMANDS_DIR"
+elif [[ "$agent_dir" != "$default_agent_dir" ]]; then
+  commands_dir="$(dirname "$agent_dir")/bin"
+else
+  commands_dir="$default_commands_dir"
+fi
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 manifest_script="${repo_dir}/scripts/manifest.mjs"
 restored_macos_launch_agent=false
-if { [[ "$agent_dir" == "$default_agent_dir" ]] || [[ "$shared_skills_dir" == "$default_shared_skills_dir" ]]; } && pgrep -x pi >/dev/null 2>&1; then
+if { [[ "$agent_dir" == "$default_agent_dir" ]] || [[ "$shared_skills_dir" == "$default_shared_skills_dir" ]] || [[ "$commands_dir" == "$default_commands_dir" ]]; } && pgrep -x pi >/dev/null 2>&1; then
   echo "Pi is running. Close active Pi sessions before restoring the live setup." >&2
   exit 1
 fi
@@ -117,6 +125,21 @@ restore_shared() {
     mv "$source" "$target"
   fi
 }
+restore_command() {
+  local relative="$1"
+  local backup_relative="$2"
+  local source="$backup_dir/$backup_relative"
+  local target="$commands_dir/$relative"
+  assert_safe_target_parent "$commands_dir" "$relative"
+  assert_safe_backup_parent "$backup_relative"
+  if [[ -e "$source" || -L "$source" ]]; then
+    mkdir -p "$(dirname "$target")"
+    if [[ -e "$target" || -L "$target" ]]; then
+      mv "$target" "${target}.before-restore.$$"
+    fi
+    mv "$source" "$target"
+  fi
+}
 restore_macos_launch_agent() {
   local relative="$1"
   local backup_relative="$2"
@@ -138,9 +161,11 @@ trap 'rm -rf "$restore_lists"' EXIT
 node "$manifest_script" list rendered > "$restore_lists/rendered"
 node "$manifest_script" list copied > "$restore_lists/copied"
 node "$manifest_script" list linked pi > "$restore_lists/linked"
+node "$manifest_script" list commands > "$restore_lists/commands"
 node "$manifest_script" list retired pi > "$restore_lists/retired"
 node "$manifest_script" list shared > "$restore_lists/shared"
 node "$manifest_script" list retired shared > "$restore_lists/shared-retired"
+node "$manifest_script" list retired commands > "$restore_lists/commands-retired"
 node "$manifest_script" list macosLaunchAgents > "$restore_lists/macos-launch-agents"
 while IFS=$'\t' read -r _source relative backup_relative; do
   restore_pi "$relative" "$backup_relative"
@@ -151,6 +176,9 @@ done < "$restore_lists/copied"
 while IFS=$'\t' read -r _source relative backup_relative; do
   restore_pi "$relative" "$backup_relative"
 done < "$restore_lists/linked"
+while IFS=$'\t' read -r _source relative backup_relative; do
+  restore_command "$relative" "$backup_relative"
+done < "$restore_lists/commands"
 while IFS=$'\t' read -r relative backup_relative; do
   restore_pi "$relative" "$backup_relative"
 done < "$restore_lists/retired"
@@ -160,6 +188,9 @@ done < "$restore_lists/shared"
 while IFS=$'\t' read -r relative backup_relative; do
   restore_shared "$relative" "$backup_relative"
 done < "$restore_lists/shared-retired"
+while IFS=$'\t' read -r relative backup_relative; do
+  restore_command "$relative" "$backup_relative"
+done < "$restore_lists/commands-retired"
 if [[ "$(uname -s)" == "Darwin" && "$agent_dir" == "$default_agent_dir" && "$shared_skills_dir" == "$default_shared_skills_dir" ]]; then
   while IFS=$'\t' read -r _source relative backup_relative; do
     restore_macos_launch_agent "$relative" "$backup_relative"

@@ -115,50 +115,48 @@ links out of the live setup. Remove the temporary directory after testing.
 
 ### Applying changes live
 
-Close every Pi session first. From the setup repository, apply and verify the
-current source state:
+Close every Pi session, then run one command from any directory:
 
 ```sh
-env -u PI_AGENT_DIR -u AGENTS_SKILLS_DIR -u PI_CODING_AGENT_DIR ./setup.sh
-./scripts/drift.sh
-pi update --extensions
+pi-update-all
 ```
 
-Restart Pi afterward. This is the complete live-apply sequence after tracked or
-local settings change. `setup.sh` refuses to replace the live configuration
-while Pi is running; it never changes Git state or upgrades packages. The final
-command performs the package update. There is no detached helper or in-session
-sync command.
+If you changed this setup repository, pass the commit message in the same
+command:
+
+```sh
+pi-update-all "describe the change"
+```
+
+With a dirty setup repository, the message is required. The command runs the
+full checks, commits and pushes the setup, applies it, updates extensions, and
+verifies drift. With a clean repository, it skips the commit and performs the
+apply and update. It refuses to run while Pi is open, so it never replaces code
+that a session has already loaded.
 
 ### Updating extensions
 
-Exit Pi before replacing extensions it has already loaded, then use Pi's native
-updater:
+Exit Pi before replacing extensions it has already loaded, then run:
 
 ```sh
-pi update --extensions
+pi-update-all
 ```
 
 Every routine package entry in `settings.json` is a stable, unversioned locator.
-Pi updates npm packages to their current registry releases and Git packages to
-their remote default branches. A later `setup.sh` run keeps those locators
-instead of restoring old versions. Restart Pi after the update.
-
-If `settings.json` or `settings.local.json` changed, apply it with `setup.sh`
-before running the updater. Otherwise the live settings may still contain old
-exact versions, and Pi will correctly leave those versions alone.
+The command applies those locators, invokes Pi's native
+`pi update --extensions` updater, and verifies the live setup. npm packages move
+to their current registry releases and Git packages move to their remote default
+branches. Restart Pi afterward.
 
 Prewalk is the only deliberate exception. Its remote fallback stays on a full
 commit SHA because publishing a locally developed Prewalk revision is a
 reviewed action.
 
 To publish a new Prewalk default, commit and push its owning checkout first,
-then replace the Prewalk SHA in tracked `settings.json`. Review and land that
-single settings change with:
+then replace the Prewalk SHA in tracked `settings.json` and run:
 
 ```sh
-git diff settings.json
-./scripts/land.sh --message "chore: publish Prewalk pin" --path settings.json
+pi-update-all "chore: publish Prewalk pin"
 ```
 
 A published Git pin can only point to a commit that is already on a remote
@@ -365,9 +363,9 @@ It changes the realtime conversational mode used by Pi Codex Conversion.
 
 ### Managed setup files
 
-The tables above explain the components. This table lists the files that setup
-renders or copies into the live agent directory, plus the macOS host file it
-installs only for a live default setup.
+The tables above explain the components. This table lists the files and command
+that setup installs, plus the macOS host file used only for a live default
+setup.
 
 | File | Role |
 | --- | --- |
@@ -383,6 +381,7 @@ installs only for a live default setup.
 | `prewalk.json` | Configures the Prewalk executor and analytics. |
 | `fzf.json` | Configures fuzzy-search commands and presentation. |
 | `session-spend-dashboard.json` | Configures chat and metrics retention windows. |
+| `pi-update-all` | Links `scripts/pi-update-all` into `~/.local/bin`; updates a clean setup immediately or accepts one commit message when setup changes need to be validated and pushed first. |
 | `config/com.javonmcgilberry.pi-tmux-gui-server.plist` | Installs to `~/Library/LaunchAgents` on macOS so Moshi attaches to a GUI-owned default tmux server with Keychain access. |
 
 ### Retired paths
@@ -646,6 +645,7 @@ excluded. `setup.sh` does not copy or restore them.
 | Part | Source of truth | Live installation or data |
 | --- | --- | --- |
 | Global configuration | This repo plus ignored `settings.local.json` | Generated files under `~/.pi/agent` |
+| Update command | `scripts/pi-update-all` | `~/.local/bin/pi-update-all` |
 | Personal Pi package and extensions | This repo | Loaded from this checkout by the rendered owner settings, or from Pi's managed Git checkout for a public install |
 | Shared Webflow skill | This repo | `~/.agents/skills/webflow-designer-agent-browser` |
 | Prewalk | Owning `pi-prewalk` checkout for development; exact remote commit in `settings.json` for clean installs | Local replacement when configured; otherwise `~/.pi/agent/git/github.com/javonmcgilberry/pi-prewalk` |
@@ -658,8 +658,8 @@ excluded. `setup.sh` does not copy or restore them.
 | Sessions | Pi runtime | `~/.pi/agent/sessions` by default; `PI_CODING_AGENT_SESSION_DIR` overrides it |
 | Dashboard metrics | Session Spend Dashboard runtime | `~/.pi/agent/session-metrics/metrics.sqlite` by default; agent-directory overrides move it |
 
-`config/manifest.json` is the authoritative list of global files, shared
-links, and macOS LaunchAgents managed by bootstrap. Package resources are declared separately in
+`config/manifest.json` is the authoritative list of global files, shell
+commands, shared links, and macOS LaunchAgents managed by bootstrap. Package resources are declared separately in
 `package.json`. Update the manifest before changing bootstrap, drift,
 validation, retirement, or restore behavior.
 Never edit Pi-managed code under `~/.pi/agent/npm/node_modules` or

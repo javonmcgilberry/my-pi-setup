@@ -64,4 +64,4 @@ Unlike a generic Pi installation or a loose extension collection, this workspace
 3. **Compose safely.** Treat extension ordering, shared tools, context mutation, provider ownership, and cleanup as product-level reliability concerns.
 4. **Separate personal state from public product.** Preserve the freedom of a bespoke local setup while giving open-source packages explicit boundaries, documentation, tests, and privacy guarantees.
 5. **Prefer truthful evidence.** Report recorded data and validated behavior; do not invent costs, compatibility, adoption, or product claims.
-6. **Give each command one job.** `pi update --extensions` owns routine package updates, `setup.sh` applies configuration, and publishing Prewalk stays an explicit separate action.
+6. **Keep the user path short.** `pi-update-all` is the one shell entry point; it composes the existing validation, setup, native package update, and push boundaries without updating code inside a running Pi session.
