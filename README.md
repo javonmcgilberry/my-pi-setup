@@ -343,22 +343,22 @@ dependencies so these prompt and tool changes run last.
 ## Installed packages and extensions
 
 The `packages` array in `settings.json` lists the packages Pi loads.
-All npm sources float. Context Mode and Compound Engineering follow their Git
-default branches. Prewalk is the only exact package source. Ignored
+All npm sources float. Compound Engineering follows its Git default branch.
+Prewalk is the only exact package source. Ignored
 `packageReplacements` can substitute an explicitly chosen local checkout during
 development. The root `package.json` describes this repository's own Pi package,
 and `package-lock.json` covers only dependencies needed by that package itself.
 
-Context Mode now follows upstream directly. The previous nested Code Mode trace
-patch remains parked in the `javonmcgilberry/context-mode` fork at commit
-`19b8f73`, but this setup does not load it. Prewalk has its own Code Mode mutation
-tracking and does not depend on that patch.
+Context Mode now follows upstream's published npm releases. The previous nested
+Code Mode trace patch remains parked in the `javonmcgilberry/context-mode` fork
+at commit `19b8f73`, but this setup does not load it. Prewalk has its own Code
+Mode mutation tracking and does not depend on that patch.
 
 | Component | What it does | Configuration and source |
 | --- | --- | --- |
 | [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) | Connects Pi to MCP servers and exposes their tools. | Servers are defined in [`mcp.json`](mcp.json). The linked repository owns the package README. |
 | [`pi-web-access`](https://github.com/nicobailon/pi-web-access) | Adds web search, URL fetching, repository/PDF extraction, and video analysis. | Provider credentials and runtime choices stay local. The linked repository owns the package README. |
-| [`context-mode`](https://github.com/mksglu/context-mode) | Keeps large reads, command output, logs, and web payloads out of model context; indexes compact session memory for later search. | Follows the upstream default branch and is registered through `mcp.json`. Pi owns the managed checkout. |
+| [`context-mode`](https://www.npmjs.com/package/context-mode) | Keeps large reads, command output, logs, and web payloads out of model context; indexes compact session memory for later search. | Follows upstream npm releases and is registered through `mcp.json`. Pi owns the installed package. |
 | [`pi-subagents`](https://github.com/nicobailon/pi-subagents) | Runs delegated agents and script-based workflows, including parallel work and managed Git worktrees. | Child model and role defaults are in `settings.json`. Multi-agent workflows use `workflowScript`; the old top-level task/chain arrays and `/chain`, `/parallel`, and `/run-chain` commands are gone. Scheduled workflows are enabled by the package default. Uses the unchanged, floating upstream package. |
 | [`pi-intercom`](https://www.npmjs.com/package/pi-intercom) | Sends direct messages between local Pi sessions and supports parent/child coordination. | No tracked config. Its installed README is the reference; runtime broker state is local. |
 | [`pi-anthropic-oauth`](https://github.com/leohenon/pi-anthropic-oauth) | Adds Claude Pro/Max browser OAuth and token refresh. | OAuth credentials stay in Pi's local auth store. The linked repository owns the package README. |
@@ -685,7 +685,7 @@ excluded. `setup.sh` does not copy or restore them.
 | Shared Webflow skill | This repo | `~/.agents/skills/webflow-designer-agent-browser` |
 | Prewalk | Owning `pi-prewalk` checkout for development; exact remote commit in `settings.json` for clean installs | Local replacement when configured; otherwise `~/.pi/agent/git/github.com/javonmcgilberry/pi-prewalk` |
 | Context budget | This repo | Loaded as part of this Pi package |
-| Context Mode | [`mksglu/context-mode`](https://github.com/mksglu/context-mode), following its default branch | Git checkout managed by Pi |
+| Context Mode | [`mksglu/context-mode`](https://github.com/mksglu/context-mode), distributed as [`context-mode`](https://www.npmjs.com/package/context-mode) | npm package managed by Pi |
 | pi-subagents | [`nicobailon/pi-subagents`](https://github.com/nicobailon/pi-subagents) | The unchanged release from the upstream npm package |
 | Pi core | `~/Developer/pi` ([my fork](https://github.com/javonmcgilberry/pi)) | Separate development checkout; the normal `pi` command uses the installed release |
 | Warp gateway | Private `warp-pi-gateway` repository | Edit `~/webdev/warp-pi-gateway`; live extensions are links |

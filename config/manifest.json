@@ -2,7 +2,6 @@
   "version": 1,
   "packagePolicy": {
     "floatingNpm": true,
-    "exactNpm": [],
     "exactGit": [
       "git:github.com/javonmcgilberry/pi-prewalk"
     ]

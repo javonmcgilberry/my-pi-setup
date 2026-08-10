@@ -113,28 +113,13 @@ function normalizePaths(value, label, { allowTrailingSlash = false } = {}) {
 
 function normalizePackagePolicy(value) {
   const policy = assertRecord(value, "packagePolicy");
-  const allowedKeys = new Set(["floatingNpm", "exactNpm", "exactGit"]);
+  const allowedKeys = new Set(["floatingNpm", "exactGit"]);
   const unknownKeys = Object.keys(policy).filter((key) => !allowedKeys.has(key));
   if (unknownKeys.length) {
     throw new Error(`unknown packagePolicy keys: ${unknownKeys.join(", ")}`);
   }
   if (policy.floatingNpm !== true) {
     throw new Error("packagePolicy.floatingNpm must be true");
-  }
-  if (!Array.isArray(policy.exactNpm)) {
-    throw new Error("packagePolicy.exactNpm must be an array");
-  }
-  const exactNpm = policy.exactNpm.map((name, index) => {
-    if (
-      typeof name !== "string" ||
-      !/^(?:@[^/@]+\/)?[^/@]+$/.test(name)
-    ) {
-      throw new Error(`packagePolicy.exactNpm[${index}] must be an npm package name`);
-    }
-    return name;
-  });
-  if (new Set(exactNpm).size !== exactNpm.length) {
-    throw new Error("packagePolicy.exactNpm contains duplicate package names");
   }
   if (!Array.isArray(policy.exactGit)) {
     throw new Error("packagePolicy.exactGit must be an array");
@@ -148,7 +133,7 @@ function normalizePackagePolicy(value) {
   if (new Set(exactGit).size !== exactGit.length) {
     throw new Error("packagePolicy.exactGit contains duplicate package locators");
   }
-  return { floatingNpm: true, exactNpm, exactGit };
+  return { floatingNpm: true, exactGit };
 }
 
 function assertUniqueTargets(entries, label) {
