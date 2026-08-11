@@ -64,8 +64,11 @@ describe("setup bootstrap", () => {
     assert.equal(await exists(path.join(target.agentDir, "extensions/pretty-footer.ts")), false);
     assert.equal(await exists(path.join(target.agentDir, "packages/prewalk")), false);
 
-    const sharedSkill = path.join(target.skillsDir, "webflow-designer-agent-browser");
-    assert.equal((await lstat(sharedSkill)).isSymbolicLink(), true);
+    for (const skill of ["tui-cli-design", "webflow-designer-agent-browser"]) {
+      const sharedSkill = path.join(target.skillsDir, skill);
+      assert.equal((await lstat(sharedSkill)).isSymbolicLink(), true);
+      assert.equal(await readlink(sharedSkill), path.join(repoRoot, "skills", skill));
+    }
     const command = path.join(target.commandsDir, "pi-update-all");
     assert.equal((await lstat(command)).isSymbolicLink(), true);
     assert.equal(await readlink(command), path.join(repoRoot, "scripts/pi-update-all"));

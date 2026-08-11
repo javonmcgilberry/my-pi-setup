@@ -21,6 +21,7 @@
     "pi-update-all": "scripts/pi-update-all"
   },
   "sharedSkills": {
+    "tui-cli-design": "skills/tui-cli-design",
     "webflow-designer-agent-browser": "skills/webflow-designer-agent-browser"
   },
   "macosLaunchAgents": {

@@ -434,13 +434,27 @@ activation, start `moshi .` normally and run `/mcp-auth linear` or
 socket (`-L`, `-S`, or a different `TMUX_TMPDIR`) would need a matching
 LaunchAgent; the current Moshi installation uses the default socket.
 
-## Shared Webflow browser skill
+## Shared agent skills
+
+Tracked shared skills live under [`skills/`](skills) and are linked once into
+`~/.agents/skills`. Pi and other compatible agent tools discover the same
+installation. They are deliberately not duplicated under `~/.pi/agent/skills`,
+which would cause skill-name collisions.
+
+### TUI and CLI design
+
+[`skills/tui-cli-design`](skills/tui-cli-design) is the automatic design and
+review skill for keyboard-first terminal interfaces. It guides agents through
+focus ownership, searchable pickers, keybindings, Escape and cancellation,
+draft and save behavior, dynamic lists, narrow terminals, scriptable commands,
+and lifecycle tests. The folder also contains concrete examples, a test matrix,
+a review checklist, and links to the UX and Pi sources behind the guidance.
+
+### Webflow browser
 
 The tracked
 [`skills/webflow-designer-agent-browser`](skills/webflow-designer-agent-browser)
-directory is linked once into `~/.agents/skills`, and Pi and other compatible
-agent tools share that installation. It is deliberately not duplicated under
-`~/.pi/agent/skills`, which would cause a skill-name collision.
+directory provides the shared authenticated Webflow browser workflow.
 
 Before local or authenticated Designer QA, the skill uses two subagents in
 sequence. The first runs on the active default model at the highest available
@@ -630,7 +644,7 @@ excluded. `setup.sh` does not copy or restore them.
 | Global configuration | This repo plus ignored `settings.local.json` | Generated files under `~/.pi/agent` |
 | Update command | `scripts/pi-update-all` | `~/.local/bin/pi-update-all` |
 | Personal Pi package and extensions | This repo | Loaded from this checkout by the rendered owner settings, or from Pi's managed Git checkout for a public install |
-| Shared Webflow skill | This repo | `~/.agents/skills/webflow-designer-agent-browser` |
+| Shared agent skills | This repo | `~/.agents/skills/tui-cli-design` and `~/.agents/skills/webflow-designer-agent-browser` |
 | Prewalk | Owning `pi-prewalk` checkout for development; floating GitHub source for clean installs | Local replacement when configured; otherwise `~/.pi/agent/git/github.com/javonmcgilberry/pi-prewalk` |
 | Context budget | This repo | Loaded as part of this Pi package |
 | Context Mode | [`mksglu/context-mode`](https://github.com/mksglu/context-mode), distributed as [`context-mode`](https://www.npmjs.com/package/context-mode) | npm package managed by Pi |

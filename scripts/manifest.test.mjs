@@ -43,7 +43,7 @@ describe("managed install manifest", () => {
       target: "pi-update-all",
       backup: "local-bin-pi-update-all",
     }]);
-    assert.equal(manifest.sharedSkills.length, 1);
+    assert.equal(manifest.sharedSkills.length, 2);
     assert.equal(manifest.macosLaunchAgents.length, 1);
     assert.deepEqual(manifest.macosLaunchAgents[0], {
       root: "macosLaunchAgents",
@@ -67,9 +67,18 @@ describe("managed install manifest", () => {
         "skills/webflow-designer-agent-browser",
       ],
     );
-    assert.equal(
-      entriesFor(manifest, "shared")[0].backup,
-      "external-agents-skills-webflow-designer-agent-browser",
+    assert.deepEqual(
+      entriesFor(manifest, "shared").map(({ target, backup }) => ({ target, backup })),
+      [
+        {
+          target: "tui-cli-design",
+          backup: "external-agents-skills-tui-cli-design",
+        },
+        {
+          target: "webflow-designer-agent-browser",
+          backup: "external-agents-skills-webflow-designer-agent-browser",
+        },
+      ],
     );
   });
 
@@ -90,6 +99,7 @@ describe("managed install manifest", () => {
       "@earendil-works/pi-tui",
     ]);
     assert.equal(packageJson.files.includes("disabled-extensions/clear-status.ts"), false);
+    assert.equal(packageJson.files.some((entry) => entry.includes("tui-cli-design")), false);
     assert.equal(packageJson.files.some((entry) => entry.includes("webflow-designer-agent-browser")), false);
   });
 

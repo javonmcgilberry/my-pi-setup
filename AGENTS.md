@@ -42,13 +42,13 @@ place.
 - To share Prewalk changes, test, commit, and push its owning checkout. Do not
   duplicate its version in this setup repository.
 
-### Shared Webflow skill
+### Shared skills
 
-Use `~/.agents/skills` as the sole discovery link for
-`skills/webflow-designer-agent-browser`, where Pi and other compatible
-harnesses can find it. A second link under `~/.pi/agent/skills` causes a
-skill-name collision. Keep its browser profile and runtime state as private
-machine data under `~/.config`.
+Use `~/.agents/skills` as the sole discovery root for skills declared in the
+manifest's `sharedSkills` inventory, where Pi and other compatible harnesses can
+find them. A second link under `~/.pi/agent/skills` causes a skill-name
+collision. Keep the Webflow skill's browser profile and runtime state as
+private machine data under `~/.config`.
 
 ### Skill design
 

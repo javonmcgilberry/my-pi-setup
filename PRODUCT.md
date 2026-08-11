@@ -54,6 +54,7 @@ Unlike a generic Pi installation or a loose extension collection, this workspace
 - `docs/research/2026-08-04-pi-tool-output-ui-options.md` records current Pi and Code Mode output-presentation constraints.
 - `settings.json` references the floating remote `pi-prewalk` repository; the explicit local replacement remains authoritative during development.
 - `agent-browser-policy.json`, `extensions/agent-browser-policy.ts`, and the Webflow Designer skill runtime keep nested browser chat and cookie transfer fail-closed, allow ordinary browser calls from the active model, and provide a repeatable browser lifecycle without persisting cookie values.
+- `skills/tui-cli-design/` records the shared design, implementation, review, and test contract for keyboard-first terminal interfaces.
 - `config/com.javonmcgilberry.pi-tmux-gui-server.plist` and its activation helper keep Moshi's normal directory-session behavior while moving the tmux server into the macOS GUI security session.
 - No confirmed testimonials, adoption metrics, pricing, release guarantees, or public-package claims are on hand; future work must not fabricate them.
 
