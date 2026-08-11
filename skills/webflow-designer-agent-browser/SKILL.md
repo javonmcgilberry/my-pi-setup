@@ -15,11 +15,11 @@ The parent gives the readiness child the exact Designer URL and permission bound
 
 1. Read the repository's documented local startup path and inspect the existing HUD before starting anything. Reuse healthy services; start only the missing documented Designer task.
 2. Prove the HUD, Designer service, and exact target HTTP surface are reachable. `ERR_CONNECTION_REFUSED`, HTTP `000`, `502`, `504`, or a Chrome error page is a setup failure, not a QA result.
-3. Start the managed Chrome for Testing runtime, verify the dedicated profile, exact tab, authentication state, and rendered Designer readiness selector. Merely discovering a stale tab URL is not readiness.
+3. Start the managed Chrome for Testing runtime and verify the dedicated profile, exact tab, authentication state, and rendered Designer document. Readiness must not depend on a fixed sidebar control. Require the exact Designer URL, a Webflow Designer title, a non-login document, and no Chrome error page.
 4. Close the native/CLI session, release the runtime lease, and prove the runtime is stopped so ownership can transfer cleanly.
 5. Run `scripts/readiness-gate.py` with all five bounded checks. Return its JSON verbatim as the handoff.
 
-Required check names are `hud`, `designer_service`, `target_http`, `browser_profile`, and `designer_surface`. The parent may launch the QA executor only when the helper exits zero and emits `"qaLaunchAllowed": true`. Any missing, failed, authentication-required, or unclean-runtime state ends the attempt before QA; report the named blocker once instead of repeatedly opening browsers or retrying selectors.
+Required check names are `hud`, `designer_service`, `target_http`, `browser_profile`, and `designer_surface`. The parent may launch the QA executor only when the helper exits zero and emits `"qaLaunchAllowed": true`. `designer_surface` verifies the rendered authenticated Designer document, not any particular panel button. Any missing, failed, authentication-required, or unclean-runtime state ends the attempt before QA; report the named blocker once instead of repeatedly opening browsers.
 
 Keep readiness fast: batch independent service checks, reuse healthy processes, allow one bounded start attempt for each missing documented service, and perform one browser verification after listeners are ready. Do not try cookie transfer, profile repair, alternate transports, or repeated reloads unless the readiness evidence specifically requires that recovery and the user has authorized it.
 
@@ -139,7 +139,7 @@ Native-tool example (use the same `batch` arguments via the CLI when `cli` is se
 ```json
 {
   "args": ["batch", "--bail"],
-  "stdin": "[[\"wait\",\"[data-automation-id=left-sidebar-component-browser-button]\"],[\"snapshot\",\"-i\",\"-c\",\"-s\",\"[data-automation-id=component-browser]\"]]"
+  "stdin": "[[\"wait\",\"[data-automation-id=left-sidebar-add-button]\"],[\"snapshot\",\"-i\",\"-c\",\"-s\",\"[data-automation-id=left-sidebar-add-button]\"]]"
 }
 ```
 
@@ -150,7 +150,7 @@ Quote commands and selectors according to the current CLI help. Never put secret
 - Run `tab` before acting in an attached browser.
 - Run `eval` to list frame URLs without returning page content or secrets, then use `frame <selector>` and take a new scoped snapshot. Return with `frame main`.
 - Choose one canonical canvas frame for pass or fail decisions; Designer can expose duplicate same-origin canvas frames.
-- Use stable `data-automation-id` readiness selectors instead of `networkidle`.
+- Use the exact URL, Designer title, and non-error document for readiness. Use stable `data-automation-id` selectors only for feature-specific assertions after readiness.
 - Use `console`, `errors`, filtered `network requests`, request detail, metadata-only HAR, trace, or profiler only when each artifact answers the current diagnostic question.
 - Keep HAR content disabled by default because request and response bodies can contain credentials or PII.
 - Use screenshots only after inspecting them. Redact or omit sensitive content and store temporary evidence outside repositories.

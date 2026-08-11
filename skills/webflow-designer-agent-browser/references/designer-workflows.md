@@ -15,7 +15,7 @@ Classify readiness with exactly these bounded states:
 - `designer_service`: the required Designer task is running.
 - `target_http`: the exact target responds without connection refusal or gateway failure.
 - `browser_profile`: managed Chrome for Testing starts with the dedicated profile.
-- `designer_surface`: the exact authenticated tab renders the Designer readiness selector rather than login or `chrome-error://chromewebdata/`.
+- `designer_surface`: the exact authenticated tab renders a Webflow Designer document rather than login or `chrome-error://chromewebdata/`. Do not require a fixed sidebar button because role-specific Designer shells expose different controls.
 
 For a successful handoff, pass each as `ready` and include `--runtime-stopped`:
 
@@ -42,21 +42,15 @@ Cold, warm, partial, and stale states all follow the same rule: setup may conver
 
 ## Readiness and surfaces
 
-The generic Designer readiness selector is:
+Readiness requires the exact Designer URL, a Webflow Designer title, a non-login document, and no Chrome error page. A fixed sidebar selector is not a readiness requirement.
 
-```text
-[data-automation-id="left-sidebar-component-browser-button"]
-```
+Useful Add and AI Assistant selectors for feature-specific assertions:
 
-Useful Component Browser selectors:
+- `[data-automation-id="add-tab-elements-container"]`
+- `[data-automation-id="add-tab-elements-search-input"]`
+- `[data-automation-id="AIA_HEADER"]`
 
-- `[data-automation-id="component-browser"]`
-- `[data-automation-id="component-group-preview"]`
-- `[data-automation-id="component-thumbnail-surface-iframe"]`
-- `[data-automation-id="component-thumbnail-surface-slot"]`
-- `[data-automation-id="left-sidebar-campaign-overview-button"]`
-
-Wait for the shell selector, then scope snapshots to the surface under test. When the selector visible in DevTools is absent from the main frame, enumerate frames and inspect the matching frame instead of weakening the selector.
+After readiness, scope snapshots to the feature surface under test. When a feature selector visible in DevTools is absent from the main frame, enumerate frames and inspect the matching frame.
 
 ## Canvas and frame selection
 

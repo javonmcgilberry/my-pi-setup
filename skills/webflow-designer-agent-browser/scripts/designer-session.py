@@ -13,9 +13,7 @@ import urllib.request
 from urllib.parse import parse_qsl, urlsplit
 from typing import cast
 
-DEFAULT_READY_SELECTOR = (
-    '[data-automation-id="left-sidebar-component-browser-button"]'
-)
+DEFAULT_READY_SELECTOR = "body"
 SENSITIVE_QUERY_PARTS = ("token", "secret", "password", "credential", "code")
 SERVICE_LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$")
 
