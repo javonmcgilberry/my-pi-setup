@@ -169,11 +169,15 @@ test("shuts Pi down when startup races with maintenance", async () => {
 test("describes itself and completes its actions", () => {
 	const { command } = active;
 	assert.match(command.description ?? "", /read-only/i);
+	assert.match(command.description ?? "", /\/spend-dashboard open/);
 	const all = command.getArgumentCompletions?.("");
+	const items = Array.isArray(all) ? all : [];
 	assert.deepEqual(
-		Array.isArray(all) ? all.map((item) => item.value) : [],
-		["start", "stop", "restart", "status", "open", "maintain"],
+		items.map((item) => item.value),
+		["open", "start", "status", "restart", "stop", "maintain"],
 	);
+	assert.ok(items.every((item) => item.description), "every action should explain itself in autocomplete");
+	assert.match(items.find((item) => item.value === "open")?.description ?? "", /browser/i);
 	const filtered = command.getArgumentCompletions?.("sta");
 	assert.deepEqual(Array.isArray(filtered) ? filtered.map((item) => item.value) : [], ["start", "status"]);
 	assert.equal(command.getArgumentCompletions?.("zzz"), null);

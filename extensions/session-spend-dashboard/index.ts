@@ -8,20 +8,29 @@ import { defaultAgentDir, defaultSessionsDir } from "./scan.ts";
 import { DEFAULT_PORT, startServer, type RunningServer } from "./server.ts";
 
 const STATUS_KEY = "spend-dashboard";
-const ACTIONS = ["start", "stop", "restart", "status", "open", "maintain"] as const;
+const ACTIONS = ["open", "start", "status", "restart", "stop", "maintain"] as const;
 
 type Action = (typeof ACTIONS)[number];
+
+const ACTION_DESCRIPTIONS: Record<Action, string> = {
+	open: "Launch if needed, then open it in your browser",
+	start: "Launch without opening a browser",
+	status: "Show port, watch mode, connected browsers, and session count",
+	restart: "Stop and relaunch it",
+	stop: "Shut it down",
+	maintain: "Import metrics and preview expired chat trees",
+};
 
 function isAction(value: string): value is Action {
 	return ACTIONS.some((action) => action === value);
 }
 
 const USAGE = [
+	"/spend-dashboard open     launch if needed, then open it in your browser",
 	"/spend-dashboard start    launch the read-only dashboard",
-	"/spend-dashboard stop     shut the dashboard down",
-	"/spend-dashboard restart  relaunch it",
 	"/spend-dashboard status   show whether it is running",
-	"/spend-dashboard open     open it in your browser",
+	"/spend-dashboard restart  relaunch it",
+	"/spend-dashboard stop     shut the dashboard down",
 	"/spend-dashboard maintain import metrics and preview expired chat trees",
 	"",
 	`Add a port to override ${DEFAULT_PORT}, for example: /spend-dashboard start 4400`,
@@ -116,10 +125,12 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	pi.registerCommand("spend-dashboard", {
-		description: "Read-only localhost spend dashboard with content-free session retention",
+		description: "Open the read-only localhost dashboard with /spend-dashboard open",
 		getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
 			const matches = ACTIONS.filter((action) => action.startsWith(prefix.trim()));
-			return matches.length > 0 ? matches.map((action) => ({ value: action, label: action })) : null;
+			return matches.length > 0
+				? matches.map((action) => ({ value: action, label: action, description: ACTION_DESCRIPTIONS[action] }))
+				: null;
 		},
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			const parsed = parse(args);

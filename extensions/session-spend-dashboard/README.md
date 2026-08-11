@@ -9,18 +9,21 @@ metrics and remove expired chat trees after confirmation.
 From inside any Pi session:
 
 ```text
-/spend-dashboard start     launch on http://127.0.0.1:4310
 /spend-dashboard open      launch if needed, then open a browser
+/spend-dashboard start     launch on http://127.0.0.1:4310
 /spend-dashboard status    show port, watch mode, connected browsers, session count
 /spend-dashboard restart
 /spend-dashboard stop
 /spend-dashboard maintain   import metrics and preview expired chats
 ```
 
+Pi's command hint shows `/spend-dashboard open` as you type. After the command,
+the autocomplete menu gives a short description for each action.
+
 Pass a port to override the default: `/spend-dashboard start 4400`.
 
-The extension is auto-discovered from `~/.pi/agent/extensions/`. Run `/reload` after
-editing it. The server starts only when you ask for it and shuts down with the session.
+The extension is loaded from this Pi package. Restart Pi after editing it. The server
+starts only when you ask for it and shuts down with the session.
 
 ## What it shows
 
