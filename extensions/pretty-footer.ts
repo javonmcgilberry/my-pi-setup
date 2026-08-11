@@ -7,6 +7,11 @@ import type {
 	Theme,
 } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+	buildFooterMetricModel,
+	type FooterMetricTone,
+	packFooterSection,
+} from "./pretty-footer-view.ts";
 import { readTaskRunUsage } from "./session-spend-dashboard/runs.ts";
 import {
 	type TaskUsage,
@@ -17,23 +22,6 @@ const STATUS_PRIORITY = ["prewalk", "codex-adapter", "mcp", "pi-lens-lsp"];
 const ITEM_SEPARATOR = "  ·  ";
 const SYSTEM_SEPARATOR = "  |  ";
 const ANSI_SGR_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
-
-function finiteNumber(value: unknown): number {
-	return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function compact(value: unknown): string {
-	const n = finiteNumber(value);
-	if (n < 1_000) return String(Math.round(n));
-	if (n < 10_000) return `${(n / 1_000).toFixed(1)}k`;
-	if (n < 1_000_000) return `${Math.round(n / 1_000)}k`;
-	return `${(n / 1_000_000).toFixed(1)}M`;
-}
-
-function compactOrDash(value: unknown, present: boolean): string {
-	if (!present) return "—";
-	return compact(value);
-}
 
 function displayPath(cwd: string): string {
 	const home = os.homedir();
@@ -125,31 +113,14 @@ function modelStatusText(ctx: ExtensionContext, theme: Theme): string {
 		return `${theme.fg("dim", "MODEL")} ${theme.fg("text", id)}`;
 	}
 	const level = thinking === "off" ? "off" : String(thinking);
-	return `${theme.fg("dim", "MODEL")} ${theme.fg("text", id)}${theme.fg("dim", " · think ")}${theme.fg("thinkingText", level)}`;
-}
-
-function costText(ctx: ExtensionContext, cost: number): { value: string; note?: string } {
-	if (cost > 0) return { value: `$${cost.toFixed(3)}` };
-	const provider = ctx.model?.provider;
-	const rates = ctx.model?.cost;
-	const hasRates = Boolean(
-		rates &&
-			(finiteNumber(rates.input) > 0 ||
-				finiteNumber(rates.output) > 0 ||
-				finiteNumber(rates.cacheRead) > 0 ||
-				finiteNumber(rates.cacheWrite) > 0),
-	);
-	if (provider === "cursor" || !hasRates) {
-		return { value: "$0.000", note: "sub" };
-	}
-	return { value: "$0.000" };
+	return `${theme.fg("dim", "MODEL")} ${theme.fg("text", id)}${theme.fg("dim", " · reasoning ")}${theme.fg("thinkingText", level)}`;
 }
 
 function metric(
 	theme: Theme,
 	label: string,
 	value: string,
-	color: "accent" | "success" | "thinkingText" | "warning" | "muted" | "text" | "error",
+	color: FooterMetricTone,
 ): string {
 	return `${theme.fg("dim", `${label} `)}${theme.fg(color, value)}`;
 }
@@ -158,13 +129,17 @@ function section(theme: Theme, label: string, content: string): string {
 	return `${theme.bold(theme.fg("accent", label))}  ${content}`;
 }
 
-function valueThenLabel(
-	theme: Theme,
-	value: string,
-	label: string,
-	color: "success" | "muted" | "text",
-): string {
-	return `${theme.fg(color, value)}${theme.fg("dim", ` ${label}`)}`;
+function sectionItems(theme: Theme, label: string, items: string[], width: number): string[] {
+	return packFooterSection({
+		heading: theme.bold(theme.fg("accent", label)),
+		items,
+		width,
+		operations: {
+			measure: visibleWidth,
+			truncate: (text, availableWidth) => truncateToWidth(text, availableWidth, "..."),
+		},
+		separator: theme.fg("dim", ITEM_SEPARATOR),
+	});
 }
 
 function metricLines(
@@ -174,54 +149,19 @@ function metricLines(
 	artifactRuns: ReadonlyMap<string, TaskUsage>,
 ): string[] {
 	const usage = usageSummary(ctx, artifactRuns);
-	const cachePromptTokens = usage.input + usage.cacheRead + usage.cacheWrite;
-	const cacheHitRate =
-		cachePromptTokens > 0
-			? `${((usage.cacheRead / cachePromptTokens) * 100).toFixed(1)}%`
-			: "n/a";
-	const context = ctx.getContextUsage();
-	const contextPercent = typeof context?.percent === "number" && Number.isFinite(context.percent)
-		? context.percent
-		: undefined;
-	const contextWindow = typeof context?.contextWindow === "number" && Number.isFinite(context.contextWindow)
-		? context.contextWindow
-		: undefined;
-	const hasContext = contextPercent !== undefined && contextWindow !== undefined;
-	const contextText = hasContext
-		? `${contextPercent.toFixed(1)}% of ${compact(contextWindow)}`
-		: "?";
-	const contextColor =
-		hasContext && contextPercent > 90
-			? "error"
-			: hasContext && contextPercent > 70
-				? "warning"
-				: "success";
-	const thinkingValue = compactOrDash(usage.reasoning, usage.hasReasoning);
-	const tokenMetrics = [
-		metric(theme, "Input", compact(usage.input), "text"),
-		metric(theme, "Output", compact(usage.output), "text"),
-		metric(theme, "Thinking", thinkingValue, "thinkingText"),
-	];
-	const cacheMetrics = [
-		valueThenLabel(theme, compact(usage.cacheRead), "reused", "text"),
-		valueThenLabel(theme, compact(usage.cacheWrite), "stored", "text"),
-		valueThenLabel(theme, cacheHitRate, "hit", cacheHitRate === "n/a" ? "muted" : "success"),
-	];
-	const cost = costText(ctx, usage.cost);
-	const costDisplay = cost.note
-		? `${cost.value}${theme.fg("dim", ` (${cost.note})`)}`
-		: cost.value;
+	const model = buildFooterMetricModel({
+		usage,
+		context: ctx.getContextUsage(),
+		provider: ctx.model?.provider,
+		rates: ctx.model?.cost,
+		width,
+	});
+	const renderMetric = (item: (typeof model.session)[number]) =>
+		metric(theme, item.label, item.value, item.tone);
 	return [
-		...alignedPair(
-			section(theme, "TOKENS", tokenMetrics.join(theme.fg("dim", ITEM_SEPARATOR))),
-			metric(theme, "COST", costDisplay, "text"),
-			width,
-		),
-		...alignedPair(
-			section(theme, "CACHE", cacheMetrics.join(theme.fg("dim", ITEM_SEPARATOR))),
-			metric(theme, "CONTEXT", contextText, contextColor),
-			width,
-		),
+		...sectionItems(theme, "SESSION", model.session.map(renderMetric), width),
+		...sectionItems(theme, "SESSION TOKENS", model.tokens.map(renderMetric), width),
+		...sectionItems(theme, "PROMPT CACHE", model.cache.map(renderMetric), width),
 	];
 }
 
@@ -304,7 +244,7 @@ function secondaryStatusLines(
 	];
 }
 
-function footerLines(
+export function renderPrettyFooterLines(
 	ctx: ExtensionContext,
 	footerData: ReadonlyFooterDataProvider,
 	theme: Theme,
@@ -358,7 +298,7 @@ export default function prettyFooter(pi: ExtensionAPI): void {
 					void refreshChildren();
 				},
 				render(width: number): string[] {
-					return footerLines(ctx, footerData, theme, width, artifactRuns);
+					return renderPrettyFooterLines(ctx, footerData, theme, width, artifactRuns);
 				},
 			};
 		});

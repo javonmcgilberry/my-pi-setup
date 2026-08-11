@@ -333,13 +333,22 @@ Mode mutation tracking and does not depend on that patch.
 
 | Component | What it does | Configuration and source |
 | --- | --- | --- |
-| Pretty footer | Replaces the footer with model, context, usage, cache, cost, task, and extension status. | [`extensions/pretty-footer.ts`](extensions/pretty-footer.ts), loaded from this Pi package. |
+| Pretty footer | Shows session cost, context use, token totals, prompt-cache totals, model reasoning, the Prewalk route, and extension status with clear labels. | [`extensions/pretty-footer.ts`](extensions/pretty-footer.ts) and [`extensions/pretty-footer-view.ts`](extensions/pretty-footer-view.ts), loaded from this Pi package. |
 | Herdr agent state | Reports Pi session identity and working, blocked, or idle state to Herdr over its local socket. It does nothing unless `HERDR_ENV=1`, `HERDR_SOCKET_PATH`, and `HERDR_PANE_ID` are all set. | [`extensions/herdr-agent-state.ts`](extensions/herdr-agent-state.ts), loaded from this Pi package. Herdr owns the generated integration format. |
 | Agent Browser Policy | Keeps model-assisted browser usage on the configured Pi model and gates nested chat and cookie transfer. | [`agent-browser-policy.json`](agent-browser-policy.json), [`extensions/agent-browser-policy.ts`](extensions/agent-browser-policy.ts), and the shared Webflow skill. Cookie transfer is off by default. |
 | Session Spend Dashboard | Runs an opt-in read-only localhost dashboard for provider-reported spend, token use, projects, sessions, and subagent activity. | [`extensions/session-spend-dashboard`](extensions/session-spend-dashboard), configured by [`session-spend-dashboard.json`](session-spend-dashboard.json). See its [README](extensions/session-spend-dashboard/README.md). |
 | Warp session title | Shows the current Pi session name and project in the active Warp tab. It does nothing in other terminals. | [`extensions/warp-session-title.ts`](extensions/warp-session-title.ts), loaded from this Pi package. |
 | Clear status | Older compact usage/status implementation retained for reference but not loaded or packaged. | [`disabled-extensions/clear-status.ts`](disabled-extensions/clear-status.ts). |
 | Warp gateway links | Private Warp gateway and fallback extensions maintained in a separate repository. | Live links are `extensions/warp-gateway.ts` and `extensions/warp-link-fallback.ts`; edit `~/webdev/warp-pi-gateway`. |
+
+The `SESSION` row shows cost and current context use. Context includes tokens
+used, tokens left, and a percentage, so it is clear that the percentage means
+used space. `SESSION TOKENS` contains the cumulative input, output, and
+reasoning totals. `PROMPT CACHE` shows reused tokens, stored tokens, and the hit
+rate. A subscription says `Included (subscription)`, while missing rates say
+`Unavailable` instead of looking like a real `$0.000` cost. On a narrow
+terminal, each labelled group wraps instead of dropping information from the
+right side.
 
 `REALTIME-SYSTEM-PROMPT.md` is tracked prompt configuration, not an extension.
 It changes the realtime conversational mode used by Pi Codex Conversion.
@@ -594,6 +603,10 @@ with Context Mode's own tools.
 [`session-spend-dashboard.json`](session-spend-dashboard.json) is configured to keep
 chat trees for 7 days and metrics without chat content for 365 days. A chat
 tree is a root Pi session plus its nested child-agent runs.
+
+Run `/spend-dashboard open` in Pi to start the dashboard and open it in your
+browser. While you type, the command menu shows this shortcut. It also describes
+each available action.
 
 The dashboard imports metadata, provider-reported usage, cost, and tool-call
 counts with duplicate records removed. By default it writes
