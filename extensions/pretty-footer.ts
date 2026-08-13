@@ -90,8 +90,16 @@ interface UsageSummary {
 	cost: number;
 }
 
-function usageSummary(ctx: ExtensionContext, artifactRuns: ReadonlyMap<string, TaskUsage>): UsageSummary {
-	const usage = summarizeTaskEntries(ctx.sessionManager.getEntries(), artifactRuns);
+type UsageSummaryCalculator = (
+	entries: readonly unknown[],
+	artifactRuns: ReadonlyMap<string, TaskUsage>,
+) => UsageSummary;
+
+function calculateUsageSummary(
+	entries: readonly unknown[],
+	artifactRuns: ReadonlyMap<string, TaskUsage>,
+): UsageSummary {
+	const usage = summarizeTaskEntries(entries, artifactRuns);
 	return {
 		input: usage.input,
 		output: usage.output,
@@ -101,6 +109,52 @@ function usageSummary(ctx: ExtensionContext, artifactRuns: ReadonlyMap<string, T
 		cacheWrite: usage.cacheWrite,
 		cost: usage.cost,
 	};
+}
+
+export type FooterUsageCache = {
+	invalidateArtifacts(): void;
+	summarizeSession(
+		sessionKey: string,
+		getEntries: () => readonly unknown[],
+		artifactRuns: ReadonlyMap<string, TaskUsage>,
+	): UsageSummary;
+};
+
+export function createFooterUsageCache(
+	calculate: UsageSummaryCalculator = calculateUsageSummary,
+): FooterUsageCache {
+	let cachedSummary: UsageSummary | undefined;
+	let cachedSessionKey: string | undefined;
+	let cachedArtifactRuns: ReadonlyMap<string, TaskUsage> | undefined;
+	let cachedArtifactRevision = -1;
+	let artifactRevision = 0;
+
+	return {
+		invalidateArtifacts() {
+			artifactRevision++;
+		},
+		summarizeSession(sessionKey, getEntries, artifactRuns) {
+			if (
+				cachedSummary &&
+				cachedSessionKey === sessionKey &&
+				cachedArtifactRuns === artifactRuns &&
+				cachedArtifactRevision === artifactRevision
+			) {
+				return cachedSummary;
+			}
+
+			cachedSummary = calculate(getEntries(), artifactRuns);
+			cachedSessionKey = sessionKey;
+			cachedArtifactRuns = artifactRuns;
+			cachedArtifactRevision = artifactRevision;
+			return cachedSummary;
+		},
+	};
+}
+
+interface FooterUsageState {
+	artifactRuns: ReadonlyMap<string, TaskUsage>;
+	usageCache: FooterUsageCache;
 }
 
 function modelStatusText(ctx: ExtensionContext, theme: Theme): string {
@@ -146,11 +200,16 @@ function metricLines(
 	ctx: ExtensionContext,
 	theme: Theme,
 	width: number,
-	artifactRuns: ReadonlyMap<string, TaskUsage>,
+	usage: FooterUsageState,
 ): string[] {
-	const usage = usageSummary(ctx, artifactRuns);
+	const sessionKey = `${ctx.sessionManager.getSessionId()}:${ctx.sessionManager.getLeafId() ?? ""}`;
+	const totals = usage.usageCache.summarizeSession(
+		sessionKey,
+		() => ctx.sessionManager.getEntries(),
+		usage.artifactRuns,
+	);
 	const model = buildFooterMetricModel({
-		usage,
+		usage: totals,
 		context: ctx.getContextUsage(),
 		provider: ctx.model?.provider,
 		rates: ctx.model?.cost,
@@ -250,6 +309,7 @@ export function renderPrettyFooterLines(
 	theme: Theme,
 	width: number,
 	artifactRuns: ReadonlyMap<string, TaskUsage>,
+	usageCache: FooterUsageCache = createFooterUsageCache(),
 ): string[] {
 	const branch = footerData.getGitBranch();
 	const statuses = footerData.getExtensionStatuses();
@@ -260,45 +320,91 @@ export function renderPrettyFooterLines(
 	return [
 		...alignedPair(pathLeft, modelStatusText(ctx, theme), width),
 		...(prewalk ? prewalkLines(cleanStatus(prewalk), theme, width) : []),
-		...metricLines(ctx, theme, width, artifactRuns),
+		...metricLines(ctx, theme, width, { artifactRuns, usageCache }),
 		...secondaryStatusLines(statuses, theme, width),
 	];
+}
+
+interface ArtifactUsageRefresherOptions {
+	getSessionFile: () => string | undefined;
+	read: (sessionFile: string) => Promise<ReadonlyMap<string, TaskUsage>>;
+	onValue: (value: ReadonlyMap<string, TaskUsage>) => void;
+	requestRender: () => void;
+}
+
+export function createArtifactUsageRefresher(options: ArtifactUsageRefresherOptions): {
+	invalidate(): void;
+	dispose(): void;
+} {
+	let disposed = false;
+	let refreshInFlight = false;
+	let refreshQueued = false;
+
+	const refresh = async (): Promise<void> => {
+		if (disposed || refreshInFlight) return;
+		refreshInFlight = true;
+		try {
+			const sessionFile = options.getSessionFile();
+			if (!sessionFile) return;
+			const value = await options.read(sessionFile);
+			if (disposed) return;
+			options.onValue(value);
+			options.requestRender();
+		} finally {
+			refreshInFlight = false;
+			if (!disposed && refreshQueued) {
+				refreshQueued = false;
+				void refresh();
+			}
+		}
+	};
+
+	return {
+		invalidate() {
+			if (disposed) return;
+			if (refreshInFlight) {
+				refreshQueued = true;
+				return;
+			}
+			void refresh();
+		},
+		dispose() {
+			disposed = true;
+			refreshQueued = false;
+		},
+	};
 }
 
 export default function prettyFooter(pi: ExtensionAPI): void {
 	pi.on("session_start", (_event, ctx) => {
 		if (ctx.mode !== "tui") return;
 		ctx.ui.setFooter((tui, theme, footerData) => {
-			let artifactRuns = new Map<string, TaskUsage>();
-			let disposed = false;
-			let refreshPending = false;
-			const refreshChildren = async (): Promise<void> => {
-				if (refreshPending) return;
-				refreshPending = true;
-				const sessionFile = ctx.sessionManager.getSessionFile();
-				try {
-					if (!sessionFile) return;
-					artifactRuns = await readTaskRunUsage(sessionFile);
-					if (!disposed) tui.requestRender();
-				} finally {
-					refreshPending = false;
-				}
-			};
-			void refreshChildren();
+			let artifactRuns: ReadonlyMap<string, TaskUsage> = new Map();
+			const usageCache = createFooterUsageCache();
+			const artifactRefresher = createArtifactUsageRefresher({
+				getSessionFile: () => ctx.sessionManager.getSessionFile(),
+				read: readTaskRunUsage,
+				onValue: (value) => {
+					artifactRuns = value;
+					usageCache.invalidateArtifacts();
+				},
+				requestRender: () => tui.requestRender(),
+			});
+			artifactRefresher.invalidate();
 			const unsubscribe = footerData.onBranchChange(() => {
-				void refreshChildren();
+				artifactRefresher.invalidate();
 				tui.requestRender();
 			});
 			return {
 				dispose() {
-					disposed = true;
+					artifactRefresher.dispose();
 					unsubscribe();
 				},
 				invalidate() {
-					void refreshChildren();
+					artifactRefresher.invalidate();
 				},
 				render(width: number): string[] {
-					return renderPrettyFooterLines(ctx, footerData, theme, width, artifactRuns);
+					return renderPrettyFooterLines(ctx, footerData, theme, width, artifactRuns, usageCache);
 				},
 			};
 		});

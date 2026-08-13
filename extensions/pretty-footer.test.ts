@@ -6,6 +6,11 @@ import {
 	type FooterUsage,
 	packFooterSection,
 } from "./pretty-footer-view.ts";
+import {
+	createArtifactUsageRefresher,
+	createFooterUsageCache,
+} from "./pretty-footer.ts";
+import type { TaskUsage, TaskUsageSummary } from "./session-spend-dashboard/task-usage.ts";
 
 function usage(overrides: Partial<FooterUsage> = {}): FooterUsage {
 	return {
@@ -141,4 +146,125 @@ test("wraps each labelled group without overflowing", () => {
 			assert.match(lines[0] ?? "", new RegExp(`^${heading}`));
 		}
 	}
+});
+
+function usageForCache(cost: number): TaskUsage {
+	return {
+		input: 1,
+		output: 1,
+		reasoning: 0,
+		cacheRead: 0,
+		cacheWrite: 0,
+		cost,
+		hasReasoning: false,
+	};
+}
+
+function summaryForCache(cost: number): TaskUsageSummary {
+	return { ...usageForCache(cost), childRuns: 0 };
+}
+
+function deferred<T>(): {
+	promise: Promise<T>;
+	resolve: (value: T) => void;
+} {
+	let resolve!: (value: T) => void;
+	const promise = new Promise<T>((done) => {
+		resolve = done;
+	});
+	return { promise, resolve };
+}
+
+async function flushPromises(): Promise<void> {
+	await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
+test("caches footer usage until session entries or artifacts change", () => {
+	let calls = 0;
+	let reads = 0;
+	const cache = createFooterUsageCache(
+		(_entries: readonly unknown[], artifacts: ReadonlyMap<string, TaskUsage>) => {
+			calls++;
+			return summaryForCache(artifacts.size);
+		},
+	);
+	const entries: unknown[] = [{ type: "message", message: { role: "assistant" } }];
+	const artifacts = new Map<string, TaskUsage>();
+	const getEntries = () => {
+		reads++;
+		return [...entries];
+	};
+
+	assert.equal(cache.summarizeSession("session:leaf-1", getEntries, artifacts).cost, 0);
+	assert.equal(cache.summarizeSession("session:leaf-1", getEntries, artifacts).cost, 0);
+	assert.equal(calls, 1, "unchanged renders reuse the summary");
+	assert.equal(reads, 1, "unchanged renders do not copy session entries");
+
+	entries.push({ type: "message", message: { role: "assistant" } });
+	cache.summarizeSession("session:leaf-2", getEntries, artifacts);
+	assert.equal(calls, 2, "a new leaf recomputes the summary");
+	assert.equal(reads, 2);
+
+	artifacts.set("child", usageForCache(1));
+	cache.invalidateArtifacts();
+	assert.equal(cache.summarizeSession("session:leaf-2", getEntries, artifacts).cost, 1);
+	assert.equal(calls, 3, "a completed artifact refresh recomputes the summary");
+});
+
+test("coalesces invalidations during an artifact read into one trailing refresh", async () => {
+	const first = deferred<Map<string, TaskUsage>>();
+	const second = deferred<Map<string, TaskUsage>>();
+	const reads = [first.promise, second.promise];
+	const values: ReadonlyMap<string, TaskUsage>[] = [];
+	let readCalls = 0;
+	let renders = 0;
+	const refresher = createArtifactUsageRefresher({
+		getSessionFile: () => "/tmp/parent.jsonl",
+		read: async () => reads[readCalls++] ?? new Map(),
+		onValue: (value) => values.push(value),
+		requestRender: () => renders++,
+	});
+
+	refresher.invalidate();
+	refresher.invalidate();
+	refresher.invalidate();
+	assert.equal(readCalls, 1);
+
+	first.resolve(new Map([["first", usageForCache(1)]]));
+	await flushPromises();
+	assert.equal(readCalls, 2, "pending invalidations schedule one trailing read");
+	assert.equal(renders, 1);
+
+	second.resolve(new Map([["second", usageForCache(2)]]));
+	await flushPromises();
+	assert.equal(readCalls, 2);
+	assert.equal(renders, 2);
+	assert.deepEqual(values.map((value) => [...value.keys()]), [["first"], ["second"]]);
+	refresher.dispose();
+});
+
+test("does not publish or render after artifact refresh disposal", async () => {
+	const pending = deferred<Map<string, TaskUsage>>();
+	let values = 0;
+	let renders = 0;
+	let reads = 0;
+	const refresher = createArtifactUsageRefresher({
+		getSessionFile: () => "/tmp/parent.jsonl",
+		read: async () => {
+			reads++;
+			return pending.promise;
+		},
+		onValue: () => values++,
+		requestRender: () => renders++,
+	});
+
+	refresher.invalidate();
+	refresher.invalidate();
+	refresher.dispose();
+	pending.resolve(new Map([["late", usageForCache(1)]]));
+	await flushPromises();
+
+	assert.equal(reads, 1);
+	assert.equal(values, 0);
+	assert.equal(renders, 0);
 });
