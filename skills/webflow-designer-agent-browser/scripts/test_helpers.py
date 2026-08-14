@@ -342,17 +342,31 @@ class SessionTests(unittest.TestCase):
                 preflight_only=False,
                 dry_run=True,
                 transport="native",
+                attached=True,
+                lease_id="a" * 32,
             )
-        plan = json.loads(output.getvalue())
-        self.assertEqual(result, 0)
-        self.assertEqual(plan["cleanup"][0]["args"], ["close"])
-        self.assertEqual(
-            plan["cleanup"][1]["args"],
-            ["release", "--consumer", "agent_browser"],
-        )
+            plan = json.loads(output.getvalue())
+            self.assertEqual(result, 0)
+            self.assertEqual(plan["cleanup"][0]["args"], ["close"])
+            self.assertEqual(
+                plan["cleanup"][1]["args"],
+                ["release", "--consumer", "agent_browser", "--lease-id", "a" * 32],
+            )
         self.assertFalse(
             plan["cleanup"][2]["require"]["runtimeOwned"]
         )
+
+    def test_attached_cleanup_requires_a_lease_token(self):
+        with self.assertRaisesRegex(ValueError, "lease-id"):
+            session.run(
+                [{"tool": "agent_browser", "args": ["connect", "9222"]}],
+                [],
+                timeout=1,
+                preflight_only=False,
+                dry_run=True,
+                transport="native",
+                attached=True,
+            )
 
     def test_isolated_plan_rejects_sensitive_url(self):
         args = argparse.Namespace(
@@ -379,6 +393,7 @@ class SessionTests(unittest.TestCase):
                 preflight_only=False,
                 dry_run=True,
                 transport="cli",
+                attached=False,
             )
         plan = json.loads(output.getvalue())
         self.assertEqual(result, 0)
@@ -490,6 +505,20 @@ class ReadinessGateTests(unittest.TestCase):
         )
         self.assertFalse(result["qaLaunchAllowed"])
         self.assertEqual(result["blockers"], ["browser_runtime_cleanup"])
+
+    def test_held_transaction_allows_qa_without_claiming_cleanup_is_complete(self):
+        result = readiness_gate.classify(
+            self.ready_checks(), runtime_stopped=False, runtime_held=True
+        )
+        self.assertTrue(result["qaLaunchAllowed"])
+        self.assertEqual(result["cleanup"], {
+            "runtimeStopped": False,
+            "runtimeHeld": True,
+        })
+        with self.assertRaisesRegex(ValueError, "both stopped and held"):
+            readiness_gate.classify(
+                self.ready_checks(), runtime_stopped=True, runtime_held=True
+            )
 
     def test_missing_check_is_fail_closed_and_duplicate_is_rejected(self):
         result = readiness_gate.classify(
@@ -608,6 +637,24 @@ class BrowserRuntimeTests(unittest.TestCase):
                 browser_runtime.validate_config(config)
             self.assertTrue(external_profile.is_dir())
 
+    def test_runtime_rejects_nested_profile_symlink(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "state"
+            profile = root / "chrome-user-data" / "Default"
+            external = base / "external-profile"
+            profile.mkdir(parents=True)
+            external.mkdir()
+            (profile / "nested-link").symlink_to(
+                external,
+                target_is_directory=True,
+            )
+            config = self.config(root, base / "source")
+            with self.assertRaisesRegex(
+                browser_runtime.RuntimeFailure, "unsafe_profile_symlink"
+            ):
+                browser_runtime.validate_config(config)
+
     def test_launch_plan_can_be_explicitly_headed(self):
         with tempfile.TemporaryDirectory() as directory:
             config = self.config(
@@ -686,11 +733,166 @@ class BrowserRuntimeTests(unittest.TestCase):
                     "process_matches_runtime",
                     return_value=True,
                 ),
+                mock.patch.object(
+                    browser_runtime,
+                    "process_listens_on_port",
+                    return_value=True,
+                ),
                 mock.patch.object(browser_runtime, "cdp_ready", return_value=False),
             ):
                 result = browser_runtime.inspect_runtime(config)
         self.assertEqual(result["status"], "unhealthy")
         self.assertTrue(result["runtimeOwned"])
+
+    def test_unowned_listener_is_not_reported_as_stopped(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            config = self.config(base / "state", base / "source")
+            with mock.patch.object(
+                browser_runtime, "port_open", return_value=True
+            ):
+                result = browser_runtime.inspect_runtime(config)
+        self.assertEqual(result["status"], "unverified_listener")
+        self.assertFalse(result["runtimeOwned"])
+        self.assertFalse(result["cdpReady"])
+
+    def test_unknown_lease_is_not_masked_as_clean_stopped_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            config = self.config(base / "state", base / "source")
+            browser_runtime.ensure_private_root(config.root)
+            browser_runtime.write_private_json(
+                config.lease_path,
+                {"version": 1, "consumer": "unexpected"},
+            )
+            with mock.patch.object(browser_runtime, "port_open", return_value=False):
+                result = browser_runtime.inspect_runtime(config)
+        self.assertIsNone(result["consumer"])
+        self.assertTrue(result["leasePresent"])
+        self.assertFalse(browser_runtime.runtime_is_stopped(result))
+
+    def test_malformed_lease_consumer_fails_closed_without_status_crash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            config = self.config(base / "state", base / "source")
+            browser_runtime.ensure_private_root(config.root)
+            browser_runtime.write_private_json(
+                config.lease_path,
+                {"version": 1, "consumer": ["unexpected"]},
+            )
+            with mock.patch.object(browser_runtime, "port_open", return_value=False):
+                result = browser_runtime.inspect_runtime(config)
+        self.assertFalse(result["leaseValid"])
+        self.assertFalse(browser_runtime.runtime_is_stopped(result))
+
+    def test_cdp_readiness_requires_the_launched_process_match(self):
+        config = self.config(Path("/tmp/state"), Path("/tmp/source"))
+        with (
+            mock.patch.object(browser_runtime, "process_matches_runtime", return_value=False),
+            mock.patch.object(browser_runtime, "cdp_ready", return_value=True),
+        ):
+            self.assertFalse(browser_runtime.owned_cdp_ready(config, 4242))
+
+    def test_cdp_readiness_rechecks_ownership_after_http_probe(self):
+        config = self.config(Path("/tmp/state"), Path("/tmp/source"))
+        with (
+            mock.patch.object(
+                browser_runtime,
+                "process_matches_runtime",
+                side_effect=[True, False],
+            ),
+            mock.patch.object(
+                browser_runtime, "process_listens_on_port", return_value=True
+            ),
+            mock.patch.object(browser_runtime, "cdp_ready", return_value=True),
+        ):
+            self.assertFalse(browser_runtime.owned_cdp_ready(config, 4242))
+
+    def test_start_rejects_an_occupied_unowned_port(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            config = self.config(base / "state", base / "source")
+            with (
+                mock.patch.object(
+                    browser_runtime,
+                    "inspect_runtime",
+                    return_value={"cdpReady": False, "runtimeOwned": False},
+                ),
+                mock.patch.object(browser_runtime, "port_open", return_value=True),
+            ):
+                with self.assertRaisesRegex(
+                    browser_runtime.RuntimeFailure, "port_occupied"
+                ):
+                    browser_runtime.start_runtime(config, 1)
+
+    def test_stop_preserves_state_when_listener_remains_unverified(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            config = self.config(base / "state", base / "source")
+            browser_runtime.ensure_private_root(config.root)
+            browser_runtime.write_private_json(
+                config.runtime_path,
+                {"version": 1, "pid": 4242, "startedAt": 1},
+            )
+            browser_runtime.write_private_json(
+                config.lease_path,
+                {"version": 1, "consumer": "agent_browser"},
+            )
+            with (
+                mock.patch.object(
+                    browser_runtime, "process_matches_runtime", return_value=False
+                ),
+                mock.patch.object(browser_runtime, "port_open", return_value=True),
+            ):
+                result = browser_runtime.stop_runtime(config)
+            self.assertEqual(result["status"], "unverified_listener")
+            self.assertTrue(config.runtime_path.exists())
+            self.assertTrue(config.lease_path.exists())
+
+    def test_start_cleans_chrome_when_watchdog_launch_fails(self):
+        class Process:
+            pid = 4242
+
+            def poll(self):
+                return None
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            config = replace(
+                self.config(base / "state", base / "source"),
+                chrome=base / "Chrome for Testing",
+            )
+            (config.profile_root / "Default").mkdir(parents=True)
+            config.chrome.parent.mkdir(parents=True, exist_ok=True)
+            config.chrome.write_text("synthetic Chrome for Testing")
+            process = Process()
+            with (
+                mock.patch.object(
+                    browser_runtime, "is_verified_chrome_for_testing", return_value=True
+                ),
+                mock.patch.object(browser_runtime, "inspect_runtime") as inspect,
+                mock.patch.object(browser_runtime, "port_open", return_value=False),
+                mock.patch.object(
+                    browser_runtime.subprocess,
+                    "Popen",
+                    side_effect=[process, OSError("watchdog launch failed")],
+                ),
+                mock.patch.object(
+                    browser_runtime, "terminate_owned_runtime"
+                ) as terminate,
+            ):
+                inspect.return_value = {
+                    "status": "stopped",
+                    "runtimeOwned": False,
+                    "cdpReady": False,
+                    "consumer": None,
+                }
+                with self.assertRaisesRegex(
+                    browser_runtime.RuntimeFailure, "runtime_start_failed"
+                ):
+                    browser_runtime.start_runtime(config, 1)
+            terminate.assert_called_once_with(process.pid, config)
+            self.assertFalse(config.runtime_path.exists())
 
     def test_profile_bootstrap_excludes_credentials_and_runtime_files(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -785,6 +987,40 @@ class BrowserRuntimeTests(unittest.TestCase):
             self.assertIn("--dry-run", command)
             self.assertNotIn("cookie-value", " ".join(command))
 
+    def test_cookie_transfer_requires_the_agent_browser_lease(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            config = self.config(base / "state", base / "source")
+            policy = base / "agent-browser-policy.json"
+            policy.write_text("{}")
+            helper = base / "cookie-transfer.mjs"
+            helper.write_text("// synthetic")
+            with (
+                mock.patch.object(browser_runtime, "policy_path", return_value=policy),
+                mock.patch.object(browser_runtime, "COOKIE_TRANSFER_SCRIPT", helper),
+                mock.patch.object(
+                    browser_runtime,
+                    "inspect_runtime",
+                    return_value={"cdpReady": True, "runtimeOwned": True},
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    browser_runtime.RuntimeFailure, "agent_browser_lease_required"
+                ):
+                    browser_runtime.transfer_cookies(config, confirm=True)
+                browser_runtime.write_private_json(
+                    config.lease_path,
+                    {
+                        "version": 1,
+                        "consumer": "agent_browser",
+                        "leaseId": "a" * 32,
+                    },
+                )
+                with self.assertRaisesRegex(
+                    browser_runtime.RuntimeFailure, "lease_id_required"
+                ):
+                    browser_runtime.transfer_cookies(config, confirm=True)
+
     def test_profile_bootstrap_rejects_source_profile_traversal(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
@@ -866,6 +1102,10 @@ class BrowserRuntimeTests(unittest.TestCase):
             base = Path(directory)
             config = self.config(base / "state", base / "source")
             browser_runtime.ensure_private_root(config.root)
+            browser_runtime.write_private_json(
+                config.runtime_path,
+                {"version": 1, "pid": 4242, "startedAt": 7},
+            )
             with mock.patch.object(
                 browser_runtime,
                 "inspect_runtime",
@@ -877,10 +1117,108 @@ class BrowserRuntimeTests(unittest.TestCase):
                     browser_runtime.RuntimeFailure, "consumer_conflict"
                 ):
                     browser_runtime.claim_consumer(
+                        config, "agent_browser", exclusive=True
+                    )
+                with self.assertRaisesRegex(
+                    browser_runtime.RuntimeFailure, "consumer_conflict"
+                ):
+                    browser_runtime.claim_consumer(
                         config, "chrome_devtools_mcp"
                     )
             self.assertFalse(first["reused"])
             self.assertTrue(repeated["reused"])
+            self.assertRegex(first["leaseId"], r"^[0-9a-f]{32}$")
+            self.assertEqual(first["leaseId"], repeated["leaseId"])
+
+    def test_consumer_release_rejects_a_stale_lease_token(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            config = self.config(base / "state", base / "source")
+            browser_runtime.ensure_private_root(config.root)
+            browser_runtime.write_private_json(
+                config.lease_path,
+                {
+                    "version": 1,
+                    "consumer": "agent_browser",
+                    "claimedAt": 1,
+                    "leaseId": "a" * 32,
+                },
+            )
+            with mock.patch.object(browser_runtime, "stop_runtime") as stop:
+                with self.assertRaisesRegex(
+                    browser_runtime.RuntimeFailure, "lease_invalid"
+                ):
+                    browser_runtime.release_consumer(
+                        config, "agent_browser", lease_id="not-a-lease"
+                    )
+                with self.assertRaisesRegex(
+                    browser_runtime.RuntimeFailure, "lease_id_required"
+                ):
+                    browser_runtime.release_consumer(config, "agent_browser")
+                with self.assertRaisesRegex(
+                    browser_runtime.RuntimeFailure, "lease_mismatch"
+                ):
+                    browser_runtime.release_consumer(
+                        config, "agent_browser", lease_id="b" * 32
+                    )
+                with self.assertRaisesRegex(
+                    browser_runtime.RuntimeFailure, "lease_identity_required"
+                ):
+                    browser_runtime.release_consumer(
+                        config, "agent_browser", lease_id="a" * 32
+                    )
+            stop.assert_not_called()
+
+    def test_consumer_release_rejects_a_replacement_runtime_generation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            config = self.config(base / "state", base / "source")
+            browser_runtime.ensure_private_root(config.root)
+            browser_runtime.write_private_json(
+                config.runtime_path,
+                {"version": 1, "pid": 4242, "startedAt": 7},
+            )
+            browser_runtime.write_private_json(
+                config.lease_path,
+                {
+                    "version": 1,
+                    "consumer": "agent_browser",
+                    "leaseId": "a" * 32,
+                    "runtimePid": 4242,
+                    "runtimeStartedAt": 7,
+                },
+            )
+            browser_runtime.write_private_json(
+                config.runtime_path,
+                {"version": 1, "pid": 4242, "startedAt": 8},
+            )
+            with mock.patch.object(browser_runtime, "_stop_runtime") as stop:
+                with self.assertRaisesRegex(
+                    browser_runtime.RuntimeFailure, "runtime_generation_mismatch"
+                ):
+                    browser_runtime.release_consumer(
+                        config, "agent_browser", lease_id="a" * 32
+                    )
+            stop.assert_not_called()
+
+    def test_start_rejects_a_stale_lease_before_launch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            config = self.config(base / "state", base / "source")
+            browser_runtime.ensure_private_root(config.root)
+            browser_runtime.write_private_json(
+                config.lease_path,
+                {"version": 1, "consumer": "agent_browser", "leaseId": "a" * 32},
+            )
+            with mock.patch.object(
+                browser_runtime,
+                "inspect_runtime",
+                return_value={"cdpReady": False, "runtimeOwned": False},
+            ):
+                with self.assertRaisesRegex(
+                    browser_runtime.RuntimeFailure, "stale_lease"
+                ):
+                    browser_runtime.start_runtime(config, 1)
 
     def test_consumer_release_also_stops_owned_runtime(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -888,16 +1226,32 @@ class BrowserRuntimeTests(unittest.TestCase):
             config = self.config(base / "state", base / "source")
             browser_runtime.ensure_private_root(config.root)
             browser_runtime.write_private_json(
+                config.runtime_path,
+                {"version": 1, "pid": 4242, "startedAt": 7},
+            )
+            browser_runtime.write_private_json(
                 config.lease_path,
-                {"version": 1, "consumer": "agent_browser", "claimedAt": 1},
+                {
+                    "version": 1,
+                    "consumer": "agent_browser",
+                    "claimedAt": 1,
+                    "leaseId": "a" * 32,
+                    "runtimePid": 4242,
+                    "runtimeStartedAt": 7,
+                },
             )
             with mock.patch.object(
                 browser_runtime,
-                "stop_runtime",
-                return_value={"status": "stopped"},
+                "_stop_runtime",
+                return_value={
+                    "status": "stopped",
+                    "runtimeOwned": False,
+                    "cdpReady": False,
+                    "consumer": None,
+                },
             ) as stop:
                 result = browser_runtime.release_consumer(
-                    config, "agent_browser"
+                    config, "agent_browser", lease_id="a" * 32
                 )
         stop.assert_called_once_with(config)
         self.assertEqual(result["status"], "released_and_stopped")
@@ -920,8 +1274,9 @@ class BrowserRuntimeTests(unittest.TestCase):
                 mock.patch.object(
                     browser_runtime,
                     "process_matches_runtime",
-                    return_value=True,
+                    side_effect=[True, False],
                 ),
+                mock.patch.object(browser_runtime, "port_open", return_value=False),
                 mock.patch.object(
                     browser_runtime,
                     "terminate_owned_runtime",
@@ -951,6 +1306,11 @@ class BrowserRuntimeTests(unittest.TestCase):
                     browser_runtime,
                     "port_open",
                     return_value=False,
+                ),
+                mock.patch.object(
+                    browser_runtime,
+                    "process_matches_runtime",
+                    return_value=True,
                 ),
                 mock.patch.object(browser_runtime.time, "sleep"),
             ):

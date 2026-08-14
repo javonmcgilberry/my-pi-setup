@@ -228,7 +228,8 @@ commands can run from any active Pi model and reasoning level. The policy
 disables nested upstream `agent-browser chat` and keeps cookie transfer
 disabled. The companion
 [`extensions/agent-browser-policy.ts`](extensions/agent-browser-policy.ts)
-enforces only those nested-chat and cookie-transfer safeguards.
+enforces the nested-chat and policy opt-in safeguards; the runtime helper also
+requires the dedicated consumer lease before a live cookie injection.
 `/agent-browser-policy` shows the effective safeguards without displaying secrets.
 
 Cookie transfer is a separate, explicit opt-in. Create a private policy file
@@ -255,7 +256,11 @@ python3 skills/webflow-designer-agent-browser/scripts/browser-runtime.py \
 ```
 
 Only after reviewing the count should the same command run without
-`--dry-run`. It snapshots only the normal Chrome Cookies database and SQLite
+`--dry-run`, while an `agent_browser` consumer lease is held. For the direct
+helper, run `claim --consumer agent_browser` first and pass its returned
+`leaseId` to the live transfer and matching
+`release --consumer agent_browser --lease-id ...`.
+It snapshots only the normal Chrome Cookies database and SQLite
 sidecars, derives the macOS Chrome key through Keychain, decrypts matching
 unexpired cookies in memory, and injects them through loopback CDP. It never
 copies or launches the normal Chrome profile, writes plaintext cookie files,
@@ -465,14 +470,28 @@ The tracked
 [`skills/webflow-designer-agent-browser`](skills/webflow-designer-agent-browser)
 directory provides the shared authenticated Webflow browser workflow.
 
-Before local or authenticated Designer QA, the skill uses two subagents in
-sequence. The first runs on the active default model at the highest available
-reasoning level. It reuses or starts the documented HUD and Designer services,
-checks the exact target in managed Chrome for Testing, and releases the browser.
-Only then can the browser executor run the feature tests. The handoff is valid
-when `scripts/readiness-gate.py` prints `"qaLaunchAllowed": true`. This keeps
-service startup, stale tabs, expired logins, and stale browser leases out of the
-actual QA run.
+For normal local or authenticated Designer QA, the skill exposes one deferred
+Code Mode custom tool, `webflow_designer`. Its deterministic transaction is
+`prepare` → selected browser interaction → `verify` → authorized work →
+`finish` in `finally`. `prepare` batches the declared HUD, Designer service,
+and exact-target probes, ensures Chrome for Testing, claims the exclusive
+`agent_browser` lease, and returns native or explicit CLI actions. `verify`
+requires the five named readiness checks plus compact authenticated Designer
+surface evidence while the lease is held. `finish` releases/stops the owned
+runtime and proves `runtimeOwned: false`, `cdpReady: false`, `consumer: null`,
+and `status: stopped`.
+The private receipt binds cleanup to the runtime PID/start generation and lease
+token; a replacement runtime, nested profile symlink, or unknown listener fails
+closed instead of being reported as the transaction's browser.
+
+The command-backed tool never invokes arbitrary native Pi tools and cannot
+silently switch transports. Native `agent_browser` remains the preferred page
+interaction layer; `agent-browser` is an explicit fallback. The tracked
+definition and executable companion are installed by `config/manifest.json`
+under `codex-conversion-custom-tools/`, so the shared skill does not depend on
+a project-local tool. `scripts/readiness-gate.py` remains available for direct
+diagnostic handoffs; it accepts `--runtime-held` for a claimed transaction and
+`--runtime-stopped` for standalone cleanup proof.
 
 When available, the skill uses Pi's native `agent_browser` tool. Otherwise, it
 uses the global `agent-browser` CLI. Install the pinned CLI and the stable

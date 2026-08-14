@@ -1,0 +1,7 @@
+usage = '''await tools.webflow_designer(JSON.stringify({version:1, operation:"help"}))'''
+description = "Deferred deterministic Webflow Designer lifecycle, readiness, capability, and cleanup facade; native agent_browser is preferred and the CLI is an explicit fallback."
+output = "Bounded sanitized JSON. Use prepare, verify, and finish in one transaction; finish is required in finally."
+command = "./webflow-designer"
+input = "stdin"
+defer_loading = true
+yield_time_ms = 30000

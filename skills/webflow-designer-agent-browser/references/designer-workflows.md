@@ -1,13 +1,31 @@
 # Designer Workflows
 
-## Two-stage readiness and QA handoff
+## Deterministic transaction and QA handoff
 
-Local/authenticated Designer testing has two serial owners:
+Local/authenticated Designer testing uses one serial transaction owner rather
+than a separate model-driven setup owner:
 
-1. A fresh setup/readiness subagent on the active default model at the highest available reasoning level inspects the HUD, starts only missing documented services, launches managed Chrome for Testing, verifies the exact authenticated Designer surface, then closes/releases the runtime.
-2. A browser executor starts only after `readiness-gate.py` emits `qaLaunchAllowed: true`. It performs the requested assertions against the proven environment and owns final browser cleanup.
+1. `webflow_designer prepare` batches the declared HUD, Designer service, and
+   target probes, ensures managed Chrome for Testing, claims the exclusive
+   `agent_browser` lease, and returns a native or explicit CLI action plan.
+2. The selected browser transport performs the scoped observation. The model
+   does not ask the command to invoke native Pi tools, and it cannot switch
+   transports after preparation.
+3. `webflow_designer verify` accepts only the compact surface evidence and
+   permits authorized work when all five checks are ready while the transaction
+   holds the lease.
+4. The browser session closes and `webflow_designer finish` runs in `finally`;
+   it releases/stops the owned runtime and proves the stopped state.
 
-Never ask the QA executor to discover or repair the environment while it is also trying to test product behavior. Never overlap the two browser leases.
+The receipt includes a private runtime generation and lease token. Verification
+rechecks service probes and that identity before authorizing work or cleanup;
+another process cannot satisfy an old transaction by reusing the same port.
+
+Never mix environment repair with feature assertions, and never overlap browser
+leases. If the facade is unavailable, the direct helpers below remain an
+explicit fallback with identical check names and cleanup proof. Pass the
+private `leaseId` from `browser-runtime.py claim` to attached cleanup; the
+fallback must not release an unnamed or replacement lease.
 
 Classify readiness with exactly these bounded states:
 
@@ -17,7 +35,8 @@ Classify readiness with exactly these bounded states:
 - `browser_profile`: managed Chrome for Testing starts with the dedicated profile.
 - `designer_surface`: the exact authenticated tab renders a Webflow Designer document rather than login or `chrome-error://chromewebdata/`. Do not require a fixed sidebar button because role-specific Designer shells expose different controls.
 
-For a successful handoff, pass each as `ready` and include `--runtime-stopped`:
+For a standalone direct-helper handoff, pass each as `ready` and include
+`--runtime-stopped`:
 
 ```sh
 python3 scripts/readiness-gate.py \
@@ -28,6 +47,10 @@ python3 scripts/readiness-gate.py \
   --check designer_surface=ready \
   --runtime-stopped
 ```
+
+For the composed transaction, the same classifier accepts `--runtime-held`
+while the exact lease is still owned. `finish` must subsequently prove
+`--runtime-stopped`; a held transaction is not cleanup proof.
 
 Cold, warm, partial, and stale states all follow the same rule: setup may converge the environment, but QA cannot start until a clean READY handoff exists. `auth_required` requires manual headed login; `unavailable` and `error` remain setup blockers.
 

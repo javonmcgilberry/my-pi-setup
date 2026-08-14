@@ -58,12 +58,25 @@
       "loadWhen": "bootstrapping a bounded Designer observation"
     },
     {
+      "id": "designer.code-mode",
+      "category": "designer",
+      "implementation": "scripts/designer-code-mode.py",
+      "owner": "webflow_designer",
+      "purpose": "Compose deterministic service readiness, managed runtime ownership, transport-specific browser plans, capability lookup, surface verification, and cleanup.",
+      "inputs": ["transaction-request", "compact-browser-surface-evidence"],
+      "postconditions": ["exclusive-runtime-lease", "fail-closed-readiness-decision", "verified-runtime-cleanup"],
+      "sensitivity": "sanitized-browser-metadata",
+      "maturity": "provisional",
+      "disposition": "keep",
+      "loadWhen": "starting or finishing a repeatable Designer transaction"
+    },
+    {
       "id": "designer.readiness-gate",
       "category": "designer",
       "implementation": "scripts/readiness-gate.py",
-      "owner": "readiness-subagent",
-      "purpose": "Block QA execution until HUD, Designer service, target response, authenticated browser profile, rendered Designer surface, and runtime cleanup are all proven.",
-      "inputs": ["bounded-readiness-checks", "runtime-cleanup-state"],
+      "owner": "readiness-gate",
+      "purpose": "Classify the five required Designer checks while either a transaction holds the browser lease or standalone cleanup has been proven.",
+      "inputs": ["bounded-readiness-checks", "runtime-held-or-stopped-state"],
       "postconditions": [
         "machine-readable-qa-launch-decision",
         "named-blockers"

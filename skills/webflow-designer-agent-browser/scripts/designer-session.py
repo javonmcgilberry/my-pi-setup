@@ -16,6 +16,7 @@ from typing import cast
 DEFAULT_READY_SELECTOR = "body"
 SENSITIVE_QUERY_PARTS = ("token", "secret", "password", "credential", "code")
 SERVICE_LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$")
+LEASE_ID = re.compile(r"^[0-9a-f]{32}$")
 
 
 def reject_sensitive_url(value: str) -> None:
@@ -52,6 +53,12 @@ def validate_timeout(value: str) -> float:
     if timeout <= 0 or timeout > 30:
         raise argparse.ArgumentTypeError("timeout must be greater than 0 and at most 30")
     return timeout
+
+
+def validate_lease_id(value: str) -> str:
+    if not LEASE_ID.fullmatch(value):
+        raise argparse.ArgumentTypeError("lease id must be 32 lowercase hex characters")
+    return value
 
 
 def build_service_checks(args: argparse.Namespace) -> list[dict[str, object]]:
@@ -236,13 +243,22 @@ def run(
     preflight_only: bool,
     dry_run: bool,
     transport: str,
+    attached: bool = False,
+    lease_id: str | None = None,
 ) -> int:
     if transport == "native":
         browser_cleanup = {"tool": "agent_browser", "args": ["close"]}
     elif commands:
+        first_args = commands[0].get("args")
+        if (
+            not isinstance(first_args, list)
+            or len(first_args) < 2
+            or not isinstance(first_args[1], str)
+        ):
+            raise ValueError("CLI cleanup requires a named session")
         browser_cleanup = {
             "command": "agent-browser",
-            "args": ["--session", commands[0]["args"][1], "close"],
+            "args": ["--session", first_args[1], "close"],
         }
     else:
         browser_cleanup = {
@@ -250,25 +266,33 @@ def run(
             "args": ["close"],
             "when": "session-created",
         }
-    cleanup = [
-        browser_cleanup,
-        {
-            "helper": "scripts/browser-runtime.py",
-            "args": ["release", "--consumer", "agent_browser"],
-            "when": "attached",
-        },
-        {
-            "helper": "scripts/browser-runtime.py",
-            "args": ["status"],
-            "require": {
-                "runtimeOwned": False,
-                "cdpReady": False,
-                "consumer": None,
-                "status": "stopped",
-            },
-            "when": "attached",
-        },
-    ]
+    cleanup = [browser_cleanup]
+    if attached:
+        if not preflight_only and not lease_id:
+            raise ValueError("--lease-id is required for attached cleanup")
+        release_args = ["release", "--consumer", "agent_browser"]
+        if lease_id:
+            release_args.extend(["--lease-id", lease_id])
+        cleanup.extend(
+            [
+                {
+                    "helper": "scripts/browser-runtime.py",
+                    "args": release_args,
+                    "when": "attached",
+                },
+                {
+                    "helper": "scripts/browser-runtime.py",
+                    "args": ["status"],
+                    "require": {
+                        "runtimeOwned": False,
+                        "cdpReady": False,
+                        "consumer": None,
+                        "status": "stopped",
+                    },
+                    "when": "attached",
+                },
+            ]
+        )
     if checks and not dry_run:
         preflight = run_preflight(checks, timeout)
         if not preflight["ready"]:
@@ -306,6 +330,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ready-selector", default=DEFAULT_READY_SELECTOR)
     parser.add_argument("--surface", default="body")
     parser.add_argument("--user-agent")
+    parser.add_argument("--lease-id", type=validate_lease_id)
     parser.add_argument(
         "--tcp-service",
         action="append",
@@ -338,6 +363,8 @@ def main() -> int:
             raise ValueError(
                 "at least one explicit service check is required"
             )
+        if args.mode == "attached" and not args.preflight_only and not args.lease_id:
+            raise ValueError("--lease-id is required for attached cleanup")
         commands = [] if args.preflight_only else build_commands(args)
     except (TypeError, ValueError) as error:
         print(str(error), file=sys.stderr)
@@ -349,6 +376,8 @@ def main() -> int:
         preflight_only=args.preflight_only,
         dry_run=args.dry_run,
         transport=args.transport,
+        attached=args.mode == "attached",
+        lease_id=args.lease_id,
     )
 
 

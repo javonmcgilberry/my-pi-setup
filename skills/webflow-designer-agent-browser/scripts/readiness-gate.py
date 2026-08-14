@@ -30,8 +30,13 @@ def parse_check(value: str) -> tuple[str, str]:
 
 
 def classify(
-    checks: list[tuple[str, str]], *, runtime_stopped: bool
+    checks: list[tuple[str, str]],
+    *,
+    runtime_stopped: bool,
+    runtime_held: bool = False,
 ) -> dict[str, object]:
+    if runtime_stopped and runtime_held:
+        raise ValueError("runtime cannot be both stopped and held")
     observed: dict[str, str] = {}
     for name, state in checks:
         if name in observed:
@@ -45,7 +50,7 @@ def classify(
     blockers = [
         check["name"] for check in normalized if check["state"] != "ready"
     ]
-    if not runtime_stopped:
+    if not runtime_stopped and not runtime_held:
         blockers.append("browser_runtime_cleanup")
     ready = not blockers
     return {
@@ -54,7 +59,10 @@ def classify(
         "qaLaunchAllowed": ready,
         "checks": normalized,
         "blockers": blockers,
-        "cleanup": {"runtimeStopped": runtime_stopped},
+        "cleanup": {
+            "runtimeStopped": runtime_stopped,
+            "runtimeHeld": runtime_held,
+        },
     }
 
 
@@ -68,9 +76,18 @@ def main() -> int:
         metavar="NAME=STATE",
     )
     parser.add_argument("--runtime-stopped", action="store_true")
+    parser.add_argument(
+        "--runtime-held",
+        action="store_true",
+        help="the current transaction holds the exclusive browser lease",
+    )
     args = parser.parse_args()
     try:
-        result = classify(args.check, runtime_stopped=args.runtime_stopped)
+        result = classify(
+            args.check,
+            runtime_stopped=args.runtime_stopped,
+            runtime_held=args.runtime_held,
+        )
     except ValueError as error:
         parser.error(str(error))
     print(json.dumps(result, sort_keys=True))

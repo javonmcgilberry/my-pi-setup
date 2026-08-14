@@ -34,6 +34,7 @@ function run(script, args, target) {
     env: {
       ...process.env,
       PI_AGENT_DIR: target.agentDir,
+      PI_CODING_AGENT_DIR: target.agentDir,
       AGENTS_SKILLS_DIR: target.skillsDir,
     },
   });
@@ -72,6 +73,29 @@ describe("setup bootstrap", () => {
     const command = path.join(target.commandsDir, "pi-update-all");
     assert.equal((await lstat(command)).isSymbolicLink(), true);
     assert.equal(await readlink(command), path.join(repoRoot, "scripts/pi-update-all"));
+
+    const customTools = path.join(target.agentDir, "codex-conversion-custom-tools");
+    const definition = path.join(customTools, "webflow_designer.toml");
+    const launcher = path.join(customTools, "webflow-designer");
+    assert.equal((await lstat(definition)).isSymbolicLink(), true);
+    assert.equal(
+      await readlink(definition),
+      path.join(repoRoot, "config/codex-conversion-custom-tools/webflow_designer.toml"),
+    );
+    assert.equal((await lstat(launcher)).isSymbolicLink(), true);
+    assert.equal(
+      await readlink(launcher),
+      path.join(repoRoot, "skills/webflow-designer-agent-browser/scripts/designer-code-mode.py"),
+    );
+    const toolHelp = await execFileAsync(launcher, ["help"], {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        PI_AGENT_DIR: target.agentDir,
+        PI_CODING_AGENT_DIR: target.agentDir,
+      },
+    });
+    assert.equal(JSON.parse(toolHelp.stdout).operation, "help");
   });
 
   it("backs up retired paths and restores them", async () => {

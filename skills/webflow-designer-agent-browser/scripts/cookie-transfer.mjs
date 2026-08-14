@@ -1,6 +1,17 @@
 #!/usr/bin/env node
 
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, chmodSync } from "node:fs";
+import {
+  chmodSync,
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createDecipheriv, pbkdf2Sync } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -9,7 +20,7 @@ import { pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import process from "node:process";
 
-const CHROME_EPOCH_OFFSET_MICROSECONDS = 11644473600000000;
+const CHROME_EPOCH_OFFSET_MICROSECONDS = 11644473600000000n;
 const COOKIE_DB_SIDECARS = ["", "-wal", "-shm", "-journal"];
 const CDP_HOSTS = new Set(["127.0.0.1"]);
 
@@ -68,8 +79,37 @@ function domainAllowed(hostKey, allowedDomains) {
 }
 
 function copyStats(path) {
-  if (!existsSync(path)) return null;
-  const stat = statSync(path);
+  let stat;
+  try {
+    stat = lstatSync(path);
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+  if (!stat.isFile()) {
+    throw new CookieTransferFailure("cookie_source_symlink");
+  }
+  return `${stat.size}:${stat.mtimeMs}:${stat.ino}`;
+}
+
+function copyFileNoFollow(source, destination) {
+  let descriptor;
+  try {
+    descriptor = openSync(source, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    const before = fstatSync(descriptor);
+    if (!before.isFile()) throw new CookieTransferFailure("cookie_source_symlink");
+    const contents = readFileSync(descriptor);
+    const after = fstatSync(descriptor);
+    if (copyStatsFromStat(before) !== copyStatsFromStat(after)) {
+      throw new CookieTransferFailure("cookie_source_changed");
+    }
+    writeFileSync(destination, contents, { flag: "wx", mode: 0o600 });
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
+}
+
+function copyStatsFromStat(stat) {
   return `${stat.size}:${stat.mtimeMs}:${stat.ino}`;
 }
 
@@ -79,17 +119,19 @@ function copyStats(path) {
  */
 export function snapshotCookieDatabase(sourceDatabase, retries = 3) {
   const source = resolve(sourceDatabase);
-  if (!existsSync(source)) {
+  if (copyStats(source) === null) {
     throw new CookieTransferFailure("cookie_database_missing");
   }
   for (let attempt = 0; attempt < retries; attempt += 1) {
     const directory = mkdtempSync(join(tmpdir(), "webflow-cookie-transfer-"));
     chmodSync(directory, 0o700);
-    const before = COOKIE_DB_SIDECARS.map((suffix) => copyStats(`${source}${suffix}`));
     try {
+      const before = COOKIE_DB_SIDECARS.map((suffix) => copyStats(`${source}${suffix}`));
       for (const suffix of COOKIE_DB_SIDECARS) {
         const sourcePath = `${source}${suffix}`;
-        if (existsSync(sourcePath)) copyFileSync(sourcePath, join(directory, `Cookies${suffix}`));
+        if (copyStats(sourcePath) !== null) {
+          copyFileNoFollow(sourcePath, join(directory, `Cookies${suffix}`));
+        }
       }
       const after = COOKIE_DB_SIDECARS.map((suffix) => copyStats(`${source}${suffix}`));
       if (JSON.stringify(before) !== JSON.stringify(after)) {
@@ -171,10 +213,10 @@ function chromeTimestampToUnixSeconds(value) {
   if (typeof value === "string" && /^\d+$/.test(value)) value = BigInt(value);
   if (typeof value === "bigint") {
     if (value <= 0n) return undefined;
-    return Number(value - BigInt(CHROME_EPOCH_OFFSET_MICROSECONDS)) / 1_000_000;
+    return Number(value - CHROME_EPOCH_OFFSET_MICROSECONDS) / 1_000_000;
   }
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return undefined;
-  return (value - CHROME_EPOCH_OFFSET_MICROSECONDS) / 1_000_000;
+  return (value - Number(CHROME_EPOCH_OFFSET_MICROSECONDS)) / 1_000_000;
 }
 
 function integerEquals(value, expected) {
@@ -371,21 +413,24 @@ export async function injectCookiesIntoPage(client, cookies) {
   const targets = await client.send("Target.getTargets");
   let target = targets.targetInfos?.find((entry) => entry.type === "page");
   let createdTarget = false;
-  if (!target) {
-    const created = await client.send("Target.createTarget", { url: "about:blank" });
-    target = { targetId: created.targetId };
-    createdTarget = true;
-  }
-  const attached = await client.send("Target.attachToTarget", {
-    targetId: target.targetId,
-    flatten: true,
-  });
-  const sessionId = attached.sessionId;
+  let sessionId;
   try {
+    if (!target) {
+      const created = await client.send("Target.createTarget", { url: "about:blank" });
+      target = { targetId: created.targetId };
+      createdTarget = true;
+    }
+    const attached = await client.send("Target.attachToTarget", {
+      targetId: target.targetId,
+      flatten: true,
+    });
+    sessionId = attached.sessionId;
     await client.send("Network.setCookies", { cookies }, sessionId);
   } finally {
-    await client.send("Target.detachFromTarget", { sessionId }).catch(() => undefined);
-    if (createdTarget) {
+    if (sessionId) {
+      await client.send("Target.detachFromTarget", { sessionId }).catch(() => undefined);
+    }
+    if (createdTarget && target?.targetId) {
       await client.send("Target.closeTarget", { targetId: target.targetId }).catch(() => undefined);
     }
   }

@@ -36,7 +36,20 @@ describe("managed install manifest", () => {
     const manifest = loadManifest();
     assert.equal(manifest.version, 1);
     assert.equal(manifest.copied.length, 11);
-    assert.equal(manifest.linked.length, 0);
+    assert.deepEqual(manifest.linked, [
+      {
+        root: "pi",
+        source: "config/codex-conversion-custom-tools/webflow_designer.toml",
+        target: "codex-conversion-custom-tools/webflow_designer.toml",
+        backup: "codex-conversion-custom-tools/webflow_designer.toml",
+      },
+      {
+        root: "pi",
+        source: "skills/webflow-designer-agent-browser/scripts/designer-code-mode.py",
+        target: "codex-conversion-custom-tools/webflow-designer",
+        backup: "codex-conversion-custom-tools/webflow-designer",
+      },
+    ]);
     assert.deepEqual(manifest.commands, [{
       root: "commands",
       source: "scripts/pi-update-all",

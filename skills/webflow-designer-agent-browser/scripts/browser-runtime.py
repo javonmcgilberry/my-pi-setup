@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import plistlib
+import re
 import shutil
 import signal
 import socket
@@ -15,8 +16,15 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - the supported runtime is macOS/Linux.
+    fcntl = None
 
 DEFAULT_ROOT = Path.home() / ".config" / "webflow-designer-agent-browser"
 DEFAULT_SOURCE_ROOT = Path.home() / "Library/Application Support/Google/Chrome"
@@ -25,6 +33,7 @@ MAX_RUNTIME_SECONDS = 14400
 POLICY_FILENAME = "agent-browser-policy.json"
 COOKIE_TRANSFER_SCRIPT = Path(__file__).with_name("cookie-transfer.mjs")
 CONSUMERS = {"agent_browser", "chrome_devtools_mcp"}
+LEASE_ID = re.compile(r"[0-9a-f]{32}")
 SENSITIVE_PROFILE_DATABASES = {
     "Cookies",
     "Local State",
@@ -93,6 +102,14 @@ class RuntimeFailure(Exception):
         self.retryable = retryable
 
 
+def validate_lease_id(value: str) -> str:
+    if not LEASE_ID.fullmatch(value):
+        raise argparse.ArgumentTypeError(
+            "lease id must be 32 lowercase hex characters"
+        )
+    return value
+
+
 @dataclass(frozen=True)
 class RuntimeConfig:
     root: Path
@@ -115,6 +132,10 @@ class RuntimeConfig:
         return self.root / "consumer-lease.json"
 
     @property
+    def lease_lock_path(self) -> Path:
+        return self.root / ".consumer-lease.lock"
+
+    @property
     def origin_path(self) -> Path:
         return self.root / "profile-origin.json"
 
@@ -133,7 +154,39 @@ def validate_config(config: RuntimeConfig) -> RuntimeConfig:
         raise RuntimeFailure("invalid_source_profile", "configuration", False)
     if config.profile_root.is_symlink():
         raise RuntimeFailure("unsafe_profile_root", "configuration", False)
+    for state_path in (
+        config.runtime_path,
+        config.lease_path,
+        config.origin_path,
+        config.lease_lock_path,
+    ):
+        if state_path.is_symlink():
+            raise RuntimeFailure("unsafe_state_file", "configuration", False)
+    if config.profile_root.exists():
+        for directory, directories, files in os.walk(config.profile_root):
+            for name in [*directories, *files]:
+                if (Path(directory) / name).is_symlink():
+                    raise RuntimeFailure("unsafe_profile_symlink", "configuration", False)
     return config
+
+
+@contextmanager
+def consumer_lease_lock(config: RuntimeConfig):
+    """Serialize lease read/modify/write operations across tool processes."""
+    validate_config(config)
+    ensure_private_root(config.root)
+    if config.lease_lock_path.is_symlink():
+        raise RuntimeFailure("unsafe_lease_lock", "configuration", False)
+    if fcntl is None:
+        yield
+        return
+    with config.lease_lock_path.open("a+") as lock:
+        config.lease_lock_path.chmod(0o600)
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
 def ensure_private_root(root: Path) -> None:
@@ -144,15 +197,29 @@ def ensure_private_root(root: Path) -> None:
 
 
 def write_private_json(path: Path, value: dict[str, object]) -> None:
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    temporary = path.with_name(
+        f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+    )
+    descriptor: int | None = None
     try:
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_TRUNC
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
         with os.fdopen(descriptor, "w") as handle:
+            descriptor = None
             json.dump(value, handle, sort_keys=True)
             handle.write("\n")
         os.replace(temporary, path)
-        path.chmod(0o600)
+        os.chmod(path, 0o600, follow_symlinks=False)
     finally:
+        if descriptor is not None:
+            os.close(descriptor)
         if temporary.exists():
             temporary.unlink()
 
@@ -197,6 +264,41 @@ def process_matches_runtime(pid: object, config: RuntimeConfig) -> bool:
     )
 
 
+def process_listens_on_port(pid: object, config: RuntimeConfig) -> bool:
+    if isinstance(pid, bool) or not isinstance(pid, int) or pid < 1:
+        return False
+    lsof = next(
+        (
+            candidate
+            for candidate in (Path("/usr/sbin/lsof"), Path("/usr/bin/lsof"))
+            if candidate.is_file()
+        ),
+        None,
+    )
+    if lsof is None:
+        return False
+    try:
+        completed = subprocess.run(
+            [
+                str(lsof),
+                "-nP",
+                "-a",
+                "-p",
+                str(pid),
+                "-iTCP:" + str(config.port),
+                "-sTCP:LISTEN",
+                "-Fn",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return completed.returncode == 0 and f"n{config.host}:{config.port}" in completed.stdout
+
+
 def process_matches_watchdog(pid: object) -> bool:
     if not pid_alive(pid):
         return False
@@ -213,6 +315,19 @@ def process_matches_watchdog(pid: object) -> bool:
         and str(Path(__file__).resolve()) in command
         and "_watchdog" in command
     )
+
+
+def terminate_watchdog(pid: object) -> None:
+    if (
+        isinstance(pid, bool)
+        or not isinstance(pid, int)
+        or not process_matches_watchdog(pid)
+    ):
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
 
 
 def port_open(host: str, port: int, timeout: float = 0.2) -> bool:
@@ -238,6 +353,16 @@ def cdp_ready(config: RuntimeConfig, timeout: float = 2.0) -> bool:
         and isinstance(value.get("Browser"), str)
         and isinstance(value.get("webSocketDebuggerUrl"), str)
     )
+
+
+def owned_cdp_ready(config: RuntimeConfig, pid: object) -> bool:
+    if not process_matches_runtime(pid, config):
+        return False
+    if not process_listens_on_port(pid, config):
+        return False
+    if not cdp_ready(config):
+        return False
+    return process_matches_runtime(pid, config) and process_listens_on_port(pid, config)
 
 
 def browser_kind(config: RuntimeConfig) -> str:
@@ -274,6 +399,9 @@ def terminate_owned_runtime(
     *,
     graceful_timeout: float = 5.0,
 ) -> None:
+    if not process_matches_runtime(pid, config):
+        raise RuntimeFailure("runtime_ownership_unknown", "runtime_stop", False)
+
     def group_alive() -> bool:
         try:
             os.killpg(pid, 0)
@@ -281,12 +409,21 @@ def terminate_owned_runtime(
             return False
         return True
 
-    os.killpg(pid, signal.SIGTERM)
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        if not port_open(config.host, config.port):
+            return
+        raise RuntimeFailure("runtime_cleanup_incomplete", "runtime_stop", True)
     deadline = time.monotonic() + graceful_timeout
     while time.monotonic() < deadline:
         if not group_alive() and not port_open(config.host, config.port):
             return
         time.sleep(0.1)
+    if not process_matches_runtime(pid, config):
+        if not group_alive() and not port_open(config.host, config.port):
+            return
+        raise RuntimeFailure("runtime_ownership_unknown", "runtime_stop", False)
     try:
         os.killpg(pid, signal.SIGKILL)
     except ProcessLookupError:
@@ -356,6 +493,26 @@ def transfer_cookies(
     confirm: bool,
     dry_run: bool = False,
     policy: str | None = None,
+    lease_id: str | None = None,
+) -> dict[str, object]:
+    lock = consumer_lease_lock(config) if not dry_run else nullcontext()
+    with lock:
+        return _transfer_cookies(
+            config,
+            confirm=confirm,
+            dry_run=dry_run,
+            policy=policy,
+            lease_id=lease_id,
+        )
+
+
+def _transfer_cookies(
+    config: RuntimeConfig,
+    *,
+    confirm: bool,
+    dry_run: bool = False,
+    policy: str | None = None,
+    lease_id: str | None = None,
 ) -> dict[str, object]:
     if not confirm:
         raise RuntimeFailure(
@@ -367,9 +524,26 @@ def transfer_cookies(
     if not selected_policy.is_file():
         raise RuntimeFailure("policy_missing", "cookie_transfer", False)
     if not dry_run:
+        if lease_id is not None and (
+            not isinstance(lease_id, str) or not LEASE_ID.fullmatch(lease_id)
+        ):
+            raise RuntimeFailure("lease_invalid", "cookie_transfer", False)
         runtime = inspect_runtime(config)
         if not runtime["cdpReady"] or not runtime["runtimeOwned"]:
             raise RuntimeFailure("runtime_not_ready", "cookie_transfer", True)
+        lease = read_json(config.lease_path)
+        if not lease or lease.get("consumer") != "agent_browser":
+            raise RuntimeFailure("agent_browser_lease_required", "cookie_transfer", False)
+        if lease_id is None:
+            raise RuntimeFailure("lease_id_required", "cookie_transfer", False)
+        if lease.get("leaseId") != lease_id:
+            raise RuntimeFailure("lease_mismatch", "cookie_transfer", False)
+        expected_generation = lease_generation(lease)
+        if expected_generation is None:
+            raise RuntimeFailure("lease_identity_required", "cookie_transfer", True)
+        current_generation = runtime_generation(config)
+        if current_generation is None or expected_generation != current_generation:
+            raise RuntimeFailure("runtime_generation_mismatch", "cookie_transfer", True)
     node = shutil.which("node")
     if not node:
         raise RuntimeFailure("node_unavailable", "cookie_transfer", False)
@@ -508,22 +682,81 @@ def inspect_runtime(config: RuntimeConfig) -> dict[str, object]:
     runtime = read_json(config.runtime_path)
     lease = read_json(config.lease_path)
     runtime_pid = runtime.get("pid") if runtime else None
-    alive = process_matches_runtime(runtime_pid, config)
-    ready = cdp_ready(config) if alive else False
+    alive = process_matches_runtime(runtime_pid, config) and process_listens_on_port(
+        runtime_pid, config
+    )
+    ready = owned_cdp_ready(config, runtime_pid) if alive else False
+    if alive and not ready:
+        alive = process_matches_runtime(runtime_pid, config) and process_listens_on_port(
+            runtime_pid, config
+        )
+    occupied = port_open(config.host, config.port) if not alive else False
     consumer = lease.get("consumer") if lease else None
+    consumer_known = isinstance(consumer, str) and consumer in CONSUMERS
+    lease_valid = lease is None or consumer_known
     return {
-        "status": "ready" if ready else "unhealthy" if alive else "stopped",
+        "status": (
+            "ready"
+            if ready
+            else "unhealthy"
+            if alive
+            else "unverified_listener"
+            if occupied
+            else "stopped"
+        ),
         "profileInitialized": (config.profile_root / "Default").is_dir(),
         "runtimeOwned": alive,
         "cdpReady": ready,
         "mode": runtime.get("mode") if alive and runtime else None,
         "expiresAt": runtime.get("expiresAt") if alive and runtime else None,
         "browserKind": browser_kind(config),
-        "consumer": consumer if consumer in CONSUMERS else None,
+        "consumer": consumer if consumer_known else None,
+        "leasePresent": lease is not None,
+        "leaseValid": lease_valid,
         "endpointKind": "direct_cdp",
         "host": "loopback",
         "port": config.port,
     }
+
+
+def runtime_is_stopped(status: dict[str, object]) -> bool:
+    return (
+        status.get("status") == "stopped"
+        and status.get("runtimeOwned") is False
+        and status.get("cdpReady") is False
+        and status.get("leaseValid") is not False
+    )
+
+
+def runtime_generation(config: RuntimeConfig) -> dict[str, int] | None:
+    runtime = read_json(config.runtime_path)
+    if runtime is None:
+        return None
+    pid = runtime.get("pid")
+    started_at = runtime.get("startedAt")
+    if (
+        isinstance(pid, bool)
+        or not isinstance(pid, int)
+        or isinstance(started_at, bool)
+        or not isinstance(started_at, int)
+    ):
+        raise RuntimeFailure("runtime_identity_unavailable", "runtime_identity", True)
+    return {"pid": pid, "startedAt": started_at}
+
+
+def lease_generation(lease: dict[str, object]) -> dict[str, int] | None:
+    pid = lease.get("runtimePid")
+    started_at = lease.get("runtimeStartedAt")
+    if pid is None and started_at is None:
+        return None
+    if (
+        isinstance(pid, bool)
+        or not isinstance(pid, int)
+        or isinstance(started_at, bool)
+        or not isinstance(started_at, int)
+    ):
+        raise RuntimeFailure("lease_invalid", "consumer_lease", False)
+    return {"pid": pid, "startedAt": started_at}
 
 
 def run_watchdog(
@@ -532,7 +765,17 @@ def run_watchdog(
     expected_started_at: int,
     delay: int,
 ) -> None:
+    validate_config(config)
     time.sleep(delay)
+    with consumer_lease_lock(config):
+        _run_watchdog_locked(config, expected_pid, expected_started_at)
+
+
+def _run_watchdog_locked(
+    config: RuntimeConfig,
+    expected_pid: int,
+    expected_started_at: int,
+) -> None:
     runtime = read_json(config.runtime_path)
     if not runtime:
         return
@@ -543,11 +786,12 @@ def run_watchdog(
         return
     if process_matches_runtime(expected_pid, config):
         terminate_owned_runtime(expected_pid, config)
-    config.runtime_path.unlink(missing_ok=True)
-    config.lease_path.unlink(missing_ok=True)
+    if runtime_is_stopped(inspect_runtime(config)):
+        config.runtime_path.unlink(missing_ok=True)
+        config.lease_path.unlink(missing_ok=True)
 
 
-def start_runtime(
+def _start_runtime(
     config: RuntimeConfig,
     timeout: float,
     *,
@@ -568,80 +812,133 @@ def start_runtime(
         return current
     if current["runtimeOwned"]:
         raise RuntimeFailure("runtime_unhealthy", "runtime_start", True)
+    if read_json(config.lease_path):
+        raise RuntimeFailure("stale_lease", "runtime_start", True)
     if port_open(config.host, config.port):
         raise RuntimeFailure("port_occupied", "runtime_start", True)
     if not (config.profile_root / "Default").is_dir():
         raise RuntimeFailure("profile_unavailable", "runtime_start", False)
     if not config.chrome.is_file():
         raise RuntimeFailure("chrome_unavailable", "runtime_start", False)
-    process = subprocess.Popen(
-        build_chrome_launch_plan(config, headless=headless),
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-    started_at = int(time.time())
-    runtime_state: dict[str, object] = {
-        "version": 1,
-        "pid": process.pid,
-        "startedAt": started_at,
-        "expiresAt": started_at + max_runtime_seconds,
-        "mode": requested_mode,
-    }
-    write_private_json(
-        config.runtime_path,
-        runtime_state,
-    )
-    watchdog = subprocess.Popen(
-        [
-            sys.executable,
-            str(Path(__file__).resolve()),
-            "_watchdog",
-            "--root",
-            str(config.root),
-            "--source-root",
-            str(config.source_root),
-            "--source-profile",
-            config.source_profile,
-            "--chrome",
-            str(config.chrome),
-            "--host",
-            config.host,
-            "--port",
-            str(config.port),
-            "--expected-pid",
-            str(process.pid),
-            "--expected-started-at",
-            str(started_at),
-            "--watchdog-delay",
-            str(max_runtime_seconds),
-        ],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-    runtime_state["watchdogPid"] = watchdog.pid
-    write_private_json(config.runtime_path, runtime_state)
+    process = None
+    watchdog = None
+    try:
+        process = subprocess.Popen(
+            build_chrome_launch_plan(config, headless=headless),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        started_at = time.time_ns()
+        runtime_state: dict[str, object] = {
+            "version": 1,
+            "pid": process.pid,
+            "startedAt": started_at,
+            "expiresAt": int(time.time()) + max_runtime_seconds,
+            "mode": requested_mode,
+        }
+        write_private_json(config.runtime_path, runtime_state)
+        watchdog = subprocess.Popen(
+            [
+                sys.executable,
+                str(Path(__file__).resolve()),
+                "_watchdog",
+                "--root",
+                str(config.root),
+                "--source-root",
+                str(config.source_root),
+                "--source-profile",
+                config.source_profile,
+                "--chrome",
+                str(config.chrome),
+                "--host",
+                config.host,
+                "--port",
+                str(config.port),
+                "--expected-pid",
+                str(process.pid),
+                "--expected-started-at",
+                str(started_at),
+                "--watchdog-delay",
+                str(max_runtime_seconds),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        runtime_state["watchdogPid"] = watchdog.pid
+        write_private_json(config.runtime_path, runtime_state)
+    except Exception as error:
+        if watchdog is not None:
+            terminate_watchdog(watchdog.pid)
+        if process is not None and process.poll() is None:
+            terminate_owned_runtime(process.pid, config)
+        if runtime_is_stopped(inspect_runtime(config)):
+            config.runtime_path.unlink(missing_ok=True)
+        if isinstance(error, RuntimeFailure):
+            raise
+        raise RuntimeFailure("runtime_start_failed", "runtime_start", True) from error
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            if process_matches_watchdog(watchdog.pid):
-                os.kill(watchdog.pid, signal.SIGTERM)
-            config.runtime_path.unlink(missing_ok=True)
+            terminate_watchdog(watchdog.pid)
+            if runtime_is_stopped(inspect_runtime(config)):
+                config.runtime_path.unlink(missing_ok=True)
             raise RuntimeFailure("chrome_exited", "runtime_start", True)
-        if cdp_ready(config):
+        if owned_cdp_ready(config, process.pid):
             return inspect_runtime(config)
         time.sleep(0.1)
     terminate_owned_runtime(process.pid, config)
-    if process_matches_watchdog(watchdog.pid):
-        os.kill(watchdog.pid, signal.SIGTERM)
-    config.runtime_path.unlink(missing_ok=True)
+    terminate_watchdog(watchdog.pid)
+    if runtime_is_stopped(inspect_runtime(config)):
+        config.runtime_path.unlink(missing_ok=True)
     raise RuntimeFailure("cdp_readiness_timeout", "runtime_start", True)
 
 
+def start_runtime(
+    config: RuntimeConfig,
+    timeout: float,
+    *,
+    headless: bool = True,
+    max_runtime_seconds: int = DEFAULT_MAX_RUNTIME_SECONDS,
+) -> dict[str, object]:
+    with consumer_lease_lock(config):
+        return _start_runtime(
+            config,
+            timeout,
+            headless=headless,
+            max_runtime_seconds=max_runtime_seconds,
+        )
+
+
 def stop_runtime(config: RuntimeConfig) -> dict[str, object]:
+    with consumer_lease_lock(config):
+        return _stop_runtime(config)
+
+
+def stop_if_unclaimed(
+    config: RuntimeConfig,
+    *,
+    expected_pid: int,
+    expected_started_at: int,
+) -> dict[str, object]:
+    with consumer_lease_lock(config):
+        runtime = read_json(config.runtime_path)
+        lease = read_json(config.lease_path)
+        if (
+            not isinstance(runtime, dict)
+            or runtime.get("pid") != expected_pid
+            or runtime.get("startedAt") != expected_started_at
+            or lease is not None
+        ):
+            return inspect_runtime(config)
+        return _stop_runtime(config)
+
+
+def _stop_runtime(config: RuntimeConfig) -> dict[str, object]:
+    validate_config(config)
     runtime = read_json(config.runtime_path)
     if runtime and pid_alive(runtime.get("pid")):
         if not process_matches_runtime(runtime.get("pid"), config):
@@ -653,40 +950,109 @@ def stop_runtime(config: RuntimeConfig) -> dict[str, object]:
     if runtime and process_matches_watchdog(runtime.get("watchdogPid")):
         watchdog_pid = runtime.get("watchdogPid")
         if isinstance(watchdog_pid, int) and not isinstance(watchdog_pid, bool):
-            os.kill(watchdog_pid, signal.SIGTERM)
-    config.runtime_path.unlink(missing_ok=True)
-    config.lease_path.unlink(missing_ok=True)
-    return inspect_runtime(config)
-
-
-def claim_consumer(config: RuntimeConfig, consumer: str) -> dict[str, object]:
-    if consumer not in CONSUMERS:
-        raise RuntimeFailure("unsupported_consumer", "consumer_claim", False)
+            terminate_watchdog(watchdog_pid)
     status = inspect_runtime(config)
-    if not status["cdpReady"]:
-        raise RuntimeFailure("runtime_not_ready", "consumer_claim", True)
-    existing = read_json(config.lease_path)
-    if existing:
-        if existing.get("consumer") == consumer:
-            return {"status": "claimed", "consumer": consumer, "reused": True}
-        raise RuntimeFailure("consumer_conflict", "consumer_claim", True)
-    write_private_json(
-        config.lease_path,
-        {"version": 1, "consumer": consumer, "claimedAt": int(time.time())},
-    )
-    return {"status": "claimed", "consumer": consumer, "reused": False}
+    if runtime_is_stopped(status):
+        config.runtime_path.unlink(missing_ok=True)
+        config.lease_path.unlink(missing_ok=True)
+    return status
 
 
-def release_consumer(config: RuntimeConfig, consumer: str) -> dict[str, object]:
-    existing = read_json(config.lease_path)
-    if existing and existing.get("consumer") != consumer:
-        raise RuntimeFailure("consumer_mismatch", "consumer_release", False)
-    runtime = stop_runtime(config)
-    return {
-        "status": "released_and_stopped",
-        "consumer": consumer,
-        "runtime": runtime,
-    }
+def claim_consumer(
+    config: RuntimeConfig,
+    consumer: str,
+    *,
+    exclusive: bool = False,
+) -> dict[str, object]:
+    if not isinstance(consumer, str) or consumer not in CONSUMERS:
+        raise RuntimeFailure("unsupported_consumer", "consumer_claim", False)
+    with consumer_lease_lock(config):
+        status = inspect_runtime(config)
+        if not status["cdpReady"]:
+            raise RuntimeFailure("runtime_not_ready", "consumer_claim", True)
+        generation = runtime_generation(config)
+        if generation is None:
+            raise RuntimeFailure("runtime_identity_unavailable", "consumer_claim", True)
+        existing = read_json(config.lease_path)
+        if existing:
+            if existing.get("consumer") == consumer:
+                existing_generation = lease_generation(existing)
+                existing_lease_id = existing.get("leaseId")
+                if (
+                    existing_generation is None
+                    or not isinstance(existing_lease_id, str)
+                    or not LEASE_ID.fullmatch(existing_lease_id)
+                ):
+                    raise RuntimeFailure("lease_identity_required", "consumer_claim", True)
+                if existing_generation != generation:
+                    raise RuntimeFailure("runtime_generation_mismatch", "consumer_claim", True)
+                if exclusive:
+                    raise RuntimeFailure("consumer_conflict", "consumer_claim", True)
+                return {
+                    "status": "claimed",
+                    "consumer": consumer,
+                    "reused": True,
+                    "leaseId": existing_lease_id,
+                }
+            raise RuntimeFailure("consumer_conflict", "consumer_claim", True)
+        lease_id = uuid.uuid4().hex
+        write_private_json(
+            config.lease_path,
+            {
+                "version": 1,
+                "consumer": consumer,
+                "claimedAt": int(time.time()),
+                "leaseId": lease_id,
+                "runtimePid": generation["pid"],
+                "runtimeStartedAt": generation["startedAt"],
+            },
+        )
+        return {
+            "status": "claimed",
+            "consumer": consumer,
+            "reused": False,
+            "leaseId": lease_id,
+        }
+
+
+def release_consumer(
+    config: RuntimeConfig,
+    consumer: str,
+    *,
+    lease_id: str | None = None,
+) -> dict[str, object]:
+    validate_config(config)
+    with consumer_lease_lock(config):
+        if lease_id is not None and (
+            not isinstance(lease_id, str) or not LEASE_ID.fullmatch(lease_id)
+        ):
+            raise RuntimeFailure("lease_invalid", "consumer_release", False)
+        existing = read_json(config.lease_path)
+        if existing and existing.get("consumer") != consumer:
+            raise RuntimeFailure("consumer_mismatch", "consumer_release", False)
+        if existing and lease_id is None:
+            raise RuntimeFailure("lease_id_required", "consumer_release", False)
+        if lease_id is not None and (
+            not existing or existing.get("leaseId") != lease_id
+        ):
+            raise RuntimeFailure("lease_mismatch", "consumer_release", False)
+        if existing:
+            expected_generation = lease_generation(existing)
+            if expected_generation is None:
+                raise RuntimeFailure("lease_identity_required", "consumer_release", True)
+            current_generation = runtime_generation(config)
+            if current_generation is None or expected_generation != current_generation:
+                raise RuntimeFailure(
+                    "runtime_generation_mismatch", "consumer_release", True
+                )
+        runtime = _stop_runtime(config)
+        if not runtime_is_stopped(runtime):
+            raise RuntimeFailure("runtime_stop_unverified", "consumer_release", True)
+        return {
+            "status": "released_and_stopped",
+            "consumer": consumer,
+            "runtime": runtime,
+        }
 
 
 def parse_args() -> argparse.Namespace:
@@ -713,6 +1079,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=9333)
     parser.add_argument("--consumer", choices=sorted(CONSUMERS))
+    parser.add_argument("--lease-id", type=validate_lease_id)
     parser.add_argument("--replace", action="store_true")
     parser.add_argument("--confirm-sensitive-copy", action="store_true")
     parser.add_argument("--confirm-cookie-transfer", action="store_true")
@@ -800,17 +1167,22 @@ def main() -> int:
                 confirm=args.confirm_cookie_transfer,
                 dry_run=args.dry_run,
                 policy=args.policy,
+                lease_id=args.lease_id,
             )
         elif args.command == "stop":
             result = stop_runtime(config)
         elif args.command == "claim":
             if not args.consumer:
                 raise RuntimeFailure("consumer_required", "configuration", False)
-            result = claim_consumer(config, args.consumer)
+            result = claim_consumer(config, args.consumer, exclusive=True)
         else:
             if not args.consumer:
                 raise RuntimeFailure("consumer_required", "configuration", False)
-            result = release_consumer(config, args.consumer)
+            result = release_consumer(
+                config,
+                args.consumer,
+                lease_id=args.lease_id,
+            )
     except RuntimeFailure as error:
         print(
             json.dumps(

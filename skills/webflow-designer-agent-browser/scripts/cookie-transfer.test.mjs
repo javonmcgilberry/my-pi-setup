@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createCipheriv, pbkdf2Sync } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, it } from "node:test";
@@ -123,6 +123,29 @@ describe("hardened cookie transfer", () => {
     await rm(snapshot.directory, { recursive: true, force: true });
   });
 
+  it("rejects a symlinked SQLite sidecar", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "cookie-symlink-test-"));
+    temporaryDirectories.push(directory);
+    const source = path.join(directory, "Cookies");
+    const database = new DatabaseSync(source);
+    database.exec("CREATE TABLE cookies (host_key TEXT, name TEXT, path TEXT, value TEXT, encrypted_value BLOB)");
+    database.close();
+    const external = path.join(directory, "external-wal");
+    await writeFile(external, "must not be copied");
+    await symlink(external, `${source}-wal`);
+    const before = (await readdir(os.tmpdir())).filter((name) =>
+      name.startsWith("webflow-cookie-transfer-"),
+    );
+    assert.throws(() => snapshotCookieDatabase(source), /cookie_source_symlink/);
+    const after = (await readdir(os.tmpdir())).filter((name) =>
+      name.startsWith("webflow-cookie-transfer-"),
+    );
+    assert.deepEqual(after, before);
+    const primaryLink = path.join(directory, "Cookies-link");
+    await symlink(source, primaryLink);
+    assert.throws(() => snapshotCookieDatabase(primaryLink), /cookie_source_symlink/);
+  });
+
   it("attaches to a dedicated page target before calling Network.setCookies", async () => {
     const calls = [];
     const client = {
@@ -143,6 +166,29 @@ describe("hardened cookie transfer", () => {
       "Target.detachFromTarget",
     ]);
     assert.equal(calls[2].sessionId, "session-1");
+  });
+
+  it("closes a created target when attachment fails", async () => {
+    const calls = [];
+    const client = {
+      async send(method, params, sessionId) {
+        calls.push({method, params, sessionId});
+        if (method === "Target.getTargets") return {targetInfos: []};
+        if (method === "Target.createTarget") return {targetId: "created-1"};
+        if (method === "Target.attachToTarget") throw new Error("attach failed");
+        return {};
+      },
+    };
+    await assert.rejects(
+      injectCookiesIntoPage(client, [{name: "session", value: "redacted"}]),
+      /attach failed/,
+    );
+    assert.deepEqual(calls.map(({method}) => method), [
+      "Target.getTargets",
+      "Target.createTarget",
+      "Target.attachToTarget",
+      "Target.closeTarget",
+    ]);
   });
 
   it("emits count-only CLI output without cookie values", async () => {

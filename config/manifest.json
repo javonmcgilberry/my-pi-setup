@@ -16,7 +16,10 @@
     "fzf.json",
     "session-spend-dashboard.json"
   ],
-  "linked": {},
+  "linked": {
+    "codex-conversion-custom-tools/webflow_designer.toml": "config/codex-conversion-custom-tools/webflow_designer.toml",
+    "codex-conversion-custom-tools/webflow-designer": "skills/webflow-designer-agent-browser/scripts/designer-code-mode.py"
+  },
   "commands": {
     "pi-update-all": "scripts/pi-update-all"
   },
