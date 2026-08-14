@@ -26,7 +26,8 @@ The model still performs page interaction with native `agent_browser` when
 available; the CLI is selected explicitly and cannot be substituted later.
 
 `verify` accepts only compact evidence: the exact sanitized URL, Webflow
-Designer title, document classification, authentication boolean, error-page
+Designer title (including the observed `Webflow - <site>` form on a Designer
+origin), document classification, authentication boolean, error-page
 boolean, and the selector observed. It derives the five required readiness
 states and permits authorized work only when every state is `ready` while the
 transaction still holds the lease. It classifies login or expired-auth state as
@@ -200,7 +201,9 @@ Quote commands and selectors according to the current CLI help. Never put secret
 - Run `tab` before acting in an attached browser.
 - Run `eval` to list frame URLs without returning page content or secrets, then use `frame <selector>` and take a new scoped snapshot. Return with `frame main`.
 - Choose one canonical canvas frame for pass or fail decisions; Designer can expose duplicate same-origin canvas frames.
-- Use the exact URL, Designer title, and non-error document for readiness. Use stable `data-automation-id` selectors only for feature-specific assertions after readiness.
+- Use the exact URL, a Webflow Designer or `Webflow - <site>` title on a
+  Designer origin, and a non-error document for readiness. Use stable
+  `data-automation-id` selectors only for feature-specific assertions after readiness.
 - Use `console`, `errors`, filtered `network requests`, request detail, metadata-only HAR, trace, or profiler only when each artifact answers the current diagnostic question.
 - Keep HAR content disabled by default because request and response bodies can contain credentials or PII.
 - Use screenshots only after inspecting them. Redact or omit sensitive content and store temporary evidence outside repositories.

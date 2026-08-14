@@ -28,6 +28,7 @@ except ImportError:  # pragma: no cover - the supported runtime is macOS/Linux.
 
 DEFAULT_ROOT = Path.home() / ".config" / "webflow-designer-agent-browser"
 DEFAULT_SOURCE_ROOT = Path.home() / "Library/Application Support/Google/Chrome"
+MIN_STARTUP_TIMEOUT_SECONDS = 30.0
 DEFAULT_MAX_RUNTIME_SECONDS = 1800
 MAX_RUNTIME_SECONDS = 14400
 POLICY_FILENAME = "agent-browser-policy.json"
@@ -64,6 +65,12 @@ TRANSIENT_NAMES = {
     "Login Data-journal",
     "Web Data",
     "Web Data-journal",
+}
+RUNTIME_PROFILE_LINKS = {
+    "RunningChromeVersion",
+    "SingletonCookie",
+    "SingletonLock",
+    "SingletonSocket",
 }
 
 
@@ -165,7 +172,11 @@ def validate_config(config: RuntimeConfig) -> RuntimeConfig:
     if config.profile_root.exists():
         for directory, directories, files in os.walk(config.profile_root):
             for name in [*directories, *files]:
-                if (Path(directory) / name).is_symlink():
+                candidate = Path(directory) / name
+                if candidate.is_symlink() and not (
+                    Path(directory) == config.profile_root
+                    and name in RUNTIME_PROFILE_LINKS
+                ):
                     raise RuntimeFailure("unsafe_profile_symlink", "configuration", False)
     return config
 
@@ -407,6 +418,11 @@ def terminate_owned_runtime(
             os.killpg(pid, 0)
         except ProcessLookupError:
             return False
+        except PermissionError:
+            # macOS can reject a group probe while the just-signalled group is
+            # exiting. The owned root PID and loopback listener remain the
+            # bounded fallback evidence for that transient state.
+            return pid_alive(pid)
         return True
 
     try:
@@ -1085,7 +1101,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--confirm-cookie-transfer", action="store_true")
     parser.add_argument("--policy", help="private browser-policy JSON override")
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--timeout", type=float, default=15.0)
+    parser.add_argument(
+        "--timeout", type=float, default=MIN_STARTUP_TIMEOUT_SECONDS
+    )
     parser.add_argument(
         "--max-runtime-seconds",
         type=int,
@@ -1157,7 +1175,7 @@ def main() -> int:
                 )
             result = start_runtime(
                 config,
-                args.timeout,
+                max(MIN_STARTUP_TIMEOUT_SECONDS, args.timeout),
                 headless=not args.headed,
                 max_runtime_seconds=args.max_runtime_seconds,
             )

@@ -65,7 +65,10 @@ Cold, warm, partial, and stale states all follow the same rule: setup may conver
 
 ## Readiness and surfaces
 
-Readiness requires the exact Designer URL, a Webflow Designer title, a non-login document, and no Chrome error page. A fixed sidebar selector is not a readiness requirement.
+Readiness requires the exact Designer URL, a Webflow Designer title or the
+observed `Webflow - <site>` title on an approved Designer origin, a non-login
+document, and no Chrome error page. A fixed sidebar selector is not a readiness
+requirement.
 
 Useful Add and AI Assistant selectors for feature-specific assertions:
 

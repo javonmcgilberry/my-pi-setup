@@ -37,6 +37,7 @@ class FakeRuntime:
         self.fail_start: FakeRuntimeFailure | None = None
         self.fail_claim: FakeRuntimeFailure | None = None
         self.replace_after_release = False
+        self.start_timeout = None
         self.events = []
 
     def inspect_runtime(self, _config):
@@ -69,6 +70,7 @@ class FakeRuntime:
     def start_runtime(self, _config, _timeout, *, headless, max_runtime_seconds):
         del max_runtime_seconds
         self.events.append("start")
+        self.start_timeout = _timeout
         if self.fail_start:
             raise self.fail_start
         if self.owned and self.mode != ("headless" if headless else "headed"):
@@ -272,6 +274,7 @@ class DesignerCodeModeTests(unittest.TestCase):
         service = self.service()
         prepared = service.handle(self.prepare_request())
         self.assertEqual(prepared["status"], "prepared")
+        self.assertEqual(self.runtime.start_timeout, 30.0)
         self.assertFalse(prepared["qaLaunchAllowed"])
         self.assertEqual(prepared["actions"][0]["tool"], "agent_browser")
         self.assertEqual(self.runtime.consumer, "agent_browser")
@@ -321,6 +324,50 @@ class DesignerCodeModeTests(unittest.TestCase):
         self.assertEqual(result["classification"], "auth_required")
         self.assertFalse(result["qaLaunchAllowed"])
         self.assertIn("designer_surface", result["readiness"]["blockers"])
+        service.handle(
+            {
+                "version": 1,
+                "operation": "finish",
+                "transactionId": prepared["transactionId"],
+                "transport": "native",
+            }
+        )
+
+    def test_login_surface_allows_an_empty_title_and_sanitized_return_url(self):
+        service = self.service()
+        prepared = service.handle(self.prepare_request())
+        result = service.handle(
+            self.verify_request(
+                prepared["transactionId"],
+                url=(
+                    "https://wfdev.io:8443/login?r=https%3A%2F%2Fwfdev.io%3A8443"
+                    "%2Fexternal%2Fdesigner%2Fsynthetic"
+                ),
+                title="",
+                document="login",
+                authenticated=False,
+                scopeObserved=False,
+            )
+        )
+        self.assertEqual(result["classification"], "auth_required")
+        service.handle(
+            {
+                "version": 1,
+                "operation": "finish",
+                "transactionId": prepared["transactionId"],
+                "transport": "native",
+            }
+        )
+
+    def test_live_designer_title_shape_is_accepted_on_a_designer_origin(self):
+        service = self.service()
+        prepared = service.handle(self.prepare_request())
+        result = service.handle(
+            self.verify_request(
+                prepared["transactionId"], title="Webflow - Synthetic Site"
+            )
+        )
+        self.assertTrue(result["qaLaunchAllowed"])
         service.handle(
             {
                 "version": 1,

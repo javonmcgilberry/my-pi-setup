@@ -559,6 +559,36 @@ class BrowserRuntimeTests(unittest.TestCase):
         self.assertIn("--window-size=1440,1000", plan)
         self.assertNotIn("--auto-connect", plan)
 
+    def test_cli_start_enforces_the_minimum_cold_start_timeout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            with (
+                mock.patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "browser-runtime.py",
+                        "start",
+                        "--root",
+                        str(base / "state"),
+                        "--source-root",
+                        str(base / "source"),
+                        "--chrome",
+                        str(base / "Google Chrome for Testing"),
+                        "--timeout",
+                        "1",
+                    ],
+                ),
+                mock.patch.object(
+                    browser_runtime, "start_runtime", return_value={"status": "ready"}
+                ) as start,
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(browser_runtime.main(), 0)
+            self.assertEqual(
+                start.call_args.args[1], browser_runtime.MIN_STARTUP_TIMEOUT_SECONDS
+            )
+
     def test_automation_browser_discovery_never_selects_normal_chrome(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
@@ -654,6 +684,19 @@ class BrowserRuntimeTests(unittest.TestCase):
                 browser_runtime.RuntimeFailure, "unsafe_profile_symlink"
             ):
                 browser_runtime.validate_config(config)
+
+    def test_runtime_allows_only_expected_root_chrome_runtime_links(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "state"
+            profile_root = root / "chrome-user-data"
+            profile_root.mkdir(parents=True)
+            target = base / "runtime-target"
+            target.write_text("synthetic")
+            for name in browser_runtime.RUNTIME_PROFILE_LINKS:
+                (profile_root / name).symlink_to(target)
+            config = self.config(root, base / "source")
+            self.assertIs(browser_runtime.validate_config(config), config)
 
     def test_launch_plan_can_be_explicitly_headed(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1322,6 +1365,25 @@ class BrowserRuntimeTests(unittest.TestCase):
                 mock.call(4242, 0),
             ],
         )
+
+    def test_owned_runtime_termination_uses_root_pid_after_a_group_probe_denial(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = self.config(Path(directory) / "state", Path(directory) / "source")
+            with (
+                mock.patch.object(
+                    browser_runtime,
+                    "process_matches_runtime",
+                    return_value=True,
+                ),
+                mock.patch.object(
+                    browser_runtime.os,
+                    "killpg",
+                    side_effect=[None, PermissionError],
+                ),
+                mock.patch.object(browser_runtime, "pid_alive", return_value=False),
+                mock.patch.object(browser_runtime, "port_open", return_value=False),
+            ):
+                browser_runtime.terminate_owned_runtime(4242, config)
 
     def test_stop_refuses_unverified_process_ownership(self):
         with tempfile.TemporaryDirectory() as directory:

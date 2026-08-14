@@ -506,7 +506,8 @@ python3 skills/webflow-designer-agent-browser/scripts/browser-runtime.py plan
 
 The currently verified Chrome for Testing build is `151.0.7922.71`. The helper
 selects the newest installed Puppeteer build and refuses to fall back to normal
-Google Chrome.
+Google Chrome. Chrome startup allows up to 30 seconds even when `--timeout` is
+lower, and returns as soon as CDP is ready.
 
 Initialize the dedicated Chrome for Testing profile once. Quit normal Chrome
 completely first; the helper refuses to copy a locked profile.

@@ -293,7 +293,12 @@ def _validate_surface(value: object, target: str, selector: str) -> dict[str, ob
     document = surface.get("document")
     if document not in SURFACE_STATES:
         _fail("invalid_surface_evidence")
-    title = _bounded_string(surface.get("title"), "surface.title", maximum=MAX_EVIDENCE_STRING)
+    title = _bounded_string(
+        surface.get("title"),
+        "surface.title",
+        maximum=MAX_EVIDENCE_STRING,
+        allow_empty=True,
+    )
     authenticated = surface.get("authenticated")
     error_page = surface.get("errorPage")
     scope_observed = surface.get("scopeObserved")
@@ -305,6 +310,12 @@ def _validate_surface(value: object, target: str, selector: str) -> dict[str, ob
 
     if error_page or document == "error" or raw_url.startswith("chrome-error://"):
         normalized_url = "chrome-error://chromewebdata/"
+    elif document == "login":
+        try:
+            designer_session.reject_sensitive_url(raw_url)
+        except (ValueError, TypeError):
+            _fail("invalid_surface_evidence")
+        normalized_url = sanitize_evidence.sanitize_url(raw_url)
     else:
         _raw, normalized_url = _validate_target(raw_url)
     return {
@@ -557,6 +568,21 @@ def _gate_checks(
         ("browser_profile", browser_state),
         ("designer_surface", surface_state),
     ]
+
+
+def _is_designer_title(url: str, title: str) -> bool:
+    observed = title.lower().strip()
+    host = (urlsplit(url).hostname or "").lower()
+    return (
+        "webflow" in observed
+        and "designer" in observed
+    ) or (
+        observed.startswith("webflow -")
+        and (
+            host in {"design.webflow.com", "design.wfdev.io"}
+            or host.endswith(".design.wfdev.io")
+        )
+    )
 
 
 class DesignerCodeMode:
@@ -887,7 +913,7 @@ class DesignerCodeMode:
             self._call_runtime(
                 "start_runtime",
                 self.config,
-                max(5.0, timeout),
+                max(browser_runtime.MIN_STARTUP_TIMEOUT_SECONDS, timeout),
                 headless=runtime_mode == "headless",
                 max_runtime_seconds=max_runtime,
             )
@@ -1040,8 +1066,7 @@ class DesignerCodeMode:
             surface_state = "error"
         elif not (
             surface["document"] == "designer"
-            and "webflow" in str(surface["title"]).lower()
-            and "designer" in str(surface["title"]).lower()
+            and _is_designer_title(str(surface["url"]), str(surface["title"]))
             and surface["scopeObserved"]
         ):
             surface_state = "error"
