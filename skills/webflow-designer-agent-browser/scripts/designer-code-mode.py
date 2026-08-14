@@ -63,6 +63,8 @@ TRANSACTION_ID = re.compile(
 MAX_REQUEST_BYTES = 32 * 1024
 MAX_OUTPUT_BYTES = 48 * 1024
 MAX_EVIDENCE_STRING = 200
+RUNTIME_SETTLE_SECONDS = 2.0
+RUNTIME_SETTLE_INTERVAL_SECONDS = 0.1
 
 
 def _load_script(name: str, filename: str) -> ModuleType:
@@ -617,6 +619,28 @@ class DesignerCodeMode:
         except Exception as error:
             raise _error_from_exception(error, phase="runtime_status") from error
 
+    def _settled_runtime_status(self, runtime_mode: str) -> dict[str, object]:
+        deadline = time.monotonic() + RUNTIME_SETTLE_SECONDS
+        ready_observations = 0
+        status: dict[str, object] = {}
+        while True:
+            status = self._runtime_status()
+            if (
+                status.get("status") == "ready"
+                and _is_true(status.get("cdpReady"))
+                and status.get("mode") == runtime_mode
+                and status.get("endpointKind") == "direct_cdp"
+                and status.get("host") == "loopback"
+            ):
+                ready_observations += 1
+                if ready_observations == 2:
+                    return status
+            else:
+                ready_observations = 0
+            if time.monotonic() >= deadline:
+                return status
+            time.sleep(RUNTIME_SETTLE_INTERVAL_SECONDS)
+
     @contextmanager
     def _runtime_lock(self):
         lock_factory = getattr(self.runtime, "consumer_lease_lock", None)
@@ -919,7 +943,7 @@ class DesignerCodeMode:
             )
             if started_here:
                 started_generation = self._runtime_generation()
-            status = self._runtime_status()
+            status = self._settled_runtime_status(runtime_mode)
             if not (
                 status.get("status") == "ready"
                 and _is_true(status.get("cdpReady"))

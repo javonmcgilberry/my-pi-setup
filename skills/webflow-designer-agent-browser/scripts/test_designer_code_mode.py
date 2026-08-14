@@ -38,10 +38,24 @@ class FakeRuntime:
         self.fail_claim: FakeRuntimeFailure | None = None
         self.replace_after_release = False
         self.start_timeout = None
+        self.transient_unready_after_start = 0
         self.events = []
 
     def inspect_runtime(self, _config):
         self.events.append("status")
+        if self.owned and self.transient_unready_after_start:
+            self.transient_unready_after_start -= 1
+            return {
+                "status": "unhealthy" if self.owned else "stopped",
+                "runtimeOwned": self.owned,
+                "cdpReady": False,
+                "mode": self.mode if self.owned else None,
+                "consumer": self.consumer,
+                "leasePresent": self.consumer is not None,
+                "endpointKind": "direct_cdp",
+                "host": "loopback",
+                "port": 9333,
+            }
         return {
             "status": "ready" if self.ready else "stopped",
             "runtimeOwned": self.owned,
@@ -303,6 +317,12 @@ class DesignerCodeModeTests(unittest.TestCase):
             }
         )
         self.assertTrue(repeated["alreadyFinished"])
+
+    def test_prepare_waits_for_post_start_runtime_readiness_to_settle(self):
+        self.runtime.transient_unready_after_start = 2
+        prepared = self.service().handle(self.prepare_request())
+        self.assertEqual(prepared["status"], "prepared")
+        self.assertEqual(self.runtime.consumer, "agent_browser")
 
     def test_readiness_failure_does_not_start_or_claim_runtime(self):
         service = self.service(preflight=failing_preflight)
