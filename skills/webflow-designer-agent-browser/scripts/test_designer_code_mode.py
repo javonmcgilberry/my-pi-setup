@@ -30,12 +30,15 @@ class FakeRuntime:
         self.owned = False
         self.ready = False
         self.consumer = None
+        self.lease_owner = None
+        self.lease_owner_id = None
         self.mode = None
         self.lease_id = None
         self.claimed_at = 2
         self.started_at = 1
         self.fail_start: FakeRuntimeFailure | None = None
         self.fail_claim: FakeRuntimeFailure | None = None
+        self.fail_release_once = False
         self.replace_after_release = False
         self.start_timeout = None
         self.transient_unready_after_start = 0
@@ -62,6 +65,7 @@ class FakeRuntime:
             "cdpReady": self.ready,
             "mode": self.mode if self.owned else None,
             "consumer": self.consumer,
+            "leaseOwner": self.lease_owner,
             "leasePresent": self.consumer is not None,
             "endpointKind": "direct_cdp",
             "host": "loopback",
@@ -78,6 +82,11 @@ class FakeRuntime:
                 "leaseId": self.lease_id,
                 "runtimePid": 4242,
                 "runtimeStartedAt": self.started_at,
+                **(
+                    {"owner": self.lease_owner, "ownerId": self.lease_owner_id}
+                    if self.lease_owner is not None
+                    else {}
+                ),
             }
         return None
 
@@ -94,7 +103,15 @@ class FakeRuntime:
         self.mode = "headless" if headless else "headed"
         return self.inspect_runtime(None)
 
-    def claim_consumer(self, _config, consumer, *, exclusive=False):
+    def claim_consumer(
+        self,
+        _config,
+        consumer,
+        *,
+        exclusive=False,
+        owner="direct",
+        owner_id=None,
+    ):
         self.events.append("claim")
         if self.fail_claim:
             raise self.fail_claim
@@ -102,16 +119,25 @@ class FakeRuntime:
             raise FakeRuntimeFailure("consumer_conflict", "consumer_claim", True)
         self.consumer = consumer
         self.lease_id = "a" * 32
+        self.lease_owner = owner
+        self.lease_owner_id = owner_id
         return {"status": "claimed", "consumer": consumer, "leaseId": self.lease_id}
 
     def release_consumer(self, _config, consumer, *, lease_id=None):
         self.events.append("release")
+        if self.fail_release_once:
+            self.fail_release_once = False
+            raise FakeRuntimeFailure(
+                "release_consumer_failed", "consumer_release", True
+            )
         if self.consumer and self.consumer != consumer:
             raise FakeRuntimeFailure("consumer_mismatch", "consumer_release")
         if lease_id is not None and lease_id != self.lease_id:
             raise FakeRuntimeFailure("lease_mismatch", "consumer_release")
         self.consumer = None
         self.lease_id = None
+        self.lease_owner = None
+        self.lease_owner_id = None
         self.owned = False
         self.ready = False
         self.mode = None
@@ -122,12 +148,16 @@ class FakeRuntime:
             self.mode = "headless"
             self.consumer = "agent_browser"
             self.lease_id = "b" * 32
+            self.lease_owner = "code_mode"
+            self.lease_owner_id = "replacement"
         return result
 
     def stop_runtime(self, _config):
         self.events.append("stop")
         self.consumer = None
         self.lease_id = None
+        self.lease_owner = None
+        self.lease_owner_id = None
         self.owned = False
         self.ready = False
         self.mode = None
@@ -247,7 +277,18 @@ class DesignerCodeModeTests(unittest.TestCase):
     def test_help_is_small_and_parser_rejects_unknown_or_sensitive_input(self):
         request = designer_code_mode.parse_request("help")
         result = self.service().handle(request)
-        self.assertEqual(result["operations"], ["help", "capabilities", "prepare", "verify", "finish"])
+        self.assertEqual(
+            result["operations"],
+            [
+                "help",
+                "capabilities",
+                "status",
+                "reconcile",
+                "prepare",
+                "verify",
+                "finish",
+            ],
+        )
         self.assertLess(len(str(result)), 2000)
         with self.assertRaisesRegex(designer_code_mode.ProtocolError, "unknown_request_field"):
             designer_code_mode.parse_request('{"version":1,"operation":"help","extra":1}')
@@ -257,6 +298,49 @@ class DesignerCodeModeTests(unittest.TestCase):
             designer_code_mode.parse_request(
                 '{"version":1,"operation":"finish","token":"nope"}'
             )
+
+    def test_status_classifies_clean_active_and_stale_transaction_states(self):
+        service = self.service()
+        clean = service.handle({"version": 1, "operation": "status"})
+        self.assertEqual(clean["state"], "clean_stopped")
+        prepared = service.handle(self.prepare_request())
+        active = service.handle({"version": 1, "operation": "status"})
+        self.assertEqual(active["state"], "active_transaction")
+        self.runtime.stop_runtime(None)
+        stale = service.handle({"version": 1, "operation": "status"})
+        self.assertEqual(stale["state"], "stale_transaction")
+        self.assertTrue(stale["safeToRecover"])
+        reconciled = service.handle({"version": 1, "operation": "reconcile"})
+        self.assertEqual(reconciled["status"], "reconciled")
+        self.assertTrue(reconciled["recovered"])
+        self.assertIsNone(service.store.load())
+        self.assertEqual(
+            service.handle({"version": 1, "operation": "status"})["state"],
+            "clean_stopped",
+        )
+        self.assertIsNotNone(prepared["transactionId"])
+
+    def test_status_preserves_direct_owner_and_reconciles_dead_lease(self):
+        service = self.service()
+        self.runtime.owned = True
+        self.runtime.ready = True
+        self.runtime.mode = "headless"
+        self.runtime.consumer = "agent_browser"
+        self.runtime.lease_id = "a" * 32
+        self.runtime.lease_owner = "direct"
+        direct = service.handle({"version": 1, "operation": "status"})
+        self.assertEqual(direct["state"], "active_direct_owner")
+        self.assertFalse(direct["safeToRecover"])
+        self.runtime.owned = False
+        self.runtime.ready = False
+        stale = service.handle({"version": 1, "operation": "status"})
+        self.assertEqual(stale["state"], "stale_lease")
+        reconciled = service.handle({"version": 1, "operation": "reconcile"})
+        self.assertTrue(reconciled["recovered"])
+        self.assertEqual(
+            service.handle({"version": 1, "operation": "status"})["state"],
+            "clean_stopped",
+        )
 
     def test_capability_lookup_is_lazy_and_supports_continuation(self):
         service = self.service()
@@ -292,6 +376,8 @@ class DesignerCodeModeTests(unittest.TestCase):
         self.assertFalse(prepared["qaLaunchAllowed"])
         self.assertEqual(prepared["actions"][0]["tool"], "agent_browser")
         self.assertEqual(self.runtime.consumer, "agent_browser")
+        self.assertEqual(self.runtime.lease_owner, "code_mode")
+        self.assertEqual(self.runtime.lease_owner_id, prepared["transactionId"])
 
         verified = service.handle(self.verify_request(prepared["transactionId"]))
         self.assertEqual(verified["status"], "verified")
@@ -500,6 +586,64 @@ class DesignerCodeModeTests(unittest.TestCase):
         )
         self.assertEqual(result["classification"], "finished")
         self.assertTrue(result["runtimeStopped"])
+
+    def test_finish_converges_after_runtime_stops_before_lease_release(self):
+        service = self.service()
+        prepared = service.handle(self.prepare_request())
+        self.runtime.owned = False
+        self.runtime.ready = False
+        self.assertEqual(
+            service.handle({"version": 1, "operation": "status"})["state"],
+            "stale_transaction_lease",
+        )
+        finished = service.handle(
+            {
+                "version": 1,
+                "operation": "finish",
+                "transactionId": prepared["transactionId"],
+                "transport": "native",
+            }
+        )
+        self.assertEqual(finished["classification"], "finished")
+        self.assertIsNone(self.runtime.consumer)
+        self.assertIsNone(service.store.load())
+
+    def test_reconcile_converges_after_runtime_stops_before_lease_release(self):
+        service = self.service()
+        service.handle(self.prepare_request())
+        self.runtime.owned = False
+        self.runtime.ready = False
+        reconciled = service.handle({"version": 1, "operation": "reconcile"})
+        self.assertEqual(reconciled["status"], "reconciled")
+        self.assertTrue(reconciled["recovered"])
+        self.assertIsNone(self.runtime.consumer)
+        self.assertIsNone(service.store.load())
+
+    def test_finish_preserves_state_when_release_fails_once(self):
+        service = self.service()
+        prepared = service.handle(self.prepare_request())
+        self.runtime.fail_release_once = True
+        with self.assertRaisesRegex(
+            designer_code_mode.ProtocolError, "release_consumer_failed"
+        ):
+            service.handle(
+                {
+                    "version": 1,
+                    "operation": "finish",
+                    "transactionId": prepared["transactionId"],
+                    "transport": "native",
+                }
+            )
+        self.assertIsNotNone(service.store.load())
+        finished = service.handle(
+            {
+                "version": 1,
+                "operation": "finish",
+                "transactionId": prepared["transactionId"],
+                "transport": "native",
+            }
+        )
+        self.assertEqual(finished["classification"], "finished")
 
     def test_finish_rechecks_cleanup_before_removing_transaction_state(self):
         service = self.service()

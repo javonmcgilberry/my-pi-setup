@@ -483,6 +483,12 @@ and `status: stopped`.
 The private receipt binds cleanup to the runtime PID/start generation and lease
 token; a replacement runtime, nested profile symlink, or unknown listener fails
 closed instead of being reported as the transaction's browser.
+After an interruption, the same Code Mode surface provides read-only `status`
+and safe-only `reconcile` operations. They classify clean stopped state, active
+Code Mode or direct/native ownership, stale receipts/leases, replacement
+identity, and unverified listeners without exposing PID or lease-token
+choreography. A lease without a Code Mode receipt is not treated as stale until
+the runtime is proven stopped and its listener is absent.
 
 The command-backed tool never invokes arbitrary native Pi tools and cannot
 silently switch transports. Native `agent_browser` remains the preferred page

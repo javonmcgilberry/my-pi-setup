@@ -25,6 +25,14 @@ transport-specific browser actions. It never invokes arbitrary native Pi tools.
 The model still performs page interaction with native `agent_browser` when
 available; the CLI is selected explicitly and cannot be substituted later.
 
+`status` is a read-only bounded lifecycle classifier for interrupted or
+partially cleaned runs. It reports whether the state is clean, an active
+transaction, a valid direct/native owner, a stale receipt/lease that can be
+reconciled, an environment-independent ownership conflict, or an unverified
+listener. `reconcile` only converges the classifier's explicitly safe stale
+states; it never steals a live direct/native owner or terminates an unverified
+listener.
+
 `verify` accepts only compact evidence: the exact sanitized URL, Webflow
 Designer title (including the observed `Webflow - <site>` form on a Designer
 origin), document classification, authentication boolean, error-page
@@ -84,11 +92,22 @@ both transports. Native actions use `agent_browser`; CLI actions use the
 
 - Run `scripts/capability-catalog.py list [--category <name>]` for the compact deferred helper catalog. Read only the selected helper or direct reference; do not load every helper contract up front.
 - Use the deferred Code Mode `webflow_designer` capability for `help`, exact or
-  category-scoped capability lookup, `prepare`, `verify`, and `finish`. Pass one
+  category-scoped capability lookup, `status`, `reconcile`, `prepare`, `verify`,
+  and `finish`. Pass one
   JSON string with `JSON.stringify`; use `nextOffset` rather than dumping the
   catalog. The command owns lifecycle state, not page snapshots or native tool
   invocation.
-- Run `scripts/browser-runtime.py status` before authenticated attached work. The runtime owns the dedicated profile, Chrome for Testing process, loopback direct-CDP readiness, bounded watchdog, and exclusive consumer lease. `ensure` is the idempotent headless default; use `start --headed` only for login, MFA, or visual debugging. `release` also stops the owned runtime. Use `plan`, `bootstrap`, `ensure`, `transfer-cookies`, `claim`, `release`, or `stop` only for the lifecycle phase each command names.
+- Run Code Mode `status` before recovering an interrupted transaction. Follow its
+  bounded `action`: start only from `clean_stopped`, defer an active direct/native
+  owner, and call `reconcile` only when it reports a safe stale state. Never
+  infer that a lease without a Code Mode receipt is stale. For lower-level
+  diagnostics, `scripts/browser-runtime.py status` still owns the dedicated
+  profile, Chrome for Testing process, loopback direct-CDP readiness, bounded
+  watchdog, and exclusive consumer lease. `ensure` is the idempotent headless
+  default; use `start --headed` only for login, MFA, or visual debugging.
+  `release` also stops the owned runtime. Use `plan`, `bootstrap`, `ensure`,
+  `transfer-cookies`, `claim`, `release`, or `stop` only for the lifecycle phase
+  each command names.
 - Run `scripts/readiness-gate.py` for a direct-helper or diagnostic handoff when
   the Code Mode facade is unavailable. A held transaction uses its
   `--runtime-held` state; a standalone handoff still requires `--runtime-stopped`.
@@ -170,10 +189,13 @@ Treat cleanup as a required `finally` block, including failed and interrupted br
 3. Require the command's stopped-state proof: `runtimeOwned: false`,
    `cdpReady: false`, `consumer: null`, `leasePresent: false`, and
    `status: stopped`.
-4. If the facade is unavailable or reports a cleanup failure, use
-   `scripts/browser-runtime.py release --consumer agent_browser --lease-id <leaseId>`, then
-   `status`; `stop` is the final bounded fallback and may terminate only PIDs
-   that match the private runtime state and dedicated profile.
+4. If the facade is unavailable or reports a cleanup failure, first use the
+   Code Mode classifier when available and call `reconcile` only for its safe
+   stale classification. The direct helper remains an explicit fallback:
+   `scripts/browser-runtime.py release --consumer agent_browser --lease-id <leaseId>`,
+   then `status`; `stop` is the final bounded fallback and may terminate only
+   PIDs that match the private runtime state and dedicated profile. A direct
+   owner, replacement runtime, or unverified listener remains fail-closed.
 
 Never leave cleanup for the next browser task. Never kill unverified Chrome, Chromium, or agent-browser PIDs. The watchdog is an abnormal-exit backstop, not a substitute for immediate cleanup.
 

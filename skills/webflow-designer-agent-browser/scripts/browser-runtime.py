@@ -35,6 +35,10 @@ POLICY_FILENAME = "agent-browser-policy.json"
 COOKIE_TRANSFER_SCRIPT = Path(__file__).with_name("cookie-transfer.mjs")
 CONSUMERS = {"agent_browser", "chrome_devtools_mcp"}
 LEASE_ID = re.compile(r"[0-9a-f]{32}")
+LEASE_OWNERS = {"direct", "code_mode"}
+CODE_MODE_OWNER_ID = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+)
 SENSITIVE_PROFILE_DATABASES = {
     "Cookies",
     "Local State",
@@ -727,6 +731,7 @@ def inspect_runtime(config: RuntimeConfig) -> dict[str, object]:
         "expiresAt": runtime.get("expiresAt") if alive and runtime else None,
         "browserKind": browser_kind(config),
         "consumer": consumer if consumer_known else None,
+        "leaseOwner": lease_owner(lease) if lease else None,
         "leasePresent": lease is not None,
         "leaseValid": lease_valid,
         "endpointKind": "direct_cdp",
@@ -773,6 +778,20 @@ def lease_generation(lease: dict[str, object]) -> dict[str, int] | None:
     ):
         raise RuntimeFailure("lease_invalid", "consumer_lease", False)
     return {"pid": pid, "startedAt": started_at}
+
+
+def lease_owner(lease: dict[str, object]) -> str:
+    owner = lease.get("owner")
+    owner_id = lease.get("ownerId")
+    if owner == "direct" and owner_id is None:
+        return "direct"
+    if (
+        owner == "code_mode"
+        and isinstance(owner_id, str)
+        and CODE_MODE_OWNER_ID.fullmatch(owner_id)
+    ):
+        return "code_mode"
+    return "unknown"
 
 
 def run_watchdog(
@@ -979,9 +998,19 @@ def claim_consumer(
     consumer: str,
     *,
     exclusive: bool = False,
+    owner: str = "direct",
+    owner_id: str | None = None,
 ) -> dict[str, object]:
     if not isinstance(consumer, str) or consumer not in CONSUMERS:
         raise RuntimeFailure("unsupported_consumer", "consumer_claim", False)
+    if owner not in LEASE_OWNERS:
+        raise RuntimeFailure("unsupported_lease_owner", "consumer_claim", False)
+    if owner == "direct" and owner_id is not None:
+        raise RuntimeFailure("lease_owner_id_invalid", "consumer_claim", False)
+    if owner == "code_mode" and (
+        not isinstance(owner_id, str) or not CODE_MODE_OWNER_ID.fullmatch(owner_id)
+    ):
+        raise RuntimeFailure("lease_owner_id_required", "consumer_claim", False)
     with consumer_lease_lock(config):
         status = inspect_runtime(config)
         if not status["cdpReady"]:
@@ -992,6 +1021,11 @@ def claim_consumer(
         existing = read_json(config.lease_path)
         if existing:
             if existing.get("consumer") == consumer:
+                existing_owner = lease_owner(existing)
+                if existing_owner not in {owner, "unknown"}:
+                    raise RuntimeFailure("consumer_conflict", "consumer_claim", True)
+                if existing_owner == "code_mode" and existing.get("ownerId") != owner_id:
+                    raise RuntimeFailure("consumer_conflict", "consumer_claim", True)
                 existing_generation = lease_generation(existing)
                 existing_lease_id = existing.get("leaseId")
                 if (
@@ -1009,6 +1043,7 @@ def claim_consumer(
                     "consumer": consumer,
                     "reused": True,
                     "leaseId": existing_lease_id,
+                    "owner": existing_owner,
                 }
             raise RuntimeFailure("consumer_conflict", "consumer_claim", True)
         lease_id = uuid.uuid4().hex
@@ -1021,6 +1056,8 @@ def claim_consumer(
                 "leaseId": lease_id,
                 "runtimePid": generation["pid"],
                 "runtimeStartedAt": generation["startedAt"],
+                "owner": owner,
+                **({"ownerId": owner_id} if owner_id is not None else {}),
             },
         )
         return {
@@ -1028,6 +1065,7 @@ def claim_consumer(
             "consumer": consumer,
             "reused": False,
             "leaseId": lease_id,
+            "owner": owner,
         }
 
 
@@ -1057,7 +1095,20 @@ def release_consumer(
             if expected_generation is None:
                 raise RuntimeFailure("lease_identity_required", "consumer_release", True)
             current_generation = runtime_generation(config)
-            if current_generation is None or expected_generation != current_generation:
+            if current_generation is None:
+                status = inspect_runtime(config)
+                if not runtime_is_stopped(status):
+                    raise RuntimeFailure(
+                        "runtime_generation_mismatch", "consumer_release", True
+                    )
+                config.lease_path.unlink(missing_ok=True)
+                config.runtime_path.unlink(missing_ok=True)
+                return {
+                    "status": "released_and_stopped",
+                    "consumer": consumer,
+                    "runtime": inspect_runtime(config),
+                }
+            if expected_generation != current_generation:
                 raise RuntimeFailure(
                     "runtime_generation_mismatch", "consumer_release", True
                 )

@@ -1173,6 +1173,33 @@ class BrowserRuntimeTests(unittest.TestCase):
             self.assertRegex(first["leaseId"], r"^[0-9a-f]{32}$")
             self.assertEqual(first["leaseId"], repeated["leaseId"])
 
+    def test_code_mode_claim_records_transaction_owner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            config = self.config(base / "state", base / "source")
+            browser_runtime.ensure_private_root(config.root)
+            browser_runtime.write_private_json(
+                config.runtime_path,
+                {"version": 1, "pid": 4242, "startedAt": 7},
+            )
+            transaction_id = "12345678-1234-4234-8234-123456789abc"
+            with mock.patch.object(
+                browser_runtime,
+                "inspect_runtime",
+                return_value={"cdpReady": True},
+            ):
+                result = browser_runtime.claim_consumer(
+                    config,
+                    "agent_browser",
+                    exclusive=True,
+                    owner="code_mode",
+                    owner_id=transaction_id,
+                )
+            lease = browser_runtime.read_json(config.lease_path)
+        self.assertEqual(result["owner"], "code_mode")
+        self.assertEqual(lease["owner"], "code_mode")
+        self.assertEqual(lease["ownerId"], transaction_id)
+
     def test_consumer_release_rejects_a_stale_lease_token(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
@@ -1243,6 +1270,53 @@ class BrowserRuntimeTests(unittest.TestCase):
                         config, "agent_browser", lease_id="a" * 32
                     )
             stop.assert_not_called()
+
+    def test_consumer_release_converges_when_runtime_metadata_is_gone(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            config = self.config(base / "state", base / "source")
+            browser_runtime.ensure_private_root(config.root)
+            browser_runtime.write_private_json(
+                config.lease_path,
+                {
+                    "version": 1,
+                    "consumer": "agent_browser",
+                    "leaseId": "a" * 32,
+                    "runtimePid": 4242,
+                    "runtimeStartedAt": 7,
+                },
+            )
+            with mock.patch.object(browser_runtime, "port_open", return_value=False):
+                result = browser_runtime.release_consumer(
+                    config, "agent_browser", lease_id="a" * 32
+                )
+        self.assertEqual(result["status"], "released_and_stopped")
+        self.assertFalse(config.lease_path.exists())
+        self.assertFalse(config.runtime_path.exists())
+
+    def test_consumer_release_keeps_lease_when_listener_is_unverified(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            config = self.config(base / "state", base / "source")
+            browser_runtime.ensure_private_root(config.root)
+            browser_runtime.write_private_json(
+                config.lease_path,
+                {
+                    "version": 1,
+                    "consumer": "agent_browser",
+                    "leaseId": "a" * 32,
+                    "runtimePid": 4242,
+                    "runtimeStartedAt": 7,
+                },
+            )
+            with mock.patch.object(browser_runtime, "port_open", return_value=True):
+                with self.assertRaisesRegex(
+                    browser_runtime.RuntimeFailure, "runtime_generation_mismatch"
+                ):
+                    browser_runtime.release_consumer(
+                        config, "agent_browser", lease_id="a" * 32
+                    )
+            self.assertTrue(config.lease_path.exists())
 
     def test_start_rejects_a_stale_lease_before_launch(self):
         with tempfile.TemporaryDirectory() as directory:

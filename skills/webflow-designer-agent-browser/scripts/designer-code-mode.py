@@ -33,7 +33,15 @@ except ImportError:  # pragma: no cover - the supported runtime is macOS/Linux.
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROTOCOL_VERSION = 1
 CONSUMER = "agent_browser"
-OPERATIONS = {"help", "capabilities", "prepare", "verify", "finish"}
+OPERATIONS = {
+    "help",
+    "capabilities",
+    "status",
+    "reconcile",
+    "prepare",
+    "verify",
+    "finish",
+}
 REQUIRED_CHECKS = (
     "hud",
     "designer_service",
@@ -353,6 +361,8 @@ def parse_request(raw: str) -> dict[str, Any]:
     allowed = {
         "help": {"version", "operation"},
         "capabilities": {"version", "operation", "id", "category", "offset", "limit"},
+        "status": {"version", "operation"},
+        "reconcile": {"version", "operation"},
         "prepare": {
             "version",
             "operation",
@@ -494,6 +504,14 @@ class TransactionStore:
             or not re.fullmatch(r"[0-9a-f]{32}", identity["leaseId"])
         ):
             _fail("transaction_state_invalid", "transaction")
+        owner = identity.get("owner")
+        owner_id = identity.get("ownerId")
+        if owner is not None and (
+            owner != "code_mode"
+            or not isinstance(owner_id, str)
+            or not TRANSACTION_ID.fullmatch(owner_id)
+        ):
+            _fail("transaction_state_invalid", "transaction")
         return state
 
     def write(self, state: dict[str, Any]) -> None:
@@ -538,12 +556,23 @@ def _public_runtime(status: object) -> dict[str, object]:
             "cdpReady",
             "mode",
             "consumer",
+            "leaseOwner",
             "leasePresent",
             "endpointKind",
             "host",
             "port",
         )
     }
+
+
+def _clean_stopped(status: dict[str, object]) -> bool:
+    return (
+        status.get("status") == "stopped"
+        and _is_false(status.get("runtimeOwned"))
+        and _is_false(status.get("cdpReady"))
+        and status.get("consumer") is None
+        and _is_false(status.get("leasePresent"))
+    )
 
 
 def _check_state(result: object) -> str:
@@ -664,7 +693,11 @@ class DesignerCodeMode:
         except Exception as error:
             raise _error_from_exception(error, phase=name)
 
-    def _runtime_identity(self) -> dict[str, int | str]:
+    def _runtime_identity(
+        self,
+        *,
+        expected_owner_id: str | None = None,
+    ) -> dict[str, int | str]:
         try:
             runtime_state = self.runtime.read_json(self.config.runtime_path)
             lease_state = self.runtime.read_json(self.config.lease_path)
@@ -678,6 +711,8 @@ class DesignerCodeMode:
         lease_id = lease_state.get("leaseId")
         lease_pid = lease_state.get("runtimePid")
         lease_started_at = lease_state.get("runtimeStartedAt")
+        owner = lease_state.get("owner")
+        owner_id = lease_state.get("ownerId")
         if (
             isinstance(pid, bool)
             or not isinstance(pid, int)
@@ -696,12 +731,32 @@ class DesignerCodeMode:
             or lease_started_at != started_at
         ):
             _fail("runtime_identity_unavailable", "runtime_identity", True)
-        return {
+        identity: dict[str, int | str] = {
             "pid": pid,
             "startedAt": started_at,
             "claimedAt": claimed_at,
             "leaseId": lease_id,
         }
+        if owner is not None:
+            if (
+                owner not in {"direct", "code_mode"}
+                or owner == "code_mode"
+                and (
+                    not isinstance(owner_id, str)
+                    or not TRANSACTION_ID.fullmatch(owner_id)
+                )
+                or owner == "direct"
+                and owner_id is not None
+            ):
+                _fail("runtime_identity_unavailable", "runtime_identity", True)
+            identity["owner"] = owner
+            if owner_id is not None:
+                identity["ownerId"] = owner_id
+        if expected_owner_id is not None and (
+            owner != "code_mode" or owner_id != expected_owner_id
+        ):
+            _fail("runtime_identity_unavailable", "runtime_identity", True)
+        return identity
 
     def _runtime_generation(self) -> dict[str, int]:
         try:
@@ -747,6 +802,262 @@ class DesignerCodeMode:
             _fail("transaction_not_found", "transaction")
         self._assert_transaction_id(request, state)
         return state
+
+    def _lease_state(self) -> dict[str, object] | None:
+        try:
+            value = self.runtime.read_json(self.config.lease_path)
+        except Exception as error:
+            raise _error_from_exception(error, phase="lease_status") from error
+        if value is None:
+            return None
+        if not isinstance(value, dict):
+            _fail("lease_state_invalid", "lease_status")
+        return value
+
+    def _classify_state_locked(self) -> dict[str, object]:
+        state = self.store.load()
+        runtime_status = self._runtime_status()
+        lease = self._lease_state()
+        base: dict[str, object] = {
+            "version": PROTOCOL_VERSION,
+            "runtime": runtime_status,
+            "transactionPresent": state is not None,
+            "leasePresent": lease is not None,
+        }
+
+        if state is not None:
+            base["transactionId"] = state["transactionId"]
+            if _clean_stopped(runtime_status):
+                return {
+                    **base,
+                    "state": "stale_transaction",
+                    "safeToRecover": True,
+                    "action": "finish",
+                    "evidence": {"runtime": "stopped", "lease": "absent"},
+                }
+            if runtime_status.get("status") == "unverified_listener":
+                return {
+                    **base,
+                    "state": "unverified_listener",
+                    "safeToRecover": False,
+                    "action": "fail_closed",
+                    "evidence": {"listener": "not_owned"},
+                }
+            if (
+                runtime_status.get("status") == "stopped"
+                and _is_false(runtime_status.get("runtimeOwned"))
+                and _is_false(runtime_status.get("cdpReady"))
+                and _is_true(runtime_status.get("leasePresent"))
+            ):
+                if self._lease_matches_transaction(state):
+                    return {
+                        **base,
+                        "state": "stale_transaction_lease",
+                        "safeToRecover": True,
+                        "action": "finish",
+                        "evidence": {
+                            "runtime": "stopped",
+                            "lease": "matching",
+                        },
+                    }
+                return {
+                    **base,
+                    "state": "transaction_identity_unknown",
+                    "safeToRecover": False,
+                    "action": "fail_closed",
+                    "evidence": {"reason": "stopped_runtime_lease_mismatch"},
+                }
+            try:
+                identity = self._runtime_identity()
+            except ProtocolError as error:
+                return {
+                    **base,
+                    "state": "transaction_identity_unknown",
+                    "safeToRecover": False,
+                    "action": "fail_closed",
+                    "evidence": {"reason": error.code},
+                }
+            if identity != state["runtimeIdentity"]:
+                return {
+                    **base,
+                    "state": "replacement_runtime",
+                    "safeToRecover": False,
+                    "action": "fail_closed",
+                    "evidence": {"identity": "mismatch"},
+                }
+            if (
+                runtime_status.get("status") == "ready"
+                and _is_true(runtime_status.get("runtimeOwned"))
+                and _is_true(runtime_status.get("cdpReady"))
+                and runtime_status.get("consumer") == CONSUMER
+            ):
+                return {
+                    **base,
+                    "state": "active_transaction",
+                    "safeToRecover": False,
+                    "action": "continue_or_finish",
+                    "evidence": {"identity": "matched"},
+                }
+            return {
+                **base,
+                "state": "transaction_runtime_unhealthy",
+                "safeToRecover": False,
+                "action": "fail_closed",
+                "evidence": {"runtime": str(runtime_status.get("status"))},
+            }
+
+        if _clean_stopped(runtime_status):
+            return {
+                **base,
+                "state": "clean_stopped",
+                "safeToRecover": False,
+                "action": "start_transaction",
+            }
+        if runtime_status.get("status") == "unverified_listener":
+            return {
+                **base,
+                "state": "unverified_listener",
+                "safeToRecover": False,
+                "action": "fail_closed",
+                "evidence": {"listener": "not_owned"},
+            }
+        if runtime_status.get("status") == "stopped" and lease is not None:
+            return {
+                **base,
+                "state": "stale_lease",
+                "safeToRecover": True,
+                "action": "reconcile",
+                "evidence": {"runtime": "stopped", "listener": "absent"},
+            }
+        if _is_true(runtime_status.get("runtimeOwned")):
+            owner = runtime_status.get("leaseOwner")
+            state_name = {
+                "direct": "active_direct_owner",
+                "code_mode": "active_code_mode_owner_without_receipt",
+            }.get(owner, "active_unknown_owner") if lease is not None else "owned_runtime_without_lease"
+            return {
+                **base,
+                "state": state_name,
+                "safeToRecover": False,
+                "action": "defer",
+                "evidence": {"runtime": str(runtime_status.get("status"))},
+            }
+        return {
+            **base,
+            "state": "unknown_runtime_state",
+            "safeToRecover": False,
+            "action": "fail_closed",
+        }
+
+    def _status(self, _request: dict[str, Any]) -> dict[str, object]:
+        with self.store.lock():
+            with self._runtime_lock():
+                return self._classify_state_locked()
+
+    def _reconcile(self, _request: dict[str, Any]) -> dict[str, object]:
+        with self.store.lock():
+            with self._runtime_lock():
+                classification = self._classify_state_locked()
+            if classification["state"] == "clean_stopped":
+                return {
+                    **classification,
+                    "status": "reconciled",
+                    "recovered": False,
+                }
+            if classification["state"] == "stale_transaction":
+                state = self.store.load()
+                if state is None:
+                    _fail("transaction_state_invalid", "reconcile")
+                self.store.remove()
+                return {
+                    **classification,
+                    "status": "reconciled",
+                    "recovered": True,
+                }
+            if classification["state"] == "stale_transaction_lease":
+                state = self.store.load()
+                if state is None:
+                    _fail("transaction_state_invalid", "reconcile")
+                lease_id = state["runtimeIdentity"].get("leaseId")
+                if not isinstance(lease_id, str):
+                    _fail("transaction_state_invalid", "reconcile")
+                self._call_runtime(
+                    "release_consumer",
+                    self.config,
+                    CONSUMER,
+                    lease_id=lease_id,
+                )
+                with self._runtime_lock():
+                    after = self._runtime_status()
+                if not _clean_stopped(after):
+                    return {
+                        **classification,
+                        "status": "blocked",
+                        "recovered": False,
+                        "runtime": after,
+                    }
+                self.store.remove()
+                return {
+                    **classification,
+                    "status": "reconciled",
+                    "recovered": True,
+                    "runtime": after,
+                }
+            if classification["state"] == "stale_lease":
+                with self._runtime_lock():
+                    lease = self._lease_state()
+                lease_id = lease.get("leaseId") if lease else None
+                if (
+                    not isinstance(lease_id, str)
+                    or not re.fullmatch(r"[0-9a-f]{32}", lease_id)
+                    or not lease
+                    or lease.get("consumer") != CONSUMER
+                ):
+                    _fail("lease_state_invalid", "reconcile")
+                self._call_runtime(
+                    "release_consumer",
+                    self.config,
+                    CONSUMER,
+                    lease_id=lease_id,
+                )
+                with self._runtime_lock():
+                    after = self._classify_state_locked()
+                if after["state"] != "clean_stopped":
+                    return {
+                        **after,
+                        "status": "blocked",
+                        "recovered": False,
+                    }
+                return {
+                    **after,
+                    "status": "reconciled",
+                    "recovered": True,
+                }
+            return {
+                **classification,
+                "status": "blocked",
+                "recovered": False,
+            }
+
+    def _lease_matches_transaction(self, state: dict[str, Any]) -> bool:
+        expected = state.get("runtimeIdentity")
+        lease = self._lease_state()
+        if not isinstance(expected, dict) or lease is None:
+            return False
+        if (
+            lease.get("consumer") != CONSUMER
+            or lease.get("leaseId") != expected.get("leaseId")
+            or lease.get("runtimePid") != expected.get("pid")
+            or lease.get("runtimeStartedAt") != expected.get("startedAt")
+            or lease.get("claimedAt") != expected.get("claimedAt")
+        ):
+            return False
+        for key in ("owner", "ownerId"):
+            if key in expected and lease.get(key) != expected[key]:
+                return False
+            if key not in expected and key in lease:
+                return False
+        return True
 
     def _build_actions(
         self,
@@ -953,7 +1264,12 @@ class DesignerCodeMode:
             ):
                 _fail("runtime_not_ready", "runtime_prepare", True)
             claim_result = self._call_runtime(
-                "claim_consumer", self.config, CONSUMER, exclusive=True
+                "claim_consumer",
+                self.config,
+                CONSUMER,
+                exclusive=True,
+                owner="code_mode",
+                owner_id=transaction_id,
             )
             claimed = True
             status = self._runtime_status()
@@ -966,7 +1282,7 @@ class DesignerCodeMode:
                 r"[0-9a-f]{32}", lease_id
             ):
                 _fail("lease_not_confirmed", "consumer_claim", True)
-            identity = self._runtime_identity()
+            identity = self._runtime_identity(expected_owner_id=transaction_id)
             if identity["leaseId"] != lease_id:
                 _fail("lease_not_confirmed", "consumer_claim", True)
             state = {
@@ -1151,13 +1467,7 @@ class DesignerCodeMode:
         if state is None:
             with self._runtime_lock():
                 runtime_status = self._runtime_status()
-                stopped = (
-                    runtime_status.get("status") == "stopped"
-                    and _is_false(runtime_status.get("runtimeOwned"))
-                    and _is_false(runtime_status.get("cdpReady"))
-                    and runtime_status.get("consumer") is None
-                    and _is_false(runtime_status.get("leasePresent"))
-                )
+                stopped = _clean_stopped(runtime_status)
                 if not stopped:
                     return {
                         "version": PROTOCOL_VERSION,
@@ -1174,15 +1484,10 @@ class DesignerCodeMode:
                     "runtimeStopped": stopped,
                 }
         self._assert_transaction_id(request, state)
+        recover_lost_runtime = False
         with self._runtime_lock():
             runtime_status = self._runtime_status()
-            stopped = (
-                runtime_status.get("status") == "stopped"
-                and _is_false(runtime_status.get("runtimeOwned"))
-                and _is_false(runtime_status.get("cdpReady"))
-                and runtime_status.get("consumer") is None
-                and _is_false(runtime_status.get("leasePresent"))
-            )
+            stopped = _clean_stopped(runtime_status)
             if stopped:
                 self.store.remove()
                 return {
@@ -1193,7 +1498,24 @@ class DesignerCodeMode:
                     "transactionId": state["transactionId"],
                     "cleanup": _public_runtime(runtime_status),
                 }
-        self._assert_runtime_identity(state)
+            if (
+                runtime_status.get("status") == "stopped"
+                and _is_false(runtime_status.get("runtimeOwned"))
+                and _is_false(runtime_status.get("cdpReady"))
+                and _is_true(runtime_status.get("leasePresent"))
+            ):
+                if not self._lease_matches_transaction(state):
+                    return {
+                        "version": PROTOCOL_VERSION,
+                        "status": "blocked",
+                        "classification": "cleanup_failed",
+                        "runtimeStopped": False,
+                        "blockers": ["runtime_identity"],
+                        "transactionId": state["transactionId"],
+                    }
+                recover_lost_runtime = True
+        if not recover_lost_runtime:
+            self._assert_runtime_identity(state)
         try:
             self._call_runtime(
                 "release_consumer",
@@ -1205,13 +1527,7 @@ class DesignerCodeMode:
             raise
         with self._runtime_lock():
             runtime_status = self._runtime_status()
-            stopped = (
-                runtime_status.get("status") == "stopped"
-                and _is_false(runtime_status.get("runtimeOwned"))
-                and _is_false(runtime_status.get("cdpReady"))
-                and runtime_status.get("consumer") is None
-                and _is_false(runtime_status.get("leasePresent"))
-            )
+            stopped = _clean_stopped(runtime_status)
             if not stopped:
                 return {
                     "version": PROTOCOL_VERSION,
@@ -1302,7 +1618,15 @@ class DesignerCodeMode:
                 "version": PROTOCOL_VERSION,
                 "status": "ok",
                 "operation": "help",
-                "operations": ["help", "capabilities", "prepare", "verify", "finish"],
+                "operations": [
+                    "help",
+                    "capabilities",
+                    "status",
+                    "reconcile",
+                    "prepare",
+                    "verify",
+                    "finish",
+                ],
                 "workflow": [
                     "prepare",
                     "native agent_browser work",
@@ -1319,6 +1643,10 @@ class DesignerCodeMode:
             }
         if operation == "capabilities":
             return self._capabilities(request)
+        if operation == "status":
+            return self._status(request)
+        if operation == "reconcile":
+            return self._reconcile(request)
         if operation == "prepare":
             return self._prepare(request)
         if operation == "verify":

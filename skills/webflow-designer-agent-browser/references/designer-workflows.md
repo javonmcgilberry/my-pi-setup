@@ -21,6 +21,13 @@ The receipt includes a private runtime generation and lease token. Verification
 rechecks service probes and that identity before authorizing work or cleanup;
 another process cannot satisfy an old transaction by reusing the same port.
 
+After an interruption, use Code Mode `status` rather than inspecting PID,
+generation, or lease files manually. It distinguishes clean stopped state,
+active Code Mode transactions, valid direct/native ownership, stale receipts or
+leases, replacement identity, and unverified listeners. `reconcile` converges
+only the stale states that have no live owned listener and matching identity;
+direct/native owners and unknown listeners are deferred or fail closed.
+
 Never mix environment repair with feature assertions, and never overlap browser
 leases. If the facade is unavailable, the direct helpers below remain an
 explicit fallback with identical check names and cleanup proof. Pass the
