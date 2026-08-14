@@ -5,6 +5,7 @@ import tempfile
 import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT = Path(__file__).with_name("designer-code-mode.py")
@@ -341,6 +342,34 @@ class DesignerCodeModeTests(unittest.TestCase):
             service.handle({"version": 1, "operation": "status"})["state"],
             "clean_stopped",
         )
+
+    def test_status_defers_active_code_mode_owner_without_receipt(self):
+        service = self.service()
+        self.runtime.owned = True
+        self.runtime.ready = True
+        self.runtime.mode = "headless"
+        self.runtime.consumer = "agent_browser"
+        self.runtime.lease_id = "a" * 32
+        self.runtime.lease_owner = "code_mode"
+        self.runtime.lease_owner_id = "12345678-1234-4234-8234-123456789abc"
+        result = service.handle({"version": 1, "operation": "status"})
+        self.assertEqual(result["state"], "active_code_mode_owner_without_receipt")
+        self.assertFalse(result["safeToRecover"])
+        self.assertEqual(result["action"], "defer")
+
+    def test_prepare_releases_claim_when_receipt_persistence_is_interrupted(self):
+        service = self.service()
+        failure = designer_code_mode.ProtocolError(
+            "transaction_state_write_failed", "transaction", True
+        )
+        with mock.patch.object(service.store, "write", side_effect=failure):
+            with self.assertRaisesRegex(
+                designer_code_mode.ProtocolError, "transaction_state_write_failed"
+            ):
+                service.handle(self.prepare_request())
+        self.assertFalse(self.runtime.owned)
+        self.assertIsNone(self.runtime.consumer)
+        self.assertIsNone(service.store.load())
 
     def test_capability_lookup_is_lazy_and_supports_continuation(self):
         service = self.service()
