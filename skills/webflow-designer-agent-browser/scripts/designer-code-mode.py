@@ -931,10 +931,14 @@ class DesignerCodeMode:
             }
         if _is_true(runtime_status.get("runtimeOwned")):
             owner = runtime_status.get("leaseOwner")
-            state_name = {
-                "direct": "active_direct_owner",
-                "code_mode": "active_code_mode_owner_without_receipt",
-            }.get(owner, "active_unknown_owner") if lease is not None else "owned_runtime_without_lease"
+            if lease is None:
+                state_name = "owned_runtime_without_lease"
+            elif owner == "direct":
+                state_name = "active_direct_owner"
+            elif owner == "code_mode":
+                state_name = "active_code_mode_owner_without_receipt"
+            else:
+                state_name = "active_unknown_owner"
             return {
                 **base,
                 "state": state_name,
