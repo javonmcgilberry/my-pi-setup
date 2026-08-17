@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Review complete browser runs and maintain a bounded automation evidence queue."""
+"""Validate browser evidence, review runs, and maintain a bounded candidate queue."""
 
 from __future__ import annotations
 
@@ -37,6 +37,34 @@ RUN_FIELDS = {
     "events",
     "candidates",
 }
+REPORT_FIELDS = {
+    "mode",
+    "sanitized_url",
+    "ownership_boundary",
+    "target_frame",
+    "verification",
+    "observations",
+    "authorized_actions",
+    "diagnostics",
+    "artifacts",
+    "blockers",
+    "assumptions",
+    "finish",
+    "scope_claim",
+}
+READINESS_CHECKS = {
+    "hud",
+    "designer_service",
+    "target_http",
+    "browser_profile",
+    "designer_surface",
+}
+OBSERVATION_FIELDS = {"before", "after"}
+DIAGNOSTIC_FIELDS = {"console", "page_errors", "network"}
+SCOPE_CLAIMS = {
+    "attached": "attached_state_only",
+    "isolated": "repeatable_isolated_state_only",
+}
 EVENT_KINDS = {"action", "failure", "postcondition", "recovery"}
 PROMOTABLE_CLASSIFICATIONS = {
     "extend_existing",
@@ -57,9 +85,216 @@ QUEUE_VERSION = 1
 
 
 def validate_text(value: object, field: str) -> str:
-    if not isinstance(value, str) or not value.strip() or len(value) > 240:
-        raise ValueError(f"{field} must contain 1 to 240 characters")
+    return validate_bounded_text(value, field, maximum=240)
+
+
+def validate_bounded_text(value: object, field: str, *, maximum: int) -> str:
+    if not isinstance(value, str) or not value.strip() or len(value) > maximum:
+        raise ValueError(f"{field} must contain 1 to {maximum} characters")
     return value
+
+
+def validate_text_list(value: object, field: str) -> list[str]:
+    if not isinstance(value, list):
+        raise ValueError(f"{field} must be an array")
+    if len(value) > 50:
+        raise ValueError(f"{field} must contain at most 50 entries")
+    return [validate_text(item, f"{field}[{index}]") for index, item in enumerate(value)]
+
+
+def validate_report(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != {"report"}:
+        raise ValueError("input must be an object containing only report")
+    report = value["report"]
+    if not isinstance(report, dict) or set(report) != REPORT_FIELDS:
+        raise ValueError(f"report must contain exactly {sorted(REPORT_FIELDS)}")
+
+    mode = report["mode"]
+    if not isinstance(mode, str) or mode not in SCOPE_CLAIMS:
+        raise ValueError(f"report.mode must be one of {sorted(SCOPE_CLAIMS)}")
+    validate_bounded_text(
+        report["sanitized_url"], "report.sanitized_url", maximum=2_000
+    )
+    validate_text(report["ownership_boundary"], "report.ownership_boundary")
+    validate_text(report["target_frame"], "report.target_frame")
+
+    verification = report["verification"]
+    if not isinstance(verification, dict):
+        raise ValueError("report.verification must be an object")
+    if verification.get("status") not in {"verified", "blocked"}:
+        raise ValueError("report.verification.status must be verified or blocked")
+    transaction_id = validate_text(
+        verification.get("transactionId"), "report.verification.transactionId"
+    )
+    readiness = verification.get("readiness")
+    if not isinstance(readiness, dict):
+        raise ValueError("report.verification.readiness must be an object")
+    checks = readiness.get("checks")
+    if not isinstance(checks, list):
+        raise ValueError("report.verification.readiness.checks must be an array")
+    observed_checks: dict[str, str] = {}
+    for index, check in enumerate(checks):
+        if not isinstance(check, dict) or set(check) != {"name", "state"}:
+            raise ValueError(
+                "report.verification.readiness.checks"
+                f"[{index}] must contain exactly name and state"
+            )
+        name = check["name"]
+        state = check["state"]
+        if not isinstance(name, str) or name not in READINESS_CHECKS:
+            raise ValueError(f"unknown readiness check: {name!r}")
+        if name in observed_checks:
+            raise ValueError(f"duplicate readiness check: {name}")
+        if not isinstance(state, str) or state not in {
+            "ready",
+            "unavailable",
+            "error",
+            "auth_required",
+        }:
+            raise ValueError(f"invalid readiness state for {name}: {state!r}")
+        observed_checks[name] = state
+    if set(observed_checks) != READINESS_CHECKS:
+        raise ValueError(
+            "report.verification.readiness.checks must name exactly "
+            f"{sorted(READINESS_CHECKS)}"
+        )
+    blocked_checks = sorted(
+        name for name, state in observed_checks.items() if state != "ready"
+    )
+    readiness_cleanup = readiness.get("cleanup")
+    if not isinstance(readiness_cleanup, dict) or set(readiness_cleanup) != {
+        "runtimeStopped",
+        "runtimeHeld",
+    }:
+        raise ValueError(
+            "report.verification.readiness.cleanup must contain exactly "
+            "runtimeHeld and runtimeStopped"
+        )
+    if readiness_cleanup["runtimeStopped"] is not False or not isinstance(
+        readiness_cleanup["runtimeHeld"], bool
+    ):
+        raise ValueError(
+            "report.verification.readiness.cleanup is invalid during verification"
+        )
+    gate_blockers = list(blocked_checks)
+    if readiness_cleanup["runtimeHeld"] is False:
+        gate_blockers.append("browser_runtime_cleanup")
+    expected_allowed = not gate_blockers
+    if verification.get("qaLaunchAllowed") is not expected_allowed:
+        raise ValueError(
+            "report.verification.qaLaunchAllowed conflicts with readiness checks"
+        )
+    expected_status = "verified" if expected_allowed else "blocked"
+    if verification.get("status") != expected_status:
+        raise ValueError(
+            "report.verification.status conflicts with readiness decision"
+        )
+    readiness_blockers = validate_text_list(
+        readiness.get("blockers"), "report.verification.readiness.blockers"
+    )
+    if sorted(readiness_blockers) != sorted(gate_blockers):
+        raise ValueError(
+            "report.verification.readiness.blockers conflicts with readiness checks"
+        )
+
+    observations = report["observations"]
+    if not isinstance(observations, dict) or set(observations) != OBSERVATION_FIELDS:
+        raise ValueError(
+            "report.observations must contain exactly "
+            f"{sorted(OBSERVATION_FIELDS)}"
+        )
+    for name, observation in observations.items():
+        validate_text(observation, f"report.observations.{name}")
+
+    diagnostics = report["diagnostics"]
+    if not isinstance(diagnostics, dict) or set(diagnostics) != DIAGNOSTIC_FIELDS:
+        raise ValueError(
+            "report.diagnostics must contain exactly "
+            f"{sorted(DIAGNOSTIC_FIELDS)}"
+        )
+    diagnostic_counts = {
+        name: len(validate_text_list(items, f"report.diagnostics.{name}"))
+        for name, items in diagnostics.items()
+    }
+    action_count = len(
+        validate_text_list(report["authorized_actions"], "report.authorized_actions")
+    )
+    artifact_count = len(validate_text_list(report["artifacts"], "report.artifacts"))
+    blockers = validate_text_list(report["blockers"], "report.blockers")
+    assumption_count = len(
+        validate_text_list(report["assumptions"], "report.assumptions")
+    )
+
+    finish = report["finish"]
+    if not isinstance(finish, dict):
+        raise ValueError("report.finish must be an object")
+    if finish.get("transactionId") != transaction_id:
+        raise ValueError("report.finish transaction does not match verification")
+    if finish.get("status") != "finished" or finish.get("runtimeStopped") is not True:
+        raise ValueError("report.finish does not prove a finished transaction")
+    cleanup = finish.get("cleanup")
+    if not isinstance(cleanup, dict):
+        raise ValueError("report.finish.cleanup must be an object")
+    expected_cleanup = {
+        "runtimeOwned": False,
+        "cdpReady": False,
+        "consumer": None,
+        "leasePresent": False,
+        "status": "stopped",
+    }
+    if any(cleanup.get(key) != expected for key, expected in expected_cleanup.items()):
+        raise ValueError("report.finish.cleanup does not prove a clean stopped runtime")
+
+    expected_scope = SCOPE_CLAIMS[mode]
+    if report["scope_claim"] != expected_scope:
+        raise ValueError(
+            f"report.scope_claim must be {expected_scope!r} for mode {mode!r}"
+        )
+
+    missing_blockers = set(gate_blockers) - set(blockers)
+    if missing_blockers:
+        raise ValueError(
+            "report.blockers must name every non-ready check: "
+            f"{sorted(missing_blockers)}"
+        )
+    return {
+        "evidenceContractValid": True,
+        "mode": mode,
+        "scopeClaim": expected_scope,
+        "allReadinessChecksReady": not blocked_checks,
+        "nonReadyChecks": blocked_checks,
+        "blockerCount": len(blockers),
+        "authorizedActionCount": action_count,
+        "artifactCount": artifact_count,
+        "assumptionCount": assumption_count,
+        "diagnosticCounts": diagnostic_counts,
+        "cleanupProven": True,
+    }
+
+
+def report_template(mode: str) -> dict[str, Any]:
+    if mode not in SCOPE_CLAIMS:
+        raise ValueError(f"report template mode must be one of {sorted(SCOPE_CLAIMS)}")
+    return {
+        "report": {
+            "mode": mode,
+            "sanitized_url": "REPLACE_WITH_SANITIZED_URL",
+            "ownership_boundary": "REPLACE_WITH_OBSERVED_BOUNDARY",
+            "target_frame": "REPLACE_WITH_TARGET_FRAME",
+            "verification": "REPLACE_WITH_SANITIZED_VERIFY_OUTPUT",
+            "observations": {
+                "before": "REPLACE_WITH_SCOPED_BEFORE_OBSERVATION",
+                "after": "REPLACE_WITH_SCOPED_AFTER_OBSERVATION",
+            },
+            "authorized_actions": [],
+            "diagnostics": {name: [] for name in sorted(DIAGNOSTIC_FIELDS)},
+            "artifacts": [],
+            "blockers": sorted(READINESS_CHECKS),
+            "assumptions": [],
+            "finish": "REPLACE_WITH_SANITIZED_FINISH_OUTPUT",
+            "scope_claim": SCOPE_CLAIMS[mode],
+        }
+    }
 
 
 def validate_event(value: object, index: int) -> dict[str, Any]:
@@ -414,15 +649,25 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("path", type=Path, nargs="?")
     parser.add_argument("--queue", type=Path)
-    parser.add_argument("--append-candidate", type=Path)
-    parser.add_argument("--review-queue", action="store_true")
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument("--append-candidate", type=Path)
+    action.add_argument("--review-queue", action="store_true")
+    action.add_argument("--validate-report", action="store_true")
+    action.add_argument("--report-template", choices=sorted(SCOPE_CLAIMS))
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     try:
-        if args.append_candidate:
+        if args.report_template:
+            result = report_template(args.report_template)
+        elif args.validate_report:
+            if not args.path:
+                raise ValueError("an evidence report path is required")
+            value = json.loads(args.path.read_text())
+            result = validate_report(value)
+        elif args.append_candidate:
             if not args.queue:
                 raise ValueError("--queue is required with --append-candidate")
             value = json.loads(args.append_candidate.read_text())
@@ -437,7 +682,7 @@ def main() -> int:
             value = json.loads(args.path.read_text())
             result = review(value)
     except (OSError, json.JSONDecodeError, ValueError) as error:
-        print(f"Unable to review automation candidates: {error}", file=sys.stderr)
+        print(f"Unable to process automation evidence: {error}", file=sys.stderr)
         return 2
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0

@@ -1523,6 +1523,74 @@ class EvidenceTests(unittest.TestCase):
 
 class AutomationReviewTests(unittest.TestCase):
     @staticmethod
+    def evidence_report(*, mode: str = "isolated") -> dict[str, Any]:
+        return {
+            "report": {
+                "mode": mode,
+                "sanitized_url": "https://design.webflow.com/example",
+                "ownership_boundary": "agent-owned dedicated profile",
+                "target_frame": "main",
+                "verification": {
+                    "status": "verified",
+                    "transactionId": "11111111-1111-4111-8111-111111111111",
+                    "qaLaunchAllowed": True,
+                    "readiness": {
+                        "checks": [
+                            {"name": name, "state": "ready"}
+                            for name in sorted(automation_evidence.READINESS_CHECKS)
+                        ],
+                        "blockers": [],
+                        "cleanup": {
+                            "runtimeStopped": False,
+                            "runtimeHeld": True,
+                        },
+                    },
+                },
+                "observations": {
+                    "before": "Scoped surface was present",
+                    "after": "Scoped surface remained present",
+                },
+                "authorized_actions": [],
+                "diagnostics": {
+                    "console": [],
+                    "page_errors": [],
+                    "network": [],
+                },
+                "artifacts": [],
+                "blockers": [],
+                "assumptions": [],
+                "finish": {
+                    "status": "finished",
+                    "transactionId": "11111111-1111-4111-8111-111111111111",
+                    "runtimeStopped": True,
+                    "cleanup": {
+                        "runtimeOwned": False,
+                        "cdpReady": False,
+                        "consumer": None,
+                        "leasePresent": False,
+                        "status": "stopped",
+                    },
+                },
+                "scope_claim": (
+                    "attached_state_only"
+                    if mode == "attached"
+                    else "repeatable_isolated_state_only"
+                ),
+            }
+        }
+
+    @staticmethod
+    def block_designer_surface(value: dict[str, Any]) -> None:
+        verification = value["report"]["verification"]
+        checks = verification["readiness"]["checks"]
+        next(check for check in checks if check["name"] == "designer_surface")[
+            "state"
+        ] = "error"
+        verification["status"] = "blocked"
+        verification["qaLaunchAllowed"] = False
+        verification["readiness"]["blockers"] = ["designer_surface"]
+
+    @staticmethod
     def event(
         event_id: str,
         *,
@@ -1587,6 +1655,57 @@ class AutomationReviewTests(unittest.TestCase):
         ]
         with self.assertRaisesRegex(ValueError, "service-unavailable"):
             automation_evidence.review(self.full_run(events, candidates))
+
+    def test_final_evidence_report_is_validated_deterministically(self):
+        result = automation_evidence.validate_report(self.evidence_report())
+        self.assertTrue(result["evidenceContractValid"])
+        self.assertTrue(result["allReadinessChecksReady"])
+        self.assertTrue(result["cleanupProven"])
+        self.assertEqual(result["nonReadyChecks"], [])
+
+    def test_final_evidence_report_requires_exact_cleanup_proof(self):
+        value = self.evidence_report()
+        value["report"]["finish"]["cleanup"]["leasePresent"] = True
+        with self.assertRaisesRegex(ValueError, "clean stopped runtime"):
+            automation_evidence.validate_report(value)
+
+    def test_final_evidence_report_binds_scope_claim_to_mode(self):
+        value = self.evidence_report(mode="attached")
+        value["report"]["scope_claim"] = "repeatable_isolated_state_only"
+        with self.assertRaisesRegex(ValueError, "attached_state_only"):
+            automation_evidence.validate_report(value)
+
+    def test_final_evidence_report_binds_verify_and_finish_transaction(self):
+        value = self.evidence_report()
+        value["report"]["finish"]["transactionId"] = (
+            "22222222-2222-4222-8222-222222222222"
+        )
+        with self.assertRaisesRegex(ValueError, "does not match verification"):
+            automation_evidence.validate_report(value)
+
+    def test_final_evidence_report_names_non_ready_checks(self):
+        value = self.evidence_report()
+        self.block_designer_surface(value)
+        value["report"]["blockers"] = ["designer_surface"]
+        result = automation_evidence.validate_report(value)
+        self.assertFalse(result["allReadinessChecksReady"])
+        self.assertEqual(result["nonReadyChecks"], ["designer_surface"])
+
+    def test_final_evidence_report_requires_named_non_ready_checks(self):
+        value = self.evidence_report()
+        self.block_designer_surface(value)
+        with self.assertRaisesRegex(ValueError, "must name every non-ready check"):
+            automation_evidence.validate_report(value)
+
+    def test_report_template_is_incomplete_and_fail_closed(self):
+        value = automation_evidence.report_template("attached")
+        with self.assertRaisesRegex(ValueError, "verification must be an object"):
+            automation_evidence.validate_report(value)
+        self.assertEqual(value["report"]["scope_claim"], "attached_state_only")
+        self.assertEqual(
+            value["report"]["blockers"],
+            sorted(automation_evidence.READINESS_CHECKS),
+        )
 
     def test_repeated_evidence_cannot_be_reclassified_as_one_off(self):
         event = self.event("service-unavailable", occurrences=3)

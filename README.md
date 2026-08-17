@@ -507,6 +507,16 @@ Chrome-for-Testing/CDP handoff and returns the native `connect` action; it does
 not launch the host tool itself. Manual headed runtime startup is reserved for
 the explicit authentication bootstrap path, not normal transactions.
 
+Final Webflow browser evidence is also command-checked rather than left as a
+prose checklist. Generate the fail-closed shape with
+`skills/webflow-designer-agent-browser/scripts/automation-evidence.py
+--report-template <attached|isolated>`, fill and sanitize it, then run
+`skills/webflow-designer-agent-browser/scripts/automation-evidence.py
+--validate-report <sanitized-report.json>`. The command checks the required
+report fields, all five readiness names and blockers, the mode-specific scope
+claim, one transaction identity across the included `verify` and `finish`
+outputs, and the exact clean stopped-runtime proof before the final response.
+
 When available, the skill uses Pi's native `agent_browser` tool. Otherwise, it
 uses the global `agent-browser` CLI. Install the pinned CLI and the stable
 Chrome for Testing runtime it uses with:

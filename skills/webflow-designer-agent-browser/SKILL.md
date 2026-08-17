@@ -131,7 +131,17 @@ both transports. Native actions use `agent_browser`; CLI actions use the
 - Run `scripts/discover-designer-tabs.py --attachment-config config/attachment.json --transport <native|cli>` from this skill directory before attaching. The tracked config emits the selected transport's explicit `connect <port>` action for canonical `direct_cdp`. Pass a sanitized surface fixture back with `--surface-fixture`, `--expected-title`, and the required actual `--expected-runtime-mode`; headed verification rejects `HeadlessChrome`, headless verification requires it, and both reject all-`about:blank` managed fallbacks.
 - Run `scripts/designer-session.py <attached|isolated> --transport <native|cli>` to preflight a bounded bootstrap and emit transport-specific actions plus mandatory cleanup. It never launches a browser itself. Supply each required service through `--tcp-service` or `--http-service`; a failed preflight stops plan emission and identifies the unavailable label without exposing its target. Attached fallback plans also require the private `leaseId` returned by `browser-runtime.py claim`, so delayed cleanup cannot release a replacement runtime.
 - Pipe agent-browser JSON or a saved report through `scripts/sanitize-evidence.py` before sharing it. The sanitizer redacts secret-bearing keys, sensitive headers, unsafe query values, long strings, and oversized collections.
-- Run `scripts/automation-evidence.py <sanitized-run-shape.json>` only after reconstructing the complete run. It rejects incomplete inventories. Use its private evidence queue only for non-sensitive candidate shapes; reviewed promotion is a separate maintenance pass.
+- Run `scripts/automation-evidence.py --report-template <attached|isolated>` to
+  emit the fail-closed report shape, fill it with sanitized evidence, then run
+  `scripts/automation-evidence.py --validate-report <sanitized-report.json>`
+  before the final response. Include the sanitized Code Mode `verify` and
+  `finish` outputs; validation derives the five readiness checks and named
+  blockers, binds both outputs to one transaction, checks the mode-specific
+  scope claim and bounded lists, and proves clean stopped-runtime cleanup. Run
+  `scripts/automation-evidence.py <sanitized-run-shape.json>`
+  only after reconstructing the complete run; it rejects incomplete
+  inventories. Use its private evidence queue only for non-sensitive candidate
+  shapes; reviewed promotion is a separate maintenance pass.
 - Run `scripts/guarded-site-authorization.py <sanitized-surface.json> --expected-site-id <site-id>` to identify one exact authorization checkbox across visible pages. The helper validates the selection and callback postconditions only when their explicit flags are present; agent-browser remains responsible for browser actions.
 - Run `scripts/verify-workspace-build.py --source <source-module> --built <generated-module>` before published runtime QA when a local provider package imports ignored generated workspace output.
 - Run `node scripts/cdp-frame-eval.mjs ... --dry-run` when agent-browser cannot retain context for an out-of-process iframe. It evaluates a file-backed expression in the matching frame without printing target URLs. Use `--visible-replacement-selector <selector>` with a bounded `--observation-ms` to report count-only overlap and blank-gap evidence during one replacement.
@@ -248,7 +258,10 @@ Read [references/designer-workflows.md](references/designer-workflows.md) for De
 
 ## Evidence contract
 
-Report:
+Generate the mode-specific JSON shape with
+`scripts/automation-evidence.py --report-template <attached|isolated>`, fill it
+with sanitized evidence, then validate it with
+`scripts/automation-evidence.py --validate-report <sanitized-report.json>`:
 
 - mode, exact sanitized URL, observed ownership boundary, and target frame
 - environment and readiness checks
@@ -258,6 +271,11 @@ Report:
 - inspected screenshot, trace, profile, or HAR paths with sensitive data excluded
 - blockers and assumptions that were not validated
 - cleanup proof showing the managed session closed and the owned runtime stopped
+
+Use `attached_state_only` as the scope claim for attached mode and
+`repeatable_isolated_state_only` for isolated mode. The report is complete only
+when the validator returns `evidenceContractValid: true`; readiness may still
+be blocked, but cleanup must prove a clean stopped runtime.
 
 Do not treat an attached exploration as repeatable isolated verification. Do not treat an isolated pass as proof of the user's unsaved live canvas state.
 
