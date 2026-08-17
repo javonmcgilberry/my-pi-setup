@@ -499,6 +499,14 @@ a project-local tool. `scripts/readiness-gate.py` remains available for direct
 diagnostic handoffs; it accepts `--runtime-held` for a claimed transaction and
 `--runtime-stopped` for standalone cleanup proof.
 
+Before a native transaction, the host must have the native `agent_browser`
+capability registered and callable. Activate/probe that capability before
+calling `webflow_designer prepare`; if it is unavailable, stop before claiming
+the managed runtime with `browser_transport_unavailable`. `prepare` owns the
+Chrome-for-Testing/CDP handoff and returns the native `connect` action; it does
+not launch the host tool itself. Manual headed runtime startup is reserved for
+the explicit authentication bootstrap path, not normal transactions.
+
 When available, the skill uses Pi's native `agent_browser` tool. Otherwise, it
 uses the global `agent-browser` CLI. Install the pinned CLI and the stable
 Chrome for Testing runtime it uses with:

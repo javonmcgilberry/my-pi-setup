@@ -25,6 +25,16 @@ transport-specific browser actions. It never invokes arbitrary native Pi tools.
 The model still performs page interaction with native `agent_browser` when
 available; the CLI is selected explicitly and cannot be substituted later.
 
+The native `agent_browser` tool is a host capability, not the managed Chrome
+runtime. Before calling `prepare` with `native`, confirm that the native tool is
+actually registered and callable in the current session; activating or probing
+the host capability is a precondition, not an optional recovery step. If it is
+unavailable, stop with `browser_transport_unavailable` before claiming a
+runtime. Do not start Chrome manually to compensate. `prepare` reserves the
+managed runtime for the native handoff, but its lease is not evidence that the
+host wrapper has connected yet; execute the returned native `connect` action
+immediately after preparation.
+
 `status` is a read-only bounded lifecycle classifier for interrupted or
 partially cleaned runs. It reports whether the state is clean, an active
 transaction, a valid direct/native owner, a stale receipt/lease that can be
@@ -78,13 +88,17 @@ both transports. Native actions use `agent_browser`; CLI actions use the
 
 ## Preconditions
 
-1. Select and record `native` or `cli` using the capability rules above. Run the CLI checks only for `cli`.
+1. Select and record `native` or `cli` using the capability rules above. For
+   `native`, verify the host tool is registered and callable before `prepare`;
+   if activation cannot make it available, stop with
+   `browser_transport_unavailable`. Run the CLI checks only for `cli`.
 2. Do not install a browser transport, download a browser, or change Chrome configuration without approval.
 3. Obtain the exact Designer URL, including `pageId`, role simulation, and local port. Prefer the URL from the live tab.
 4. For normal managed local/authenticated QA, complete `webflow_designer`
    `prepare` before browser interaction and `verify` before authorized work. Do
-   not start a separate readiness or QA subagent. In the direct-helper fallback,
-   run the same five checks before acting.
+   not manually start the managed runtime or start a separate readiness/QA
+   subagent. In the direct-helper fallback, run the same five checks before
+   acting.
 5. On `profile_unavailable`, fully quit normal Chrome, then run `scripts/browser-runtime.py bootstrap --confirm-sensitive-copy` once. The default source is the normal Chrome `Default` profile; pass `--source-profile <directory-name>` explicitly for another profile. Bootstrap excludes `Local State`, cookie databases, saved-login databases, and Web Data. Then run `start --headed` for a one-time Webflow login and `release --consumer agent_browser` immediately afterward.
 6. Choose one mode explicitly and record it in the evidence.
 

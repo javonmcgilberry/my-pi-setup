@@ -5,6 +5,9 @@
 Local/authenticated Designer testing uses one serial transaction owner rather
 than a separate model-driven setup owner:
 
+0. Confirm the selected native `agent_browser` host capability is registered
+   and callable before reserving a native transaction. If it is unavailable,
+   stop before `prepare`; do not manually start Chrome as a substitute.
 1. `webflow_designer prepare` batches the declared HUD, Designer service, and
    target probes, ensures managed Chrome for Testing, claims the exclusive
    `agent_browser` lease, and returns a native or explicit CLI action plan.
@@ -20,6 +23,10 @@ than a separate model-driven setup owner:
 The receipt includes a private runtime generation and lease token. Verification
 rechecks service probes and that identity before authorizing work or cleanup;
 another process cannot satisfy an old transaction by reusing the same port.
+
+The lease reserves the managed runtime for the selected browser handoff; it is
+not proof that the native wrapper has connected. Execute the returned native
+`connect` action immediately after `prepare`.
 
 After an interruption, use Code Mode `status` rather than inspecting PID,
 generation, or lease files manually. It distinguishes clean stopped state,
