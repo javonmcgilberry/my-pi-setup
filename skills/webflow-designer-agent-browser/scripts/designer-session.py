@@ -210,7 +210,33 @@ def build_commands(args: argparse.Namespace) -> list[dict[str, object]]:
             }
         raise ValueError("transport must be native or cli")
 
-    if args.mode == "attached":
+    def isolated_navigation(*, include_user_agent: bool) -> list[str]:
+        if not args.url:
+            raise ValueError("--url is required for isolated mode")
+        reject_sensitive_url(args.url)
+        navigation = []
+        if include_user_agent and args.user_agent:
+            navigation.extend(["--user-agent", args.user_agent])
+        host = (urlsplit(args.url).hostname or "").lower()
+        if host in {"127.0.0.1", "::1", "localhost"}:
+            navigation.append("--ignore-https-errors")
+        navigation.extend(["open", args.url])
+        return navigation
+
+    managed_runtime = bool(getattr(args, "managed_runtime", False))
+    if managed_runtime:
+        if not args.port:
+            raise ValueError("--port is required for a managed runtime")
+        commands.append(browser_action(["connect", str(args.port)], fresh=True))
+        if args.mode == "attached":
+            commands.append(browser_action(["tab"]))
+            if args.tab:
+                commands.append(browser_action(["tab", args.tab]))
+        else:
+            commands.append(
+                browser_action(isolated_navigation(include_user_agent=False))
+            )
+    elif args.mode == "attached":
         if not args.port:
             raise ValueError("--port is required for attached direct CDP mode")
         commands.append(browser_action(["connect", str(args.port)], fresh=True))
@@ -218,17 +244,11 @@ def build_commands(args: argparse.Namespace) -> list[dict[str, object]]:
         if args.tab:
             commands.append(browser_action(["tab", args.tab]))
     else:
-        if not args.url:
-            raise ValueError("--url is required for isolated mode")
-        reject_sensitive_url(args.url)
-        launch = []
-        if args.user_agent:
-            launch.extend(["--user-agent", args.user_agent])
-        host = (urlsplit(args.url).hostname or "").lower()
-        if host in {"127.0.0.1", "::1", "localhost"}:
-            launch.append("--ignore-https-errors")
-        launch.extend(["open", args.url])
-        commands.append(browser_action(launch, fresh=True))
+        commands.append(
+            browser_action(
+                isolated_navigation(include_user_agent=True), fresh=True
+            )
+        )
 
     commands.append(browser_action(["wait", args.ready_selector]))
     commands.append(browser_action(["snapshot", "-i", "-c", "-s", args.surface]))
@@ -273,32 +293,38 @@ def run(
         release_args = ["release", "--consumer", "agent_browser"]
         if lease_id:
             release_args.extend(["--lease-id", lease_id])
-        cleanup.extend(
-            [
-                {
-                    "helper": "scripts/browser-runtime.py",
-                    "args": release_args,
-                    "when": "attached",
+        cleanup = [
+            {
+                "helper": "scripts/browser-runtime.py",
+                "args": release_args,
+                "when": "attached",
+            },
+            {
+                "helper": "scripts/browser-runtime.py",
+                "args": ["status"],
+                "require": {
+                    "runtimeOwned": False,
+                    "cdpReady": False,
+                    "consumer": None,
+                    "status": "stopped",
                 },
-                {
-                    "helper": "scripts/browser-runtime.py",
-                    "args": ["status"],
-                    "require": {
-                        "runtimeOwned": False,
-                        "cdpReady": False,
-                        "consumer": None,
-                        "status": "stopped",
-                    },
-                    "when": "attached",
-                },
-            ]
-        )
+                "when": "attached",
+            },
+            {**browser_cleanup, "when": "runtime-stopped"},
+        ]
     if checks and not dry_run:
         preflight = run_preflight(checks, timeout)
         if not preflight["ready"]:
             print(
                 json.dumps(
-                    {"preflight": preflight, "cleanup": cleanup[1:]},
+                    {
+                        "preflight": preflight,
+                        "cleanup": (
+                            cleanup[:-1]
+                            if attached and not preflight_only
+                            else []
+                        ),
+                    },
                     sort_keys=True,
                 )
             )

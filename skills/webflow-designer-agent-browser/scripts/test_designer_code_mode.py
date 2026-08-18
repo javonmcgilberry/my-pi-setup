@@ -371,6 +371,20 @@ class DesignerCodeModeTests(unittest.TestCase):
         self.assertIsNone(self.runtime.consumer)
         self.assertIsNone(service.store.load())
 
+    def test_prepare_reports_cleanup_failure_instead_of_hiding_it(self):
+        service = self.service()
+        failure = designer_code_mode.ProtocolError(
+            "transaction_state_write_failed", "transaction", True
+        )
+        self.runtime.fail_release_once = True
+        with mock.patch.object(service.store, "write", side_effect=failure):
+            with self.assertRaisesRegex(
+                designer_code_mode.ProtocolError, "prepare_cleanup_failed"
+            ):
+                service.handle(self.prepare_request())
+        self.assertTrue(self.runtime.owned)
+        self.assertEqual(self.runtime.consumer, "agent_browser")
+
     def test_capability_lookup_is_lazy_and_supports_continuation(self):
         service = self.service()
         page = service.handle(
@@ -404,6 +418,25 @@ class DesignerCodeModeTests(unittest.TestCase):
         self.assertEqual(self.runtime.start_timeout, 30.0)
         self.assertFalse(prepared["qaLaunchAllowed"])
         self.assertEqual(prepared["actions"][0]["tool"], "agent_browser")
+        self.assertEqual(prepared["actions"][0]["args"], ["connect", "9333"])
+        self.assertEqual(prepared["actions"][1]["args"], ["open", TARGET])
+        self.assertEqual(
+            prepared["cleanup"]["order"],
+            ["finish", "retire_browser_session"],
+        )
+        self.assertEqual(
+            prepared["cleanup"]["finish"],
+            {
+                "version": 1,
+                "operation": "finish",
+                "transactionId": prepared["transactionId"],
+                "transport": "native",
+            },
+        )
+        self.assertNotIn("close", prepared["cleanup"])
+        self.assertEqual(
+            prepared["cleanup"]["retireAfterFinish"]["args"], ["close"]
+        )
         self.assertEqual(self.runtime.consumer, "agent_browser")
         self.assertEqual(self.runtime.lease_owner, "code_mode")
         self.assertEqual(self.runtime.lease_owner_id, prepared["transactionId"])
@@ -499,7 +532,8 @@ class DesignerCodeModeTests(unittest.TestCase):
         prepared = service.handle(self.prepare_request())
         result = service.handle(
             self.verify_request(
-                prepared["transactionId"], title="Webflow - Synthetic Site"
+                prepared["transactionId"],
+                title="Dev: Webflow - Synthetic Site",
             )
         )
         self.assertTrue(result["qaLaunchAllowed"])
@@ -730,6 +764,13 @@ class DesignerCodeModeTests(unittest.TestCase):
         prepared = service.handle(self.prepare_request(transport="cli"))
         self.assertEqual(prepared["actions"][0]["command"], "agent-browser")
         self.assertEqual(prepared["actions"][0]["args"][1], "synthetic")
+        self.assertEqual(
+            prepared["actions"][0]["args"][2:], ["connect", "9333"]
+        )
+        self.assertEqual(
+            prepared["cleanup"]["retireAfterFinish"]["args"],
+            ["--session", "synthetic", "close"],
+        )
         service.handle(
             {
                 "version": 1,

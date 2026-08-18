@@ -466,89 +466,40 @@ a review checklist, and links to the UX and Pi sources behind the guidance.
 
 ### Webflow browser
 
-The tracked
-[`skills/webflow-designer-agent-browser`](skills/webflow-designer-agent-browser)
-directory provides the shared authenticated Webflow browser workflow.
+The tracked [`skills/webflow-designer-agent-browser`](skills/webflow-designer-agent-browser)
+directory provides the shared Webflow Designer browser workflow. It exists to
+separate a real Designer surface from login pages, error documents, empty local
+shells, and the wrong iframe before any QA action changes state.
 
-For normal local or authenticated Designer QA, the skill exposes one deferred
-Code Mode custom tool, `webflow_designer`. Its deterministic transaction is
-`prepare` → selected browser interaction → `verify` → authorized work →
-`finish` in `finally`. `prepare` batches the declared HUD, Designer service,
-and exact-target probes, ensures Chrome for Testing, claims the exclusive
-`agent_browser` lease, and returns native or explicit CLI actions. `verify`
-requires the five named readiness checks plus compact authenticated Designer
-surface evidence while the lease is held. `finish` releases/stops the owned
-runtime and proves `runtimeOwned: false`, `cdpReady: false`, `consumer: null`,
-and `status: stopped`.
-The private receipt binds cleanup to the runtime PID/start generation and lease
-token; a replacement runtime, nested profile symlink, or unknown listener fails
-closed instead of being reported as the transaction's browser.
-After an interruption, the same Code Mode surface provides read-only `status`
-and safe-only `reconcile` operations. They classify clean stopped state, active
-Code Mode or direct/native ownership, stale receipts/leases, replacement
-identity, and unverified listeners without exposing PID or lease-token
-choreography. A lease without a Code Mode receipt is not treated as stale until
-the runtime is proven stopped and its listener is absent.
+The configured lifecycle facade owns the transaction
+`prepare` -> browser interaction -> `verify` -> authorized work -> `finish`.
+The private receipt binds the transaction to the runtime identity and lease.
+`finish` must prove `runtimeOwned: false`, `cdpReady: false`, `consumer: null`,
+`leasePresent: false`, and `status: stopped`. After an interruption, `status`
+classifies the runtime and `reconcile` handles only safe stale states.
 
-The command-backed tool never invokes arbitrary native Pi tools and cannot
-silently switch transports. Native `agent_browser` remains the preferred page
-interaction layer; `agent-browser` is an explicit fallback. The tracked
-definition and executable companion are installed by `config/manifest.json`
-under `codex-conversion-custom-tools/`, so the shared skill does not depend on
-a project-local tool. `scripts/readiness-gate.py` remains available for direct
-diagnostic handoffs; it accepts `--runtime-held` for a claimed transaction and
-`--runtime-stopped` for standalone cleanup proof.
+For compact native browser results, the recommended host integration is
+[`pi-agent-browser-native`](https://pi.dev/packages/pi-agent-browser-native?name=agent-browser-native).
+The [standalone CLI reference](skills/webflow-designer-agent-browser/references/standalone-cli.md)
+documents direct JSON use with `agent-browser`. A Playwright or Selenium
+adapter is not included. All paths use a dedicated Chrome for Testing profile
+and keep it separate from normal Chrome. The skill never stores credentials,
+cookies, tokens, raw DOM, or customer data in the repository.
 
-Before a native transaction, the host must have the native `agent_browser`
-capability registered and callable. Activate/probe that capability before
-calling `webflow_designer prepare`; if it is unavailable, stop before claiming
-the managed runtime with `browser_transport_unavailable`. `prepare` owns the
-Chrome-for-Testing/CDP handoff and returns the native `connect` action; it does
-not launch the host tool itself. Manual headed runtime startup is reserved for
-the explicit authentication bootstrap path, not normal transactions.
+Before the first isolated run, Chrome for Testing opens visibly so the user can
+sign in with a dedicated Webflow test user that has only the access needed for
+QA. Its profile keeps the login for later runs. If an account must remain active
+in another browser, the workflow asks to attach to that tab instead.
+`browser-runtime.py` is the only process that starts or stops Chrome. The
+automation client closes its session only after the runtime reports that Chrome
+has stopped. Cleanup never signs out or clears cookies. When service endpoints
+are not supplied, `https://wfdev.io:8443/` is the default probe for both `hud`
+and `designer_service`; failed probes stop the run.
 
-Final Webflow browser evidence is also command-checked rather than left as a
-prose checklist. Generate the fail-closed shape with
-`skills/webflow-designer-agent-browser/scripts/automation-evidence.py
---report-template <attached|isolated>`, fill and sanitize it, then run
-`skills/webflow-designer-agent-browser/scripts/automation-evidence.py
---validate-report <sanitized-report.json>`. The command checks the required
-report fields, all five readiness names and blockers, the mode-specific scope
-claim, one transaction identity across the included `verify` and `finish`
-outputs, and the exact clean stopped-runtime proof before the final response.
-
-When available, the skill uses Pi's native `agent_browser` tool. Otherwise, it
-uses the global `agent-browser` CLI. Install the pinned CLI and the stable
-Chrome for Testing runtime it uses with:
-
-```sh
-npm install -g agent-browser@0.33.2
-npx --yes puppeteer browsers install chrome@stable
-agent-browser --version
-python3 skills/webflow-designer-agent-browser/scripts/browser-runtime.py plan
-```
-
-The currently verified Chrome for Testing build is `151.0.7922.71`. The helper
-selects the newest installed Puppeteer build and refuses to fall back to normal
-Google Chrome. Chrome startup allows up to 30 seconds even when `--timeout` is
-lower, and returns as soon as CDP is ready.
-
-Initialize the dedicated Chrome for Testing profile once. Quit normal Chrome
-completely first; the helper refuses to copy a locked profile.
-
-```sh
-runtime=skills/webflow-designer-agent-browser/scripts/browser-runtime.py
-python3 "$runtime" bootstrap --confirm-sensitive-copy
-python3 "$runtime" start --headed
-# Complete Webflow login in the visible Chrome for Testing window.
-python3 "$runtime" stop
-```
-
-The profile, cookies, leases, and runtime records stay under
-`~/.config/webflow-designer-agent-browser`. They are never tracked here.
-Bootstrap excludes Chrome's `Local State`, cookie databases, saved-login
-databases, and Web Data. It never copies credentials, so the login must be
-completed once in the visible Chrome for Testing window.
+For a recorded result, generate and validate a mode-specific report with
+`skills/webflow-designer-agent-browser/scripts/automation-evidence.py`. The
+report includes the five readiness checks, sanitized semantic evidence, the
+ownership boundary, and stopped-runtime proof.
 
 ## Cache, sessions, compaction, and retention
 

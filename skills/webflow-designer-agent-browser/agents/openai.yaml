@@ -1,4 +1,4 @@
 interface:
   display_name: "Webflow Designer Agent Browser"
-  short_description: "Test Designer in an isolated managed browser"
-  default_prompt: "Use $webflow-designer-agent-browser with the agent-owned Chrome for Testing profile, headless by default. Never launch or attach to normal Chrome, and close the managed session and release the runtime before completing."
+  short_description: "Verify Webflow Designer state safely"
+  default_prompt: "Use $webflow-designer-agent-browser for Webflow Designer QA. Use a dedicated test user and persistent Chrome-for-Testing profile for isolated runs; reuse existing authentication without another login prompt. If an account must remain active in another browser, ask to attach to that tab instead. Keep the authenticated runtime open for QA. Finish and prove the runtime stopped before retiring the automation session."

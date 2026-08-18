@@ -1,28 +1,33 @@
-# Compounding Automation Loop
+# Automation maintenance loop
 
-Run this review after every completed browser use and verified browser cleanup. Candidate discovery and candidate classification are separate steps: reconstruct the complete sanitized run first, then let `automation-evidence.py` adjudicate every grounded candidate. A live browser run may queue evidence, but it never modifies or executes helper source.
+Use this reference during a separate maintenance review, not as a required
+step after every browser task. Repeated browser actions can justify a helper,
+but live task execution must stay separate from code generation and promotion.
 
-## Reconstruct the complete run
+## Review a complete run
 
-Build an event inventory from the run's sanitized commands, service probes, snapshots, errors, recovery actions, and verified postconditions. Include every meaningful failure and recovery, even when it occurred before the final successful action.
+Reconstruct the run from sanitized commands, service probes, snapshots, errors,
+recovery actions, and postconditions. Include failures and recoveries that
+occurred before the final successful action.
 
-Group related events into behavioral candidates. Each candidate must state:
+Group events into candidates. Each candidate records:
 
 - known inputs
-- one bounded operation
+- one operation
 - one observable postcondition
 - occurrence count
-- whether behavior is deterministic
-- whether behavior is stateful
-- whether it is sensitive
-- the closest existing helper, after searching `scripts/` and its tests
-- the event IDs that support the classification
+- deterministic and stateful status
+- sensitivity
+- closest existing helper and tests
+- supporting event IDs
 
-Do not classify a handpicked final event. Every inventoried event must be covered by at least one candidate, including one-off, sensitive, application-owned, and nondeterministic findings.
+Cover every inventoried event. Do not classify only the final successful event.
+One-off, application-owned, nondeterministic, and sensitive events still need a
+disposition.
 
-## Classify the complete inventory
+## Classify candidates
 
-Create a temporary JSON file outside the skill:
+Create the review file outside the repository:
 
 ```json
 {
@@ -33,16 +38,16 @@ Create a temporary JSON file outside the skill:
       {
         "id": "required-service-unavailable",
         "kind": "failure",
-        "summary": "A required labeled service failed its explicit readiness check",
+        "summary": "A declared service failed its readiness check",
         "occurrences": 2
       }
     ],
     "candidates": [
       {
-        "name": "preflight explicit required services",
-        "known_inputs": ["service label", "explicit target", "bounded timeout"],
-        "bounded_operation": "probe each required service once",
-        "observable_postcondition": "report readiness for every labeled service",
+        "name": "preflight declared services",
+        "known_inputs": ["service label", "target", "timeout"],
+        "bounded_operation": "probe each declared service once",
+        "observable_postcondition": "report every service state",
         "occurrence_count": 2,
         "deterministic": true,
         "stateful": false,
@@ -55,52 +60,48 @@ Create a temporary JSON file outside the skill:
 }
 ```
 
-Run:
+Run the classifier:
 
-```bash
+```sh
 python3 scripts/automation-evidence.py /tmp/designer-automation-review.json
 ```
 
-The classifier rejects a missing reconstruction, an incomplete inventory, any event that no candidate adjudicates, and any candidate occurrence count that understates its evidence. It returns:
+The result chooses one disposition:
 
-- `extend_existing`: a current helper owns the repeated deterministic behavior.
-- `scriptify`: repeated read-only work has stable inputs and outputs but no current owner.
-- `guarded_helper`: repeated deterministic work changes browser or Designer state.
-- `observe`: the behavior occurred once or its contract is not deterministic.
+- `extend_existing`: a current helper owns repeated deterministic work.
+- `scriptify`: stable read-only work has no current owner.
+- `guarded_helper`: repeated deterministic work changes browser or Designer
+  state.
+- `observe`: the evidence is one-off or the contract is not deterministic.
 - `do_not_persist`: the candidate depends on sensitive state.
 
-The classifier is the final adjudicator of grounded candidates. It does not discover candidates or prove that the run inventory is complete.
+The classifier checks the supplied evidence. It does not discover candidates or
+prove that the run inventory is complete.
 
-## Review and promote one learning per maintenance pass
+## Promote one change
 
-Queue only non-sensitive candidate shapes. Repetition in the queue is evidence for review, not permission to change code. Sensitive candidates are rejected from persistence. Same-run helper generation is forbidden.
+For one promotable candidate:
 
-1. Select one classified promotable candidate.
-2. Reread the actual skill tree and tests so the overlap decision uses the current implementation.
-3. Extend the closest helper unless that would mix unrelated responsibilities.
-4. Keep the selected native-tool or CLI agent-browser adapter as the runtime. Do not recreate its daemon, CDP client, snapshot engine, network stack, or state store.
-5. Require sanitized structured inputs and bounded structured outputs. Reject secret-bearing arguments before execution.
-6. Keep read-only helpers read-only. For stateful behavior, default to observation, require explicit mutation permission, capture a baseline, and verify postconditions.
-7. Add a focused regression test from sanitized run evidence.
-8. Run the helper, focused tests, Python compilation, and `scripts/capability-catalog.py validate`.
-9. Update the static catalog and start another promotion pass only after validation, then reread the skill tree again.
+1. Reread the current helper tree and tests.
+2. Extend the closest helper unless responsibilities would become mixed.
+3. Keep the existing browser adapter. Do not recreate its daemon, CDP client,
+   snapshot engine, network stack, or state store.
+4. Validate structured inputs and bounded outputs. Reject secret-bearing data.
+5. Keep read-only helpers read-only. For stateful work, require explicit
+   mutation permission, capture a baseline, and verify postconditions.
+6. Add a focused regression test from sanitized evidence.
+7. Run the helper, its full test file, Python compilation, and capability
+   catalog validation.
+8. Update the catalog only after validation passes.
 
-For every candidate that is not promoted, record whether it belongs in application code or tests, is already documented, overlaps an existing helper, lacks repeated evidence, depends on sensitive or hidden state, or remains nondeterministic. Do not force a promotion.
+Do not persist site IDs, URLs, credentials, tokens, cookies, PII, raw DOM, or
+customer content. Keep candidates that are not promoted classified as already
+documented, overlapping, unsupported by repetition, application-owned,
+sensitive, or nondeterministic.
 
-## Completion contract
+## Maintenance result
 
-Before classifying the run as complete, verify that the selected transport's managed session is closed and `browser-runtime.py status` reports no consumer, no owned runtime, and no ready CDP endpoint. Missing cleanup proof is an incomplete inventory, not a successful run.
-
-End each browser task with one concise audit line:
-
-```text
-Compounding: extended designer-session.py; replaces manual required-service probes.
-```
-
-Use this line only after full-run reconstruction, complete event coverage, and classification:
-
-```text
-Compounding: no promotable deterministic sequence found; all candidates were adjudicated as observe or do_not_persist.
-```
-
-If reconstruction or inventory coverage is incomplete, report that exact blocker. Never report that no promotable sequence exists from a narrow synthetic candidate.
+Record the promoted helper and the repeated manual sequence it replaces. If no
+candidate is promoted, record the dispositions that support that decision. A
+missing run reconstruction or incomplete event coverage is an incomplete
+review, not evidence that no improvement exists.

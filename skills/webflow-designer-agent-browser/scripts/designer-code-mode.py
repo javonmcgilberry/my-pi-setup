@@ -604,15 +604,16 @@ def _gate_checks(
 def _is_designer_title(url: str, title: str) -> bool:
     observed = title.lower().strip()
     host = (urlsplit(url).hostname or "").lower()
+    designer_host = (
+        host in {"design.webflow.com", "design.wfdev.io"}
+        or host.endswith(".design.wfdev.io")
+    )
     return (
         "webflow" in observed
         and "designer" in observed
     ) or (
-        observed.startswith("webflow -")
-        and (
-            host in {"design.webflow.com", "design.wfdev.io"}
-            or host.endswith(".design.wfdev.io")
-        )
+        designer_host
+        and re.match(r"^(?:dev:\s*)?webflow\s+-", observed) is not None
     )
 
 
@@ -1083,6 +1084,7 @@ class DesignerCodeMode:
         namespace.session = session
         namespace.tab = None
         namespace.user_agent = None
+        namespace.managed_runtime = True
         try:
             return designer_session.build_commands(namespace)
         except (ValueError, TypeError):
@@ -1318,8 +1320,10 @@ class DesignerCodeMode:
                         CONSUMER,
                         lease_id=lease_id,
                     )
-                except ProtocolError:
-                    pass
+                except ProtocolError as cleanup_error:
+                    raise ProtocolError(
+                        "prepare_cleanup_failed", "runtime_cleanup", True
+                    ) from cleanup_error
             else:
                 self._cleanup_unclaimed(
                     started_here=started_here,
@@ -1354,7 +1358,15 @@ class DesignerCodeMode:
             "checks": checks_for_output,
             "blockers": ["designer_surface"],
             "cleanup": {
-                "close": (
+                "finishRequired": True,
+                "order": ["finish", "retire_browser_session"],
+                "finish": {
+                    "version": PROTOCOL_VERSION,
+                    "operation": "finish",
+                    "transactionId": transaction_id,
+                    "transport": transport,
+                },
+                "retireAfterFinish": (
                     {"tool": "agent_browser", "args": ["close"]}
                     if transport == "native"
                     else {
@@ -1362,7 +1374,6 @@ class DesignerCodeMode:
                         "args": ["--session", session, "close"],
                     }
                 ),
-                "finishRequired": True,
             },
         }
 
@@ -1637,6 +1648,7 @@ class DesignerCodeMode:
                     "verify",
                     "authorized work",
                     "finish in finally",
+                    "retire browser session after successful finish",
                 ],
                 "transport": {
                     "preferred": "native",
@@ -1696,10 +1708,12 @@ def main() -> int:
     try:
         request = parse_request(raw)
         result = DesignerCodeMode().handle(request)
-    except ProtocolError as error:
-        result = error_result(error)
-    except Exception:
-        result = error_result(ProtocolError("internal_error", "dispatch", True))
+    except Exception as error:
+        result = error_result(
+            error
+            if isinstance(error, ProtocolError)
+            else ProtocolError("internal_error", "dispatch", True)
+        )
     emit(result)
     return 0
 

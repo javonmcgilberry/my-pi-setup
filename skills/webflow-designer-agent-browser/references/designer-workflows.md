@@ -1,127 +1,121 @@
-# Designer Workflows
+# Designer workflows
 
-## Deterministic transaction and QA handoff
+Read this reference after the main workflow when the task involves local
+services, iframes, canvas assertions, screenshots, or diagnostics.
 
-Local/authenticated Designer testing uses one serial transaction owner rather
-than a separate model-driven setup owner:
+## Transaction handoff
 
-0. Confirm the selected native `agent_browser` host capability is registered
-   and callable before reserving a native transaction. If it is unavailable,
-   stop before `prepare`; do not manually start Chrome as a substitute.
-1. `webflow_designer prepare` batches the declared HUD, Designer service, and
-   target probes, ensures managed Chrome for Testing, claims the exclusive
-   `agent_browser` lease, and returns a native or explicit CLI action plan.
-2. The selected browser transport performs the scoped observation. The model
-   does not ask the command to invoke native Pi tools, and it cannot switch
-   transports after preparation.
-3. `webflow_designer verify` accepts only the compact surface evidence and
-   permits authorized work when all five checks are ready while the transaction
-   holds the lease.
-4. The browser session closes and `webflow_designer finish` runs in `finally`;
-   it releases/stops the owned runtime and proves the stopped state.
+The normal sequence is:
 
-The receipt includes a private runtime generation and lease token. Verification
-rechecks service probes and that identity before authorizing work or cleanup;
-another process cannot satisfy an old transaction by reusing the same port.
-
-The lease reserves the managed runtime for the selected browser handoff; it is
-not proof that the native wrapper has connected. Execute the returned native
-`connect` action immediately after `prepare`.
-
-After an interruption, use Code Mode `status` rather than inspecting PID,
-generation, or lease files manually. It distinguishes clean stopped state,
-active Code Mode transactions, valid direct/native ownership, stale receipts or
-leases, replacement identity, and unverified listeners. `reconcile` converges
-only the stale states that have no live owned listener and matching identity;
-direct/native owners and unknown listeners are deferred or fail closed.
-
-Never mix environment repair with feature assertions, and never overlap browser
-leases. If the facade is unavailable, the direct helpers below remain an
-explicit fallback with identical check names and cleanup proof. Pass the
-private `leaseId` from `browser-runtime.py claim` to attached cleanup; the
-fallback must not release an unnamed or replacement lease.
-
-Classify readiness with exactly these bounded states:
-
-- `hud`: the existing HUD is reachable.
-- `designer_service`: the required Designer task is running.
-- `target_http`: the exact target responds without connection refusal or gateway failure.
-- `browser_profile`: managed Chrome for Testing starts with the dedicated profile.
-- `designer_surface`: the exact authenticated tab renders a Webflow Designer document rather than login or `chrome-error://chromewebdata/`. Do not require a fixed sidebar button because role-specific Designer shells expose different controls.
-
-For a standalone direct-helper handoff, pass each as `ready` and include
-`--runtime-stopped`:
-
-```sh
-python3 scripts/readiness-gate.py \
-  --check hud=ready \
-  --check designer_service=ready \
-  --check target_http=ready \
-  --check browser_profile=ready \
-  --check designer_surface=ready \
-  --runtime-stopped
+```text
+prepare -> browser interaction -> verify -> authorized work -> finish
 ```
 
-For the composed transaction, the same classifier accepts `--runtime-held`
-while the exact lease is still owned. `finish` must subsequently prove
-`--runtime-stopped`; a held transaction is not cleanup proof.
+`prepare` performs the declared service probes, starts or reuses the managed
+Chrome for Testing runtime, and claims the exclusive browser lease. The browser
+transport performs page interaction. `verify` accepts compact surface evidence
+and permits work only when the transaction still owns the expected runtime and
+all readiness conditions pass. `finish` closes the session, releases the lease,
+stops only the owned runtime, and proves the stopped state.
 
-Cold, warm, partial, and stale states all follow the same rule: setup may converge the environment, but QA cannot start until a clean READY handoff exists. `auth_required` requires manual headed login; `unavailable` and `error` remain setup blockers.
+The private receipt binds the transaction to the runtime PID, start generation,
+and lease token. A replacement process or unknown listener cannot satisfy an
+older transaction. Use `status` after an interruption; use `reconcile` only for
+the stale states that the classifier marks safe to converge.
+
+The five readiness names are:
+
+- `hud`: the declared HUD service responds.
+- `designer_service`: the required Designer service responds.
+- `target_http`: the exact target responds without connection refusal or a
+  gateway failure.
+- `browser_profile`: the managed Chrome for Testing profile is ready.
+- `designer_surface`: the approved Designer document is authenticated, not a
+  login document, and not a Chrome error page.
+
+The service probe request normally contains `hud`, `designer_service`, and
+`target_http`. The runtime and surface checks are produced during the browser
+handoff. `auth_required`, `unavailable`, and `error` block QA.
 
 ## URL and environment
 
-- Preserve the exact Designer URL, including `pageId`, `simulateRole`, host, and port. Campaign flows often use `?simulateRole=marketer&pageId=<page-id>`.
-- Use Chrome for Testing's native user agent for Designer URLs. Intentional headless runs report `HeadlessChrome`; do not spoof a headed user agent unless a separately reproduced environment constraint proves it necessary. A non-Chromium automation identity can receive only the small open-graph shell.
-- For `*.wfdev.io:8443`, use `--ignore-https-errors` when local TLS requires it.
-- Pass every expected listener and endpoint explicitly to `scripts/designer-session.py`, then run its preflight before changing selectors. An empty shell, `502`, `504`, login redirect, or missing extension server is an environment or authentication signal until proven otherwise.
-- For a local published `*.dev.webflowtest.io` page returning `500`, run `scripts/published-site-preflight.py <url>`. A `renderer_unavailable` result means the page needs the existing HUD `renderer` task on port `4040`; start that task, or run `ops/start_render_dev.sh` from the Webflow checkout, before debugging product code.
-- Do not wait for `networkidle`; Designer and extensions maintain background traffic.
+- Preserve the exact URL, including `pageId`, `simulateRole`, host, and port.
+- Allow only approved Designer or local development hosts. Reject credentials
+  and sensitive query parameters.
+- Use Chrome for Testing's native identity. Intentional headless runs report a
+  `HeadlessChrome` user agent; do not replace it with a headed identity unless a
+  reproduced environment problem requires that change.
+- Use `--ignore-https-errors` for local HTTPS only when the local certificate
+  requires it. The session helper adds this flag for loopback targets.
+- Declare every expected local listener or HTTP endpoint before changing
+  selectors. An empty shell, login redirect, `502`, `504`, or missing extension
+  server is an environment or authentication signal until proven otherwise.
+- For a local published page returning `500`, run
+  `scripts/published-site-preflight.py` before debugging product code. Restore
+  the existing renderer service before treating the result as a product bug.
+- Do not wait for `networkidle`; Designer and extensions keep background
+  requests open.
 
-## Readiness and surfaces
+## Surfaces and frames
 
-Readiness requires the exact Designer URL, a Webflow Designer title or the
-observed `Webflow - <site>` title on an approved Designer origin, a non-login
-document, and no Chrome error page. A fixed sidebar selector is not a readiness
-requirement.
+Readiness needs the exact URL, a Webflow Designer title or the observed
+`Webflow - <site>` title on an approved Designer origin, a non-login document,
+and no Chrome error page. A fixed sidebar selector is not a readiness check.
 
-Useful Add and AI Assistant selectors for feature-specific assertions:
+After readiness:
 
-- `[data-automation-id="add-tab-elements-container"]`
-- `[data-automation-id="add-tab-elements-search-input"]`
-- `[data-automation-id="AIA_HEADER"]`
+1. Scope the snapshot to the feature surface.
+2. If the selector is absent from the main frame, enumerate frames and inspect
+   the matching frame.
+3. For an extension, match the expected origin and route, wait for an
+   extension-owned selector, and take a fresh snapshot.
 
-After readiness, scope snapshots to the feature surface under test. When a feature selector visible in DevTools is absent from the main frame, enumerate frames and inspect the matching frame.
+The canvas commonly lives in an iframe such as `/site/empty.html`. The parent
+owns Designer panels, overlays, and selection UI. Duplicate canvas frames can
+appear; choose one by URL, geometry, and target signal, then use that frame for
+the pass or fail decision.
 
-## Canvas and frame selection
-
-- The canvas commonly renders in an iframe such as `/site/empty.html`; the parent owns panels, chrome, overlays, and selection UI.
-- Designer can expose the same canvas through multiple frames. Choose one canonical frame by URL, geometry, and target signal, or deduplicate by a semantic signature.
-- For extension work, identify the iframe by expected origin and route, switch to it, wait for an extension-owned selector, and take a new snapshot before using refs.
-- Capture parent Designer evidence for placement and chrome state, then extension or canvas evidence for the actual content.
-- Transformed canvas element crops can be blank or dark even when the content is healthy. Prefer a viewport screenshot plus semantic canvas checks.
+Capture parent evidence for placement and chrome state, then canvas or
+extension evidence for the content. A transformed canvas crop can be blank or
+dark even when the content is healthy, so pair semantic checks with a viewport
+screenshot.
 
 ## Assertion order
 
 1. Prove the expected environment, URL, tab, and frame.
-2. Prove semantic state: visible counts, text, field names, roles, data attributes, component IDs, and selection state.
-3. Prove the authorized interaction changed the expected scoped state with a snapshot diff.
-4. Inspect a screenshot for layout, spacing, transformed content, or pixel-level output.
-5. For published parity, verify the runtime script requests and semantic result before comparing visuals.
+2. Prove semantic state: text, counts, roles, data attributes, component IDs,
+   field names, and selection state.
+3. Perform the authorized action and compare the scoped state with the baseline.
+4. Inspect a screenshot for layout, spacing, transformed content, or color.
+5. For published parity, verify the runtime request and semantic result before
+   comparing visuals.
 
-When repeated candidates exist, score them by target text, control count, data attributes, frame URL, and geometry. Do not use the first broad match as proof.
+When several controls match, use target text, data attributes, frame URL, and
+geometry. A broad first match is not proof.
 
 ## Diagnostics
 
-- `console` and `errors`: capture filtered failures after the surface is ready.
-- `network requests --filter <value>` and request detail: prove the expected API, local SDK, loader, or bundle was requested.
-- `network har start --content none`: prefer metadata-only capture. Never save bodies unless specifically authorized and reviewed for secrets and PII.
-- `trace` and `profiler`: use for lifecycle or performance questions, and keep artifacts temporary.
-- `eval`: return bounded, sanitized objects. Never return cookies, storage values, tokens, credentials, large DOM dumps, or full Designer API libraries.
+- Capture filtered `console` and page errors after the surface is ready.
+- Filter network requests before opening request details. Use metadata-only HAR
+  capture unless a reviewed diagnostic requires bodies.
+- Use traces and profiles for lifecycle or performance questions. Keep them
+  temporary.
+- Use `eval` only in the confirmed frame and return a small sanitized object.
+- Never return cookies, storage values, tokens, credentials, a full DOM dump,
+  or the complete Designer API model.
 
-## Safety and evidence
+## Evidence and ownership
 
-- Attached mode starts read-only unless the task authorizes a mutation. Reload, navigation, selection changes, canvas edits, undo, redo, publish, and app actions can change user state.
-- The dedicated Chrome for Testing profile is the normal authenticated attached surface. A user-owned live tab is exceptional: obtain explicit authorization, require the user to pause interaction, and release it immediately after observing the unsaved state.
-- Stateful connected-app actions can write site custom code, provider configuration, component definitions, and history. Establish the baseline and mutation boundary first.
-- Keep screenshots, JSON, HAR, traces, and profiles in a temporary location outside the repository. Review screenshots and sanitize URLs before reporting them.
-- Record semantic evidence before visual evidence, and state the ownership boundary, attached or isolated mode, headless or headed runtime mode, and verified cleanup result.
+Attached sessions start read-only. Navigation, reload, selection changes,
+canvas edits, undo, redo, publish, and connected-app actions can change user or
+site state and need explicit authorization.
+
+The dedicated Chrome for Testing profile is the normal authenticated surface.
+A user-owned live tab is exceptional. Obtain authorization, ask the user to
+pause interaction, preserve every tab, and release control immediately after
+the required observation.
+
+Keep screenshots, JSON, HAR files, traces, and profiles outside the repository.
+Sanitize URLs before reporting them. Record the ownership boundary, mode,
+runtime mode, target frame, semantic observations, authorized actions, blockers,
+and cleanup proof.
