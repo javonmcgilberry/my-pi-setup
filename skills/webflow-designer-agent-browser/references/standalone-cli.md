@@ -24,6 +24,10 @@ python3 "$SKILL_DIR/scripts/validate-change.py" execute-trusted \
 `route` is complete when it returns the bounded change set, route, and receipt.
 A `ready` receipt means a trusted runner exists but has not run.
 `execute-trusted` is complete only when it returns a terminal receipt.
+Only `passed` proves the fixed runner completed its semantic oracle and
+teardown. Failed runs return a normalized `failureClass` and use `not_proved`
+unless the runner specifically reports a teardown failure. Runner output never
+appears in the receipt.
 
 For an unknown route, inspect the bounded context with `proposal-context`.
 After a model or engineer writes one data-only candidate contract, validate and

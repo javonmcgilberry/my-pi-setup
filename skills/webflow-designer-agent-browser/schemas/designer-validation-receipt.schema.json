@@ -12,7 +12,7 @@
   ],
   "properties": {
     "version": {"const": 1},
-    "status": {"enum": ["ready", "passed", "failed", "infrastructure_failed", "approval_required", "insufficient_evidence", "routing_ambiguous", "cleanup_failed"]},
+    "status": {"enum": ["ready", "passed", "failed", "infrastructure_failed", "approval_required", "insufficient_evidence", "routing_ambiguous"]},
     "phase": {"enum": ["route", "proposal", "preflight", "execute", "oracle", "cleanup", "complete"]},
     "mode": {"enum": ["trusted", "candidate", "none"]},
     "sourceCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
@@ -22,7 +22,7 @@
     "modelProposalCount": {"type": "integer", "minimum": 0, "maximum": 1},
     "preflight": {"enum": ["not_required", "not_run", "passed", "failed"]},
     "semanticOracle": {"enum": ["not_run", "passed", "failed"]},
-    "cleanup": {"enum": ["not_run", "proved", "failed"]},
+    "cleanup": {"enum": ["not_run", "proved", "not_proved", "failed"]},
     "failureClass": {"type": ["string", "null"], "maxLength": 120},
     "artifacts": {"type": "array", "maxItems": 8, "items": {"type": "string", "maxLength": 160}},
     "candidate": {

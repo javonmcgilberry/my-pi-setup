@@ -273,14 +273,81 @@ class ValidationChangeTests(unittest.TestCase):
 
         def semantic_failure(command, _cwd, _timeout):
             calls.append(command)
-            return validate_change.CommandResult(0 if len(calls) == 1 else 1)
+            return validate_change.CommandResult(
+                0 if len(calls) == 1 else 1,
+                failure_markers=() if len(calls) == 1 else ("semantic_assertion_failure",),
+            )
 
         receipt = validate_change.execute_runner(self.repo, self.policy, [runner_id], changes, runner=semantic_failure)
         self.assertEqual(receipt["status"], "failed")
-        self.assertEqual(receipt["failureClass"], "semantic_or_test_failure")
-        receipt = validate_change.execute_runner(self.repo, self.policy, [runner_id], changes, runner=lambda *_: validate_change.CommandResult(124, timed_out=True))
-        self.assertEqual(receipt["status"], "cleanup_failed")
-        self.assertEqual(receipt["cleanup"], "failed")
+        self.assertEqual(receipt["failureClass"], "semantic_assertion_failure")
+        self.assertEqual(receipt["cleanup"], "not_proved")
+        calls.clear()
+
+        def adapter_timeout(_command, _cwd, _timeout):
+            calls.append(None)
+            return validate_change.CommandResult(0 if len(calls) == 1 else 124, timed_out=len(calls) > 1)
+
+        receipt = validate_change.execute_runner(self.repo, self.policy, [runner_id], changes, runner=adapter_timeout)
+        self.assertEqual(receipt["status"], "failed")
+        self.assertEqual(receipt["cleanup"], "not_proved")
+
+    def test_runner_receipts_classify_bounded_markers_without_leaking_output(self):
+        changes = self.changes(changed_files=["public/js/designer-flux/components/PagesPanel/PagesPanel.tsx"])
+        runner_id = "designer-pages-panel-focused"
+
+        def result_after_preflight(marker, *, timed_out=False):
+            calls = 0
+
+            def runner(_command, _cwd, _timeout):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    return validate_change.CommandResult(0)
+                return validate_change.CommandResult(
+                    124 if timed_out else 1,
+                    timed_out=timed_out,
+                    failure_markers=(marker,) if marker else (),
+                )
+
+            return runner
+
+        cases = [
+            ("semantic_assertion_failure", "oracle", "semantic_assertion_failure", "failed", "not_proved"),
+            ("scenario_setup_failure", "execute", "scenario_setup_failure", "not_run", "not_proved"),
+            ("teardown_failure", "cleanup", "teardown_failure", "not_run", "failed"),
+            ("", "execute", "unknown_test_failure", "not_run", "not_proved"),
+        ]
+        for marker, phase, failure_class, oracle, cleanup in cases:
+            receipt = validate_change.execute_runner(
+                self.repo, self.policy, [runner_id], changes,
+                runner=result_after_preflight(marker),
+            )
+            self.assertEqual(receipt["status"], "failed")
+            self.assertEqual(receipt["phase"], phase)
+            self.assertEqual(receipt["failureClass"], failure_class)
+            self.assertEqual(receipt["semanticOracle"], oracle)
+            self.assertEqual(receipt["cleanup"], cleanup)
+            self.assertNotIn("failure_markers", json.dumps(receipt))
+
+        timeout = validate_change.execute_runner(
+            self.repo, self.policy, [runner_id], changes,
+            runner=result_after_preflight("", timed_out=True),
+        )
+        self.assertEqual(timeout["status"], "failed")
+        self.assertEqual(timeout["failureClass"], "adapter_timeout")
+        self.assertEqual(timeout["cleanup"], "not_proved")
+
+    def test_default_runner_discards_diagnostic_text_after_classification(self):
+        result = validate_change.default_runner(
+            [sys.executable, "-c", "import sys; print('AssertionError token=private-value'); sys.exit(1)"],
+            self.repo,
+            10,
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.failure_markers, ("semantic_assertion_failure",))
+        self.assertNotIn("private-value", repr(result))
 
     def test_candidate_execution_receipt_does_not_promote_policy_or_leak_paths(self):
         changes, context = self.candidate_context()

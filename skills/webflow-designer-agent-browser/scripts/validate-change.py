@@ -17,9 +17,11 @@ import hashlib
 import json
 import os
 import re
+import selectors
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -48,7 +50,6 @@ STATUS_VALUES = {
     "approval_required",
     "insufficient_evidence",
     "routing_ambiguous",
-    "cleanup_failed",
 }
 IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9._-]{2,119}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
@@ -60,6 +61,13 @@ FORBIDDEN_TEXT = re.compile(
     r"\b(?:publish|delete|billing|production|customer)\b",
     re.I,
 )
+MAX_RUNNER_OUTPUT_BYTES = 8192
+FAILURE_MARKER_PATTERNS = (
+    ("teardown_failure", re.compile(r"\b(?:teardown|afterEach|afterAll)\b.{0,120}\b(?:fail(?:ed|ure)?|error)\b", re.I)),
+    ("scenario_setup_failure", re.compile(r"(?:/api/wf_test/scenario|scenario[ _-]?setup|ScenarioSpecBuilder)", re.I)),
+    ("infrastructure_failure", re.compile(r"(?:ExpiredToken|ECONNREFUSED|ENOTFOUND|credential(?:s)?\b|AWS\b)", re.I)),
+    ("semantic_assertion_failure", re.compile(r"(?:AssertionError|\bexpect\s*\(|toBe(?:Visible|Hidden|Enabled)|semantic[ _-]?assertion)", re.I)),
+)
 
 
 class ValidationError(ValueError):
@@ -70,6 +78,7 @@ class ValidationError(ValueError):
 class CommandResult:
     returncode: int
     timed_out: bool = False
+    failure_markers: tuple[str, ...] = ()
 
 
 Runner = Callable[[list[str], Path, int], CommandResult]
@@ -815,12 +824,64 @@ def build_command(policy: dict[str, Any], runner_id: str) -> list[str]:
     return command
 
 
+def output_failure_markers(output: bytes) -> tuple[str, ...]:
+    """Classify a bounded private diagnostic buffer without returning it."""
+    text = output.decode("utf-8", errors="replace")
+    return tuple(name for name, pattern in FAILURE_MARKER_PATTERNS if pattern.search(text))
+
+
+def classify_runner_failure(result: CommandResult) -> tuple[str, str, str, str]:
+    """Map a runner result to receipt facts without treating any nonzero as an assertion."""
+    if result.timed_out:
+        return "execute", "adapter_timeout", "not_run", "not_proved"
+    markers = set(result.failure_markers)
+    if "teardown_failure" in markers:
+        return "cleanup", "teardown_failure", "not_run", "failed"
+    if "scenario_setup_failure" in markers:
+        return "execute", "scenario_setup_failure", "not_run", "not_proved"
+    if "infrastructure_failure" in markers:
+        return "execute", "infrastructure_failure", "not_run", "not_proved"
+    if "semantic_assertion_failure" in markers:
+        return "oracle", "semantic_assertion_failure", "failed", "not_proved"
+    return "execute", "unknown_test_failure", "not_run", "not_proved"
+
+
 def default_runner(command: list[str], cwd: Path, timeout: int) -> CommandResult:
-    try:
-        completed = subprocess.run(command, cwd=cwd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        return CommandResult(returncode=124, timed_out=True)
-    return CommandResult(returncode=completed.returncode)
+    """Run an allowlisted adapter and retain at most one small private diagnostic buffer."""
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    if process.stdout is None:  # pragma: no cover - Popen contract with stdout=PIPE.
+        fail("runner output pipe is unavailable")
+    captured = bytearray()
+    timed_out = False
+    deadline = time.monotonic() + timeout
+    with selectors.DefaultSelector() as selector:
+        selector.register(process.stdout, selectors.EVENT_READ)
+        while selector.get_map():
+            remaining = deadline - time.monotonic()
+            if process.poll() is None and remaining <= 0:
+                timed_out = True
+                process.kill()
+            events = selector.select(max(0.0, min(remaining, 0.1)))
+            for key, _ in events:
+                chunk = os.read(key.fd, 65536)
+                if not chunk:
+                    selector.unregister(key.fileobj)
+                    continue
+                remaining_bytes = MAX_RUNNER_OUTPUT_BYTES - len(captured)
+                if remaining_bytes > 0:
+                    captured.extend(chunk[:remaining_bytes])
+        returncode = process.wait()
+    process.stdout.close()
+    return CommandResult(
+        returncode=124 if timed_out else returncode,
+        timed_out=timed_out,
+        failure_markers=output_failure_markers(bytes(captured)),
+    )
 
 
 def build_receipt(
@@ -879,16 +940,15 @@ def execute_runner(
     if preflight_needed:
         result = runner([sys.executable, str(DEFAULT_PREFLIGHT), "--repo", str(repo)], repo, 180)
         if result.timed_out:
-            return build_receipt(status="cleanup_failed", phase="preflight", mode="candidate" if candidate else "trusted", change_set=change_set, contracts=contracts, tests=tests, model_proposal_count=1 if candidate else 0, preflight="failed", cleanup="failed", failure_class="preflight_timeout", candidate=candidate, candidate_state="approved" if candidate else None)
+            return build_receipt(status="infrastructure_failed", phase="preflight", mode="candidate" if candidate else "trusted", change_set=change_set, contracts=contracts, tests=tests, model_proposal_count=1 if candidate else 0, preflight="failed", cleanup="not_run", failure_class="preflight_timeout", candidate=candidate, candidate_state="approved" if candidate else None)
         if result.returncode != 0:
             return build_receipt(status="infrastructure_failed", phase="preflight", mode="candidate" if candidate else "trusted", change_set=change_set, contracts=contracts, tests=tests, model_proposal_count=1 if candidate else 0, preflight="failed", failure_class="preflight_failed", candidate=candidate, candidate_state="approved" if candidate else None)
     for runner_id in selected:
         config = policy["changeValidation"]["runners"][runner_id]
         result = runner(build_command(policy, runner_id), repo, config["timeoutSeconds"])
-        if result.timed_out:
-            return build_receipt(status="cleanup_failed", phase="execute", mode="candidate" if candidate else "trusted", change_set=change_set, contracts=contracts, tests=tests, model_proposal_count=1 if candidate else 0, preflight="passed" if preflight_needed else "not_required", cleanup="failed", failure_class="adapter_timeout", candidate=candidate, candidate_state="approved" if candidate else None)
         if result.returncode != 0:
-            return build_receipt(status="failed", phase="oracle", mode="candidate" if candidate else "trusted", change_set=change_set, contracts=contracts, tests=tests, model_proposal_count=1 if candidate else 0, preflight="passed" if preflight_needed else "not_required", oracle="failed", cleanup="proved", failure_class="semantic_or_test_failure", candidate=candidate, candidate_state="consumed" if candidate else None)
+            phase, failure_class, oracle, cleanup = classify_runner_failure(result)
+            return build_receipt(status="failed", phase=phase, mode="candidate" if candidate else "trusted", change_set=change_set, contracts=contracts, tests=tests, model_proposal_count=1 if candidate else 0, preflight="passed" if preflight_needed else "not_required", oracle=oracle, cleanup=cleanup, failure_class=failure_class, candidate=candidate, candidate_state="consumed" if candidate else None)
     return build_receipt(status="passed", phase="complete", mode="candidate" if candidate else "trusted", change_set=change_set, contracts=contracts, tests=tests, model_proposal_count=1 if candidate else 0, preflight="passed" if preflight_needed else "not_required", oracle="passed", cleanup="proved", candidate=candidate, candidate_state="consumed" if candidate else None)
 
 

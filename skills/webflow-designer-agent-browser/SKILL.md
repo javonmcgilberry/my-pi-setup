@@ -202,8 +202,11 @@ maintenance tasks, not prerequisites.
      not validate the change.
 3. Report the result. Only `passed` is a successful validation. `ready` records
    routing only. Include the receipt's contracts, tests, cleanup state, and
-   `failureClass` when present. Include `ignoredFiles` from the change set so
-   the user can see what routing skipped.
+   `failureClass` when present. A failed runner never proves cleanup: `proved`
+   appears only after a successful fixed runner, `not_proved` records an
+   interrupted or otherwise incomplete run, and `failed` identifies a teardown
+   failure. Include `ignoredFiles` from the change set so the user can see what
+   routing skipped.
 
 A candidate contains bounded data: reviewed operation references, reviewed
 locator keys, one fixed adapter, a semantic oracle, and adapter teardown. Pi
@@ -248,10 +251,12 @@ python3 scripts/test-corpus-index.py evaluate \
 `discover` is the offline compiler's broad inventory pass. It uses a
 brace-aware structural extractor to bound evidence to individual test or
 helper bodies, records only non-sensitive action/selector classes and source
-ranges, clusters equivalent fragments, and creates holdouts only when their
-helper or scenario lineage is independent. It never creates executable cards
-or promotes a candidate. The generated discovery report must be treated as a
-review input and checked with `validate-discovery` before review.
+ranges, and clusters fragments only when a hashed behavior anchor matches.
+Generic actions without an anchor stay isolated and cannot establish
+corroboration or a holdout. Holdouts also require independent helper or
+scenario lineage. It never creates executable cards or promotes a candidate.
+The generated discovery report must be treated as a review input and checked
+with `validate-discovery` before review.
 
 `build` remains the narrower curation pass. It extracts operation-level
 evidence and retains bounded provenance, selectors, context, postconditions,

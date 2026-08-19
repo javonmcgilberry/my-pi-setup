@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["version", "source", "policySha256", "sourceManifestSha256", "counts", "coverage", "candidates"],
   "properties": {
-    "version": {"const": 1},
+    "version": {"const": 2},
     "source": {"type": "object"},
     "policySha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "sourceManifestSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
@@ -17,12 +17,23 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "reviewState", "subsystem", "signature", "dimensions", "promotionChecks", "evidence", "holdoutEvidence", "excludedEvidence"],
+        "required": ["id", "reviewState", "framework", "subsystem", "signature", "semanticIdentity", "dimensions", "promotionChecks", "evidence", "holdoutEvidence", "excludedEvidence"],
         "properties": {
           "id": {"type": "string", "pattern": "^candidate\\.[a-f0-9]{16}$"},
           "reviewState": {"enum": ["discovered", "quarantined"]},
+          "framework": {"enum": ["playwright", "cypress", "source-helper"]},
           "subsystem": {"type": "string"},
           "signature": {"type": "object"},
+          "semanticIdentity": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "bound", "digest"],
+            "properties": {
+              "kind": {"enum": ["selector-target", "helper-call", "unanchored"]},
+              "bound": {"type": "boolean"},
+              "digest": {"type": "string", "pattern": "^[a-f0-9]{16}$"}
+            }
+          },
           "dimensions": {"type": "object"},
           "promotionChecks": {"type": "object"},
           "evidence": {"type": "array", "items": {"type": "object"}},

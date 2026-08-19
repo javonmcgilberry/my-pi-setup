@@ -492,7 +492,9 @@ Run this near the end of a focused Designer change, before the PR handoff:
    files. A trusted route runs the smallest reviewed Playwright set, including
    AWS preflight when the runner requires it.
 4. Read the final receipt. Only `passed` means validation completed. `ready`
-   means Pi found a trusted route but has not run it.
+   means Pi found a trusted route but has not run it. A failed run never proves
+   cleanup: `not_proved` means completion was not established, while `failed`
+   names a teardown failure when one was detected.
 5. Add the sanitized status, contracts, tests, and any `failureClass` to the PR
    handoff.
 

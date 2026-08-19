@@ -280,6 +280,134 @@ test('opens pages another way', async () => {
         with self.assertRaisesRegex(corpus.CorpusError, "holdout lineage leaked"):
             corpus.validate_discovery(report, self.repo, self.policy)
 
+    def test_discovery_does_not_merge_generic_actions_with_different_targets(self):
+        for directory, target in (("alpha", "pages-private-target"), ("beta", "settings-private-target")):
+            self._write(
+                f"entrypoints/playwright-tests/designer/panels/{directory}/direct.spec.ts",
+                "test('direct action', async () => {\n"
+                f"  await page.getByTestId('{target}').click();\n"
+                f"  await expect(page.getByTestId('{target}')).toBeVisible();\n"
+                "});\n",
+            )
+
+        report = corpus.build_discovery(self.repo, self.policy)
+        direct = [
+            candidate
+            for candidate in report["candidates"]
+            if candidate["subsystem"] == "panels"
+            and candidate["signature"]["actions"] == ["click"]
+        ]
+
+        self.assertEqual(len(direct), 2)
+        self.assertTrue(all(candidate["semanticIdentity"]["bound"] for candidate in direct))
+        self.assertTrue(
+            all(not candidate["promotionChecks"]["independentCorroboration"] for candidate in direct)
+        )
+        serialized = json.dumps(report)
+        self.assertNotIn("pages-private-target", serialized)
+        self.assertNotIn("settings-private-target", serialized)
+
+    def test_discovery_groups_matching_semantic_targets_deterministically(self):
+        for directory, setup_helper in (("alpha", "settleDesigner"), ("beta", "inspectDesigner")):
+            self._write(
+                f"entrypoints/playwright-tests/designer/panels/{directory}/direct.spec.ts",
+                "test('direct action', async () => {\n"
+                f"  await {setup_helper}();\n"
+                "  await page.getByTestId('shared-private-target').click();\n"
+                "  await expect(page.getByTestId('shared-private-target')).toBeVisible();\n"
+                "});\n",
+            )
+
+        first = corpus.build_discovery(self.repo, self.policy)
+        second = corpus.build_discovery(self.repo, self.policy)
+        candidate = next(
+            item
+            for item in first["candidates"]
+            if item["subsystem"] == "panels"
+            and item["signature"]["actions"] == ["click"]
+        )
+
+        self.assertEqual(first, second)
+        self.assertEqual(first["version"], 2)
+        self.assertEqual(candidate["semanticIdentity"]["kind"], "selector-target")
+        self.assertRegex(candidate["semanticIdentity"]["digest"], r"^[0-9a-f]{16}$")
+        self.assertTrue(candidate["promotionChecks"]["semanticIdentityBound"])
+        self.assertTrue(candidate["promotionChecks"]["independentCorroboration"])
+        self.assertNotIn("shared-private-target", json.dumps(first))
+
+    def test_unanchored_fragments_remain_isolated_and_cannot_corroborate(self):
+        for directory in ("alpha", "beta"):
+            self._write(
+                f"entrypoints/playwright-tests/designer/panels/{directory}/keyboard.spec.ts",
+                "test('keyboard action', async () => {\n"
+                "  await page.keyboard.press('Escape');\n"
+                "});\n",
+            )
+
+        report = corpus.build_discovery(self.repo, self.policy)
+        keyboard = [
+            candidate
+            for candidate in report["candidates"]
+            if candidate["subsystem"] == "panels"
+            and candidate["signature"]["actions"] == ["press"]
+        ]
+
+        self.assertEqual(len(keyboard), 2)
+        self.assertTrue(all(not item["semanticIdentity"]["bound"] for item in keyboard))
+        self.assertTrue(
+            all(not item["promotionChecks"]["independentCorroboration"] for item in keyboard)
+        )
+        self.assertEqual(report["coverage"]["byIdentity"]["unanchored"], 2)
+
+    def test_shared_helper_lineage_is_not_independent_corroboration(self):
+        for directory in ("alpha", "beta"):
+            self._write(
+                f"entrypoints/playwright-tests/designer/panels/{directory}/helper.spec.ts",
+                "test('helper action', async () => {\n"
+                "  await openPagesPanel(page);\n"
+                "  await page.getByTestId('shared-helper-private-target').click();\n"
+                "});\n",
+            )
+
+        report = corpus.build_discovery(self.repo, self.policy)
+        helper_candidate = next(
+            candidate
+            for candidate in report["candidates"]
+            if candidate["semanticIdentity"]["kind"] == "selector-target"
+            and not candidate["promotionChecks"]["independentCorroboration"]
+        )
+
+        self.assertTrue(helper_candidate["semanticIdentity"]["bound"])
+        self.assertFalse(helper_candidate["promotionChecks"]["independentCorroboration"])
+        self.assertFalse(helper_candidate["promotionChecks"]["holdoutIndependent"])
+
+    def test_discovery_v2_validation_rejects_identity_and_coverage_drift(self):
+        self._write(
+            "entrypoints/playwright-tests/designer/panels/keyboard.spec.ts",
+            "test('keyboard action', async () => {\n"
+            "  await page.keyboard.press('Escape');\n"
+            "});\n",
+        )
+        report = corpus.build_discovery(self.repo, self.policy)
+        report["version"] = 1
+        with self.assertRaisesRegex(corpus.CorpusError, "unsupported"):
+            corpus.validate_discovery(report, self.repo, self.policy)
+
+        report = corpus.build_discovery(self.repo, self.policy)
+        unanchored = next(
+            candidate
+            for candidate in report["candidates"]
+            if not candidate["semanticIdentity"]["bound"]
+        )
+        unanchored["promotionChecks"]["independentCorroboration"] = True
+        with self.assertRaisesRegex(corpus.CorpusError, "cannot corroborate"):
+            corpus.validate_discovery(report, self.repo, self.policy)
+
+        report = corpus.build_discovery(self.repo, self.policy)
+        report["coverage"]["gaps"]["missingHoldout"] += 1
+        with self.assertRaisesRegex(corpus.CorpusError, "coverage"):
+            corpus.validate_discovery(report, self.repo, self.policy)
+
 
 if __name__ == "__main__":
     unittest.main()

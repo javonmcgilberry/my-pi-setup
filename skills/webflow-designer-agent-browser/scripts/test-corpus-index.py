@@ -51,10 +51,19 @@ SELECTOR_METHODS = {
 }
 IGNORED_CALLS = {
     "afterAll", "afterEach", "beforeAll", "beforeEach", "describe", "expect",
-    "forEach", "it", "map", "reduce", "setTimeout", "step", "test",
+    "async", "forEach", "it", "map", "reduce", "setTimeout", "step", "test",
     *ACTION_METHODS,
     *SELECTOR_METHODS,
 }
+ACTION_TARGET = re.compile(
+    r"\.(?:getByLabel|getByPlaceholder|getByRole|getByTestId|getByText|locator)\s*"
+    r"\(\s*(['\"`])([^'\"`\r\n]{1,120})\1\s*\)\s*"
+    r"\.([A-Za-z_$][\w$]*)\s*\("
+)
+ACTION_TARGET_SHAPE = re.compile(
+    r"\.(?:getByLabel|getByPlaceholder|getByRole|getByTestId|getByText|locator)\s*"
+    r"\(\s*\)\s*\.([A-Za-z_$][\w$]*)\s*\("
+)
 
 
 class CorpusError(ValueError):
@@ -72,6 +81,7 @@ class FragmentFeatures(TypedDict):
     fixtureDependent: bool
     quarantined: bool
     destructive: bool
+    actionTargets: list[str]
 
 
 def canonical_json(value: object) -> bytes:
@@ -407,6 +417,13 @@ def fragment_features(fragment_text: str) -> FragmentFeatures:
             if match.group(1) not in IGNORED_CALLS
         }
     )
+    action_targets = []
+    for match in ACTION_TARGET.finditer(fragment_text):
+        masked_target = masked[match.start():match.end()]
+        shape = ACTION_TARGET_SHAPE.fullmatch(masked_target)
+        if shape is not None and shape.group(1) in ACTION_METHODS:
+            action_targets.append(f"{match.group(3)}:{match.group(2)}")
+    action_targets = sorted(set(action_targets))
     return {
         "actions": action_methods,
         "selectors": selector_methods,
@@ -420,6 +437,7 @@ def fragment_features(fragment_text: str) -> FragmentFeatures:
         "fixtureDependent": bool(re.search(r"ScenarioSpecBuilder|snapshots\.|snapshot\s*:|\bfixture\b|\bmock\b", masked, re.IGNORECASE)),
         "quarantined": bool(re.search(r"\b(?:test|describe|it)\.(?:skip|fixme)\b", masked)),
         "destructive": bool(re.search(r"\b(?:delete|publish|save|create)\b|add.*canvas", masked, re.IGNORECASE)),
+        "actionTargets": action_targets,
     }
 
 
@@ -449,6 +467,38 @@ def discovery_dimensions(features: FragmentFeatures, source_kind: str) -> dict[s
     }
 
 
+def semantic_identity(
+    features: FragmentFeatures,
+    *,
+    relative_path: str,
+    line_start: int,
+    line_end: int,
+) -> dict[str, str | bool]:
+    """Return a privacy-preserving behavior anchor for conservative clustering.
+
+    Action target literals stay in the source only.  The report stores their
+    deterministic digest, while fragments without an anchor are deliberately
+    unique so generic action shape cannot create corroboration.
+    """
+    if features["actionTargets"]:
+        kind = "selector-target"
+        seed: object = features["actionTargets"]
+        bound = True
+    elif features["helperCalls"]:
+        kind = "helper-call"
+        seed = features["helperCalls"]
+        bound = True
+    else:
+        kind = "unanchored"
+        seed = {"path": relative_path, "lineStart": line_start, "lineEnd": line_end}
+        bound = False
+    return {
+        "kind": kind,
+        "bound": bound,
+        "digest": sha256_json(seed)[:16],
+    }
+
+
 def fragment_record(
     repo: Path,
     fragment: dict[str, Any],
@@ -469,6 +519,12 @@ def fragment_record(
         "semanticAssertion": features["semanticAssertion"],
         "frameContext": features["frameContext"],
     }
+    identity = semantic_identity(
+        features,
+        relative_path=fragment["path"],
+        line_start=fragment["lineStart"],
+        line_end=fragment["lineEnd"],
+    )
     return {
         "path": fragment["path"],
         "lineStart": fragment["lineStart"],
@@ -478,6 +534,7 @@ def fragment_record(
         "symbol": fragment["symbol"],
         "subsystem": subsystem_for_path(fragment["path"]),
         "signature": signature,
+        "semanticIdentity": identity,
         "lineage": hashlib.sha256(lineage_seed.encode("utf-8")).hexdigest()[:16],
         "dimensions": discovery_dimensions(features, fragment["sourceKind"]),
         "signals": {
@@ -495,6 +552,7 @@ def candidate_id(record: dict[str, Any]) -> str:
             "framework": record["framework"],
             "subsystem": record["subsystem"],
             "signature": signature,
+            "semanticIdentity": record["semanticIdentity"],
         }
     )
     return f"candidate.{hashlib.sha256(seed).hexdigest()[:16]}"
@@ -553,10 +611,13 @@ def build_discovery(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
             key: sum(item["dimensions"][key] for item in training) // len(training) if training else 0
             for key in ("semanticDirectness", "selectorStability", "fixtureRepresentativeness", "cleanupStrength", "mutationRisk", "recoveryCoverage", "sourceDirectness")
         }
+        semantic_identity_value = evidence[0]["semanticIdentity"]
+        semantic_identity_bound = bool(semantic_identity_value["bound"])
         promotion_checks = {
+            "semanticIdentityBound": semantic_identity_bound,
             "semanticDirectness": average["semanticDirectness"] == 100,
-            "independentCorroboration": len(lineages) >= 2,
-            "holdoutIndependent": holdout is not None,
+            "independentCorroboration": semantic_identity_bound and len(lineages) >= 2,
+            "holdoutIndependent": semantic_identity_bound and holdout is not None,
             "noUnsafeEvidence": len(eligible) == len(evidence),
             "notRuntimePromoted": True,
         }
@@ -564,8 +625,10 @@ def build_discovery(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
             {
                 "id": identifier,
                 "reviewState": "quarantined" if not eligible else "discovered",
+                "framework": evidence[0]["framework"],
                 "subsystem": evidence[0]["subsystem"],
                 "signature": evidence[0]["signature"],
+                "semanticIdentity": semantic_identity_value,
                 "dimensions": average,
                 "promotionChecks": promotion_checks,
                 "evidence": training,
@@ -573,16 +636,44 @@ def build_discovery(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
                 "excludedEvidence": [item for item in evidence if item not in training and item is not holdout],
             }
         )
-    coverage: dict[str, int] = {}
+    by_subsystem: dict[str, int] = {}
+    by_framework: dict[str, int] = {}
+    by_identity = {"anchored": 0, "unanchored": 0}
+    gaps = {
+        "missingSemanticIdentity": 0,
+        "missingSemanticAssertion": 0,
+        "missingSelector": 0,
+        "missingIndependentLineage": 0,
+        "missingHoldout": 0,
+    }
     for candidate in candidates:
-        coverage[candidate["subsystem"]] = coverage.get(candidate["subsystem"], 0) + 1
+        by_subsystem[candidate["subsystem"]] = by_subsystem.get(candidate["subsystem"], 0) + 1
+        by_framework[candidate["framework"]] = by_framework.get(candidate["framework"], 0) + 1
+        identity_bucket = "anchored" if candidate["semanticIdentity"]["bound"] else "unanchored"
+        by_identity[identity_bucket] += 1
+        checks = candidate["promotionChecks"]
+        if not checks["semanticIdentityBound"]:
+            gaps["missingSemanticIdentity"] += 1
+        if not checks["semanticDirectness"]:
+            gaps["missingSemanticAssertion"] += 1
+        if candidate["dimensions"]["selectorStability"] == 0:
+            gaps["missingSelector"] += 1
+        if not checks["independentCorroboration"]:
+            gaps["missingIndependentLineage"] += 1
+        if not checks["holdoutIndependent"]:
+            gaps["missingHoldout"] += 1
     result = {
-        "version": 1,
+        "version": 2,
         "source": {"name": "webflow-monorepo", "commit": source_commit(repo)},
         "policySha256": sha256_json(policy),
         "sourceManifestSha256": source_manifest(repo, policy),
         "counts": {"fragments": len(records), "candidates": len(candidates)},
-        "coverage": {"bySubsystem": dict(sorted(coverage.items()))},
+        "coverage": {
+            "bySubsystem": dict(sorted(by_subsystem.items())),
+            "byFramework": dict(sorted(by_framework.items())),
+            "byIdentity": by_identity,
+            "gaps": gaps,
+        },
         "candidates": candidates,
     }
     assert_safe_payload(result, "discovery")
@@ -1038,7 +1129,7 @@ def validate_index(index: dict[str, Any], repo: Path, policy: dict[str, Any]) ->
 def validate_discovery(discovery: object, repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
     """Reject stale, unsafe, or structurally inconsistent discovery output."""
     validate_policy(policy)
-    if not isinstance(discovery, dict) or discovery.get("version") != 1:
+    if not isinstance(discovery, dict) or discovery.get("version") != 2:
         raise CorpusError("unsupported discovery report")
     source = discovery.get("source")
     commit = source_commit(repo)
@@ -1055,13 +1146,26 @@ def validate_discovery(discovery: object, repo: Path, policy: dict[str, Any]) ->
         "semanticDirectness", "selectorStability", "fixtureRepresentativeness",
         "cleanupStrength", "mutationRisk", "recoveryCoverage", "sourceDirectness",
     }
-    observed_coverage: dict[str, int] = {}
+    expected_checks = {
+        "semanticIdentityBound", "semanticDirectness", "independentCorroboration",
+        "holdoutIndependent", "noUnsafeEvidence", "notRuntimePromoted",
+    }
+    observed_subsystems: dict[str, int] = {}
+    observed_frameworks: dict[str, int] = {}
+    observed_identity = {"anchored": 0, "unanchored": 0}
+    observed_gaps = {
+        "missingSemanticIdentity": 0,
+        "missingSemanticAssertion": 0,
+        "missingSelector": 0,
+        "missingIndependentLineage": 0,
+        "missingHoldout": 0,
+    }
     observed_fragments = 0
     for candidate in candidates:
         if not isinstance(candidate, dict):
             raise CorpusError("discovery candidate is invalid")
         required = {
-            "id", "reviewState", "subsystem", "signature", "dimensions",
+            "id", "reviewState", "framework", "subsystem", "signature", "semanticIdentity", "dimensions",
             "promotionChecks", "evidence", "holdoutEvidence", "excludedEvidence",
         }
         if not required <= set(candidate):
@@ -1070,14 +1174,36 @@ def validate_discovery(discovery: object, repo: Path, policy: dict[str, Any]) ->
             raise CorpusError("discovery candidate id is invalid")
         if candidate["reviewState"] not in {"discovered", "quarantined"}:
             raise CorpusError("discovery candidate state is invalid")
+        if candidate["framework"] not in {"playwright", "cypress", "source-helper"}:
+            raise CorpusError("discovery candidate framework is invalid")
+        identity = candidate["semanticIdentity"]
+        if (
+            not isinstance(identity, dict)
+            or set(identity) != {"kind", "bound", "digest"}
+            or identity.get("kind") not in {"selector-target", "helper-call", "unanchored"}
+            or type(identity.get("bound")) is not bool
+            or not isinstance(identity.get("digest"), str)
+            or not re.fullmatch(r"[0-9a-f]{16}", identity["digest"])
+        ):
+            raise CorpusError("discovery candidate semantic identity is invalid")
+        if (identity["kind"] == "unanchored") != (not identity["bound"]):
+            raise CorpusError("discovery candidate semantic identity binding is invalid")
         dimensions = candidate["dimensions"]
         if not isinstance(dimensions, dict) or set(dimensions) != expected_dimensions:
             raise CorpusError("discovery candidate dimensions are invalid")
         if any(type(value) is not int or not 0 <= value <= 100 for value in dimensions.values()):
             raise CorpusError("discovery candidate dimension value is invalid")
         checks = candidate["promotionChecks"]
-        if not isinstance(checks, dict) or any(type(value) is not bool for value in checks.values()):
+        if (
+            not isinstance(checks, dict)
+            or set(checks) != expected_checks
+            or any(type(value) is not bool for value in checks.values())
+        ):
             raise CorpusError("discovery candidate promotion checks are invalid")
+        if checks["semanticIdentityBound"] != identity["bound"]:
+            raise CorpusError("discovery candidate identity promotion check is inconsistent")
+        if not identity["bound"] and (checks["independentCorroboration"] or checks["holdoutIndependent"]):
+            raise CorpusError("unanchored discovery candidate cannot corroborate evidence")
         for evidence_name in ("evidence", "holdoutEvidence", "excludedEvidence"):
             if not isinstance(candidate[evidence_name], list):
                 raise CorpusError("discovery candidate evidence is invalid")
@@ -1097,6 +1223,8 @@ def validate_discovery(discovery: object, repo: Path, policy: dict[str, Any]) ->
                 raise CorpusError("discovery evidence range is reversed")
             if not isinstance(record.get("signature"), dict) or record["signature"] != candidate["signature"]:
                 raise CorpusError("discovery candidate signature is inconsistent")
+            if record.get("semanticIdentity") != identity:
+                raise CorpusError("discovery candidate semantic identity is inconsistent")
             if not isinstance(record.get("lineage"), str) or not re.fullmatch(r"[0-9a-f]{16}", record["lineage"]):
                 raise CorpusError("discovery evidence lineage is invalid")
             if candidate_id(record) != candidate["id"]:
@@ -1107,12 +1235,32 @@ def validate_discovery(discovery: object, repo: Path, policy: dict[str, Any]) ->
             raise CorpusError("discovery holdout lineage leaked into training evidence")
         if len(candidate["holdoutEvidence"]) > 1:
             raise CorpusError("discovery candidate has multiple holdouts")
-        observed_coverage[candidate["subsystem"]] = observed_coverage.get(candidate["subsystem"], 0) + 1
+        if not identity["bound"] and len(records) != 1:
+            raise CorpusError("unanchored discovery candidate grouped multiple fragments")
+        observed_subsystems[candidate["subsystem"]] = observed_subsystems.get(candidate["subsystem"], 0) + 1
+        observed_frameworks[candidate["framework"]] = observed_frameworks.get(candidate["framework"], 0) + 1
+        observed_identity["anchored" if identity["bound"] else "unanchored"] += 1
+        if not checks["semanticIdentityBound"]:
+            observed_gaps["missingSemanticIdentity"] += 1
+        if not checks["semanticDirectness"]:
+            observed_gaps["missingSemanticAssertion"] += 1
+        if dimensions["selectorStability"] == 0:
+            observed_gaps["missingSelector"] += 1
+        if not checks["independentCorroboration"]:
+            observed_gaps["missingIndependentLineage"] += 1
+        if not checks["holdoutIndependent"]:
+            observed_gaps["missingHoldout"] += 1
     counts = discovery.get("counts")
     coverage = discovery.get("coverage")
     if counts != {"fragments": observed_fragments, "candidates": len(candidates)}:
         raise CorpusError("discovery report counts are invalid")
-    if not isinstance(coverage, dict) or coverage.get("bySubsystem") != dict(sorted(observed_coverage.items())):
+    expected_coverage = {
+        "bySubsystem": dict(sorted(observed_subsystems.items())),
+        "byFramework": dict(sorted(observed_frameworks.items())),
+        "byIdentity": observed_identity,
+        "gaps": observed_gaps,
+    }
+    if coverage != expected_coverage:
         raise CorpusError("discovery report coverage is invalid")
     assert_safe_payload(discovery, "discovery")
     return {"valid": True, "commit": commit, "candidateCount": len(candidates)}

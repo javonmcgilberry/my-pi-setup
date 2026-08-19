@@ -85,11 +85,12 @@ prove that the run inventory is complete.
 When a repeated browser sequence should become reusable Designer knowledge,
 first run `scripts/test-corpus-index.py discover` against a read-only Webflow
 checkout. The tracked `test-corpus-policy.json` allowlists source roots and
-helper sources; discovery extracts bounded test/helper fragments, groups their
-non-sensitive action signatures, and reports subsystem coverage without
-creating executable knowledge. Its independent-lineage holdouts prevent two
-tests that invoke the same helper or live in the same scenario family from
-corroborating each other.
+helper sources; discovery extracts bounded test/helper fragments, groups only
+matching hashed behavior anchors, and reports subsystem, framework, identity,
+and evidence-gap coverage without creating executable knowledge. Generic
+action shape stays isolated, so it cannot create corroboration. Its
+independent-lineage holdouts also prevent tests that invoke the same helper or
+live in the same scenario family from corroborating each other.
 
 Only after review should `build` use the small, explicit operation taxonomy to
 create cards. Generated discovery and card indexes belong outside the
