@@ -82,6 +82,9 @@ test('opens pages another way', async () => {
                 "maximumEvidencePerOperation": 5,
                 "holdoutEvidencePerOperation": 1,
             },
+            "discovery": {
+                "helperSources": ["entrypoints/playwright-tests/utils/designerUtils/index.ts"],
+            },
             "operations": [
                 {
                     "id": "designer.panel.pages.open",
@@ -215,6 +218,67 @@ test('opens pages another way', async () => {
         training_paths = {record["path"] for record in score_card.call_args.args[1]}
         holdout_paths = {record["path"] for record in index["cards"][0]["holdoutEvidence"]}
         self.assertFalse(training_paths & holdout_paths)
+
+    def test_discovery_is_fragment_scoped_and_uses_independent_lineage_holdout(self):
+        first = "entrypoints/playwright-tests/designer/panels/direct-a.spec.ts"
+        second = "entrypoints/playwright-tests/designer/panels/direct-b.spec.ts"
+        self._write(
+            first,
+            "test('direct pages A', async () => {\n"
+            "  // page.getByTestId('comment-only').click();\n"
+            "  await settleDesigner();\n"
+            "  await page.getByTestId('pages').click();\n"
+            "  await expect(page.getByTestId('pages')).toBeVisible();\n"
+            "});\n",
+        )
+        self._write(
+            second,
+            "test('direct pages B', async () => {\n"
+            "  await inspectDesigner();\n"
+            "  await page.getByTestId('pages').click();\n"
+            "  await expect(page.getByTestId('pages')).toBeVisible();\n"
+            "});\n",
+        )
+
+        first_report = corpus.build_discovery(self.repo, self.policy)
+        second_report = corpus.build_discovery(self.repo, self.policy)
+
+        self.assertEqual(first_report, second_report)
+        self.assertEqual(
+            corpus.validate_discovery(first_report, self.repo, self.policy)["candidateCount"],
+            first_report["counts"]["candidates"],
+        )
+        candidate = next(
+            candidate
+            for candidate in first_report["candidates"]
+            if candidate["subsystem"] == "panels"
+            and candidate["signature"]["actions"] == ["click"]
+        )
+        self.assertTrue(candidate["promotionChecks"]["independentCorroboration"])
+        self.assertTrue(candidate["promotionChecks"]["holdoutIndependent"])
+        training_lineages = {item["lineage"] for item in candidate["evidence"]}
+        holdout_lineages = {item["lineage"] for item in candidate["holdoutEvidence"]}
+        self.assertFalse(training_lineages & holdout_lineages)
+        self.assertTrue(all(item["lineStart"] <= item["lineEnd"] for item in candidate["evidence"]))
+        serialized = json.dumps(first_report)
+        self.assertNotIn("comment-only", serialized)
+        self.assertNotIn("test@example.invalid", serialized)
+
+    def test_discovery_validation_rejects_holdout_lineage_leakage(self):
+        self._write(
+            "entrypoints/playwright-tests/designer/panels/direct.spec.ts",
+            "test('direct pages', async () => {\n"
+            "  await settleDesigner();\n"
+            "  await page.getByTestId('pages').click();\n"
+            "  await expect(page.getByTestId('pages')).toBeVisible();\n"
+            "});\n",
+        )
+        report = corpus.build_discovery(self.repo, self.policy)
+        candidate = next(candidate for candidate in report["candidates"] if candidate["evidence"])
+        candidate["holdoutEvidence"] = [dict(candidate["evidence"][0])]
+
+        with self.assertRaisesRegex(corpus.CorpusError, "holdout lineage leaked"):
+            corpus.validate_discovery(report, self.repo, self.policy)
 
 
 if __name__ == "__main__":

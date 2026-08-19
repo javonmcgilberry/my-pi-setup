@@ -23,6 +23,11 @@
     "minimumHoldoutEvidence": 1,
     "requireSemanticAssertion": true
   },
+  "discovery": {
+    "helperSources": [
+      "entrypoints/playwright-tests/utils/designerUtils/index.ts"
+    ]
+  },
   "operations": [
     {
       "id": "designer.panel.pages.open",

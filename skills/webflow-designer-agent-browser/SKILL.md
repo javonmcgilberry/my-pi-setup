@@ -183,6 +183,12 @@ commit-bound corpus index from the tracked policy:
 
 ```sh
 tmp="$(mktemp -d)"
+python3 scripts/test-corpus-index.py discover \
+  --repo /path/to/webflow \
+  --output "$tmp/designer-discovery.json"
+python3 scripts/test-corpus-index.py validate-discovery \
+  --repo /path/to/webflow \
+  --discovery "$tmp/designer-discovery.json"
 python3 scripts/test-corpus-index.py build \
   --repo /path/to/webflow \
   --output "$tmp/designer-corpus.json"
@@ -198,13 +204,27 @@ python3 scripts/test-corpus-index.py evaluate \
   --index "$tmp/designer-corpus.json"
 ```
 
-The index extracts operation-level evidence and retains bounded provenance,
-selectors, context, postconditions, confidence, utility, novelty, holdouts,
-and negative evidence. Quarantined, skipped, stale, unsafe, or
-fixed-duration-wait evidence cannot silently become positive executable
-knowledge. The `evaluate` report checks held-out semantic assertions and
-positive/holdout path separation without promoting a candidate. The source
-commit and a source-file manifest must still match before lookup.
+`discover` is the offline compiler's broad inventory pass. It uses a
+brace-aware structural extractor to bound evidence to individual test or
+helper bodies, records only non-sensitive action/selector classes and source
+ranges, clusters equivalent fragments, and creates holdouts only when their
+helper or scenario lineage is independent. It never creates executable cards
+or promotes a candidate. The generated discovery report must be treated as a
+review input and checked with `validate-discovery` before review.
+
+`build` remains the narrower curation pass. It extracts operation-level
+evidence and retains bounded provenance, selectors, context, postconditions,
+confidence, utility, novelty, holdouts, and negative evidence. Quarantined,
+skipped, stale, unsafe, or fixed-duration-wait evidence cannot silently become
+positive executable knowledge. The `evaluate` report checks held-out semantic
+assertions and positive/holdout path separation without promoting a candidate.
+The source commit and a source-file manifest must still match before lookup.
+
+The cost boundary is deliberate: discovery and promotion are offline,
+budgeted maintenance work; normal end-of-work validation resolves only a
+known contract and executes its bounded lifecycle with zero model calls. The
+runtime may emit a sanitized drift or failure receipt, but it must not rewrite
+the corpus, add selectors, or promote behavior.
 
 The same validated index is available through the `webflow_designer` Code Mode
 operation `test_knowledge`: use `view:"status"` for compact freshness and

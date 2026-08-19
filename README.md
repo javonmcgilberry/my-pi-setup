@@ -503,10 +503,13 @@ ownership boundary, and stopped-runtime proof.
 
 The skill also has a maintenance-only, evidence-backed test-knowledge path.
 `skills/webflow-designer-agent-browser/test-corpus-policy.json` selects a
-small set of operation sources from the Webflow monorepo; the disposable
-`test-corpus-index.py` command extracts commit-bound operation cards with
-bounded provenance, confidence, holdouts, and negative evidence. It does not
-copy test bodies or add a Playwright runtime transport. The companion
+small set of operation sources from the Webflow monorepo. Its disposable
+`test-corpus-index.py discover` command structurally inventories bounded test
+and helper fragments, reports subsystem coverage, and separates holdouts by
+helper/scenario lineage; it cannot promote behavior. The narrower `build`
+command extracts commit-bound operation cards with bounded provenance,
+confidence, holdouts, and negative evidence. Neither command copies test
+bodies, accepts runtime learning, or adds a Playwright runtime transport. The companion
 `ensure-test-aws.py` command validates the local AWS profile and the temporary
 credentials inherited by `wf-app`, refreshing SSO and restarting only the stale
 `server` HUD task, which owns `entrypoints/server`. It verifies the replacement

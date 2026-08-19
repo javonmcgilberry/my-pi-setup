@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Build and query a small, provenance-preserving Designer test corpus index.
+"""Discover and curate a provenance-preserving Designer test corpus index.
 
 The Webflow monorepo is an input-only source for this command.  The generated
-index contains operation facts and bounded provenance, never test bodies or
-runtime credentials.  It is deliberately policy-driven: adding a source file
-does not automatically make it executable knowledge.
+index contains candidate behavior and operation facts with bounded provenance,
+never test bodies or runtime credentials. Discovery is repository-wide within
+the allowlisted roots; policy-driven curation remains the only path to trusted
+executable knowledge.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -39,10 +40,38 @@ SENSITIVE_VALUE = re.compile(
     r"(?:https?://|file://|/Users/|/private/var/|/tmp/|\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b)",
     re.IGNORECASE,
 )
+ACTION_METHODS = {
+    "check", "clear", "click", "dblclick", "dragTo", "fill", "focus",
+    "goto", "hover", "press", "selectOption", "setInputFiles", "tap",
+    "trigger", "type", "uncheck",
+}
+SELECTOR_METHODS = {
+    "get", "getByLabel", "getByPlaceholder", "getByRole", "getByTestId",
+    "getByText", "locator",
+}
+IGNORED_CALLS = {
+    "afterAll", "afterEach", "beforeAll", "beforeEach", "describe", "expect",
+    "forEach", "it", "map", "reduce", "setTimeout", "step", "test",
+    *ACTION_METHODS,
+    *SELECTOR_METHODS,
+}
 
 
 class CorpusError(ValueError):
     """A fail-closed corpus or provenance error."""
+
+
+class FragmentFeatures(TypedDict):
+    actions: list[str]
+    selectors: list[str]
+    helperCalls: list[str]
+    semanticAssertion: bool
+    cleanup: bool
+    rawWait: bool
+    frameContext: bool
+    fixtureDependent: bool
+    quarantined: bool
+    destructive: bool
 
 
 def canonical_json(value: object) -> bytes:
@@ -102,6 +131,8 @@ def source_manifest(repo: Path, policy: dict[str, Any]) -> str:
         ensure_relative(policy["locatorSource"], "locatorSource"),
     }
     paths.update(path.relative_to(repo).as_posix() for path, _ in discover_sources(repo, policy))
+    for helper_source in policy.get("discovery", {}).get("helperSources", []):
+        paths.add(ensure_relative(helper_source, "discovery helper source"))
     entries = []
     for relative in sorted(paths):
         path = repo / relative
@@ -154,6 +185,14 @@ def validate_policy(policy: object) -> dict[str, Any]:
         raise CorpusError("corpus policy minimumHoldoutEvidence is invalid")
     if not isinstance(evaluation.get("requireSemanticAssertion", True), bool):
         raise CorpusError("corpus policy requireSemanticAssertion is invalid")
+    discovery = policy.get("discovery", {})
+    if not isinstance(discovery, dict):
+        raise CorpusError("corpus policy discovery is invalid")
+    helper_sources = discovery.get("helperSources", [])
+    if not isinstance(helper_sources, list):
+        raise CorpusError("corpus policy discovery helperSources is invalid")
+    for helper_source in helper_sources:
+        ensure_relative(helper_source, "discovery helper source")
     operations = policy.get("operations")
     if not isinstance(operations, list) or not operations:
         raise CorpusError("corpus policy operations are invalid")
@@ -208,6 +247,346 @@ def discover_sources(repo: Path, policy: dict[str, Any]) -> list[tuple[Path, str
                         relative = path.relative_to(repo).as_posix()
                         found.setdefault(relative, (path, framework))
     return [found[key] for key in sorted(found)]
+
+
+def masked_source(text: str) -> str:
+    """Mask strings and comments while preserving offsets and line numbers.
+
+    This is intentionally a small lexical layer, not a TypeScript evaluator. It
+    lets the compiler locate balanced callback bodies without treating text in a
+    comment or string literal as an action. Unsupported or unbalanced input is
+    ignored by the callers rather than guessed at.
+    """
+    output = list(text)
+    index = 0
+    state = "code"
+    quote = ""
+    while index < len(text):
+        char = text[index]
+        next_char = text[index + 1] if index + 1 < len(text) else ""
+        if state == "code" and char == "/" and next_char == "/":
+            output[index] = output[index + 1] = " "
+            index += 2
+            state = "line-comment"
+            continue
+        if state == "code" and char == "/" and next_char == "*":
+            output[index] = output[index + 1] = " "
+            index += 2
+            state = "block-comment"
+            continue
+        if state == "code" and char in {"'", '"', "`"}:
+            output[index] = " "
+            quote = char
+            index += 1
+            state = "string"
+            continue
+        if state == "line-comment":
+            if char == "\n":
+                state = "code"
+            else:
+                output[index] = " "
+            index += 1
+            continue
+        if state == "block-comment":
+            if char == "*" and next_char == "/":
+                output[index] = output[index + 1] = " "
+                index += 2
+                state = "code"
+            else:
+                if char != "\n":
+                    output[index] = " "
+                index += 1
+            continue
+        if state == "string":
+            if char == "\\":
+                output[index] = " "
+                if index + 1 < len(text):
+                    if text[index + 1] != "\n":
+                        output[index + 1] = " "
+                    index += 2
+                else:
+                    index += 1
+            elif char == quote:
+                output[index] = " "
+                index += 1
+                state = "code"
+            else:
+                if char != "\n":
+                    output[index] = " "
+                index += 1
+            continue
+        index += 1
+    return "".join(output)
+
+
+def balanced_body(masked: str, opening_brace: int) -> int | None:
+    """Return the closing brace for one brace-delimited callback body."""
+    if opening_brace >= len(masked) or masked[opening_brace] != "{":
+        return None
+    depth = 0
+    for index in range(opening_brace, len(masked)):
+        if masked[index] == "{":
+            depth += 1
+        elif masked[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
+def structural_fragments(text: str, relative_path: str, framework: str) -> list[dict[str, Any]]:
+    """Extract bounded test and helper bodies without executing source code.
+
+    A fragment is the narrowest balanced test callback or named function body.
+    Nesting is retained because a `test.step` can carry a distinct assertion,
+    but a parent test is not allowed to borrow signals from another test.
+    """
+    masked = masked_source(text)
+    fragments: list[dict[str, Any]] = []
+    patterns = (
+        ("test", re.compile(r"\b(?:test|it)(?:\.(?:only|skip|fixme))?\s*\(", re.MULTILINE)),
+        ("helper", re.compile(r"\b(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(", re.MULTILINE)),
+    )
+    for source_kind, pattern in patterns:
+        for match in pattern.finditer(masked):
+            search_start = match.end()
+            if source_kind == "test":
+                arrow = masked.find("=>", search_start)
+                if arrow < 0:
+                    continue
+                opening = masked.find("{", arrow + 2)
+            else:
+                opening = masked.find("{", search_start)
+            if opening < 0:
+                continue
+            closing = balanced_body(masked, opening)
+            if closing is None:
+                continue
+            # A callback's opening brace must occur before the next declaration.
+            next_match = pattern.search(masked, match.end())
+            if next_match is not None and opening > next_match.start():
+                continue
+            name = match.group(1) if source_kind == "helper" else "test"
+            fragments.append(
+                {
+                    "path": relative_path,
+                    "framework": framework,
+                    "sourceKind": source_kind,
+                    "symbol": name or "test",
+                    "start": match.start(),
+                    "end": closing + 1,
+                    "lineStart": line_for_offset(text, match.start()),
+                    "lineEnd": line_for_offset(text, closing),
+                    "text": text[match.start(): closing + 1],
+                }
+            )
+    return sorted(fragments, key=lambda item: (item["start"], item["end"], item["sourceKind"]))
+
+
+def fragment_features(fragment_text: str) -> FragmentFeatures:
+    """Produce non-sensitive structural facts for one test or helper fragment."""
+    masked = masked_source(fragment_text)
+    action_methods = sorted(
+        {
+            match.group(1)
+            for match in re.finditer(r"\.([A-Za-z_$][\w$]*)\s*\(", masked)
+            if match.group(1) in ACTION_METHODS
+        }
+    )
+    selector_methods = sorted(
+        {
+            match.group(1)
+            for match in re.finditer(r"\.([A-Za-z_$][\w$]*)\s*\(", masked)
+            if match.group(1) in SELECTOR_METHODS
+        }
+    )
+    calls = sorted(
+        {
+            match.group(1)
+            for match in re.finditer(r"\b([A-Za-z_$][\w$]*)\s*\(", masked)
+            if match.group(1) not in IGNORED_CALLS
+        }
+    )
+    return {
+        "actions": action_methods,
+        "selectors": selector_methods,
+        "helperCalls": calls,
+        "semanticAssertion": bool(
+            re.search(r"\bexpect\s*\(|\.should\s*\(|\bassert(?:\.\w+)?\s*\(", masked)
+        ),
+        "cleanup": bool(re.search(r"\b(?:afterEach|afterAll|finally)\b|\.close\s*\(", masked)),
+        "rawWait": bool(re.search(r"waitForTimeout\s*\(|cy\.wait\s*\(\s*\d+", masked)),
+        "frameContext": bool(re.search(r"frameLocator|site-iframe|\.frame\s*\(", masked)),
+        "fixtureDependent": bool(re.search(r"ScenarioSpecBuilder|snapshots\.|snapshot\s*:|\bfixture\b|\bmock\b", masked, re.IGNORECASE)),
+        "quarantined": bool(re.search(r"\b(?:test|describe|it)\.(?:skip|fixme)\b", masked)),
+        "destructive": bool(re.search(r"\b(?:delete|publish|save|create)\b|add.*canvas", masked, re.IGNORECASE)),
+    }
+
+
+def subsystem_for_path(relative_path: str) -> str:
+    """Derive a bounded subsystem label from an allowlisted test path."""
+    parts = Path(relative_path).parts
+    ignored = {"entrypoints", "playwright-tests", "designer", "client-ui-tests", "specs", "tests"}
+    for part in parts[:-1]:
+        normalized = re.sub(r"[^a-z0-9]+", "-", part.lower()).strip("-")
+        if normalized and normalized not in ignored and not normalized.startswith("index"):
+            return normalized[:48]
+    return "unclassified"
+
+
+def discovery_dimensions(features: FragmentFeatures, source_kind: str) -> dict[str, int]:
+    """Keep promotion evidence dimensions separate instead of hiding them in one score."""
+    action_count = len(features["actions"])
+    selector_count = len(features["selectors"])
+    return {
+        "semanticDirectness": 100 if features["semanticAssertion"] and action_count else 0,
+        "selectorStability": 100 if selector_count else 25 if action_count else 0,
+        "fixtureRepresentativeness": 20 if features["fixtureDependent"] else 100,
+        "cleanupStrength": 100 if features["cleanup"] else 0,
+        "mutationRisk": 100 if features["destructive"] else 0,
+        "recoveryCoverage": 100 if features["cleanup"] else 0,
+        "sourceDirectness": 100 if source_kind == "test" else 75,
+    }
+
+
+def fragment_record(
+    repo: Path,
+    fragment: dict[str, Any],
+    cache: dict[str, dict[str, str]],
+) -> dict[str, Any] | None:
+    features = fragment_features(fragment["text"])
+    if not features["actions"]:
+        return None
+    helper_calls = [call for call in features["helperCalls"] if call not in features["actions"]]
+    lineage_seed = (
+        f"helpers:{','.join(helper_calls)}"
+        if helper_calls
+        else f"family:{fragment['framework']}:{Path(fragment['path']).parent.as_posix()}"
+    )
+    signature = {
+        "actions": features["actions"],
+        "selectors": features["selectors"],
+        "semanticAssertion": features["semanticAssertion"],
+        "frameContext": features["frameContext"],
+    }
+    return {
+        "path": fragment["path"],
+        "lineStart": fragment["lineStart"],
+        "lineEnd": fragment["lineEnd"],
+        "framework": fragment["framework"],
+        "sourceKind": fragment["sourceKind"],
+        "symbol": fragment["symbol"],
+        "subsystem": subsystem_for_path(fragment["path"]),
+        "signature": signature,
+        "lineage": hashlib.sha256(lineage_seed.encode("utf-8")).hexdigest()[:16],
+        "dimensions": discovery_dimensions(features, fragment["sourceKind"]),
+        "signals": {
+            key: features[key]
+            for key in ("quarantined", "rawWait", "fixtureDependent", "destructive", "cleanup")
+        },
+        **file_git_metadata(repo, fragment["path"], cache),
+    }
+
+
+def candidate_id(record: dict[str, Any]) -> str:
+    signature = record["signature"]
+    seed = canonical_json(
+        {
+            "framework": record["framework"],
+            "subsystem": record["subsystem"],
+            "signature": signature,
+        }
+    )
+    return f"candidate.{hashlib.sha256(seed).hexdigest()[:16]}"
+
+
+def build_discovery(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
+    """Build a deterministic, data-only inventory of candidate interactions.
+
+    Discovery deliberately does not create operation cards or promotion state.
+    It is an offline review input whose source ranges are bounded to one
+    structurally extracted fragment.
+    """
+    validate_policy(policy)
+    cache: dict[str, dict[str, str]] = {}
+    records: list[dict[str, Any]] = []
+    for path, framework in discover_sources(repo, policy):
+        relative_path = path.relative_to(repo).as_posix()
+        text = path.read_text()
+        for fragment in structural_fragments(text, relative_path, framework):
+            record = fragment_record(repo, fragment, cache)
+            if record is not None:
+                records.append(record)
+    for helper_source in policy.get("discovery", {}).get("helperSources", []):
+        relative_path = ensure_relative(helper_source, "discovery helper source")
+        helper_path = repo / relative_path
+        if not helper_path.is_file():
+            raise CorpusError(f"discovery helper source is missing: {relative_path}")
+        for fragment in structural_fragments(helper_path.read_text(), relative_path, "source-helper"):
+            if fragment["sourceKind"] != "helper":
+                continue
+            record = fragment_record(repo, fragment, cache)
+            if record is not None:
+                records.append(record)
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for record in records:
+        grouped.setdefault(candidate_id(record), []).append(record)
+    candidates = []
+    for identifier, evidence in sorted(grouped.items()):
+        evidence = sorted(evidence, key=lambda item: (item["path"], item["lineStart"], item["sourceKind"]))
+        lineages = sorted({item["lineage"] for item in evidence})
+        eligible = [
+            item for item in evidence
+            if not any(item["signals"][key] for key in ("quarantined", "rawWait", "destructive"))
+        ]
+        holdout = next(
+            (
+                item
+                for item in reversed(eligible)
+                if sum(candidate["lineage"] == item["lineage"] for candidate in eligible) == 1
+                and any(candidate["lineage"] != item["lineage"] for candidate in eligible)
+            ),
+            None,
+        )
+        training = [item for item in eligible if item is not holdout]
+        average = {
+            key: sum(item["dimensions"][key] for item in training) // len(training) if training else 0
+            for key in ("semanticDirectness", "selectorStability", "fixtureRepresentativeness", "cleanupStrength", "mutationRisk", "recoveryCoverage", "sourceDirectness")
+        }
+        promotion_checks = {
+            "semanticDirectness": average["semanticDirectness"] == 100,
+            "independentCorroboration": len(lineages) >= 2,
+            "holdoutIndependent": holdout is not None,
+            "noUnsafeEvidence": len(eligible) == len(evidence),
+            "notRuntimePromoted": True,
+        }
+        candidates.append(
+            {
+                "id": identifier,
+                "reviewState": "quarantined" if not eligible else "discovered",
+                "subsystem": evidence[0]["subsystem"],
+                "signature": evidence[0]["signature"],
+                "dimensions": average,
+                "promotionChecks": promotion_checks,
+                "evidence": training,
+                "holdoutEvidence": [holdout] if holdout is not None else [],
+                "excludedEvidence": [item for item in evidence if item not in training and item is not holdout],
+            }
+        )
+    coverage: dict[str, int] = {}
+    for candidate in candidates:
+        coverage[candidate["subsystem"]] = coverage.get(candidate["subsystem"], 0) + 1
+    result = {
+        "version": 1,
+        "source": {"name": "webflow-monorepo", "commit": source_commit(repo)},
+        "policySha256": sha256_json(policy),
+        "sourceManifestSha256": source_manifest(repo, policy),
+        "counts": {"fragments": len(records), "candidates": len(candidates)},
+        "coverage": {"bySubsystem": dict(sorted(coverage.items()))},
+        "candidates": candidates,
+    }
+    assert_safe_payload(result, "discovery")
+    return result
 
 
 def line_for_offset(text: str, offset: int) -> int:
@@ -656,6 +1035,89 @@ def validate_index(index: dict[str, Any], repo: Path, policy: dict[str, Any]) ->
     return {"valid": True, "commit": commit, "cardCount": len(cards)}
 
 
+def validate_discovery(discovery: object, repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
+    """Reject stale, unsafe, or structurally inconsistent discovery output."""
+    validate_policy(policy)
+    if not isinstance(discovery, dict) or discovery.get("version") != 1:
+        raise CorpusError("unsupported discovery report")
+    source = discovery.get("source")
+    commit = source_commit(repo)
+    if not isinstance(source, dict) or source.get("commit") != commit:
+        raise CorpusError("discovery report is stale for the current source commit")
+    if discovery.get("policySha256") != sha256_json(policy):
+        raise CorpusError("discovery report policy hash is stale")
+    if discovery.get("sourceManifestSha256") != source_manifest(repo, policy):
+        raise CorpusError("discovery report source manifest is stale")
+    candidates = discovery.get("candidates")
+    if not isinstance(candidates, list):
+        raise CorpusError("discovery report candidates are invalid")
+    expected_dimensions = {
+        "semanticDirectness", "selectorStability", "fixtureRepresentativeness",
+        "cleanupStrength", "mutationRisk", "recoveryCoverage", "sourceDirectness",
+    }
+    observed_coverage: dict[str, int] = {}
+    observed_fragments = 0
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            raise CorpusError("discovery candidate is invalid")
+        required = {
+            "id", "reviewState", "subsystem", "signature", "dimensions",
+            "promotionChecks", "evidence", "holdoutEvidence", "excludedEvidence",
+        }
+        if not required <= set(candidate):
+            raise CorpusError("discovery candidate is missing fields")
+        if not isinstance(candidate["id"], str) or not re.fullmatch(r"candidate\.[0-9a-f]{16}", candidate["id"]):
+            raise CorpusError("discovery candidate id is invalid")
+        if candidate["reviewState"] not in {"discovered", "quarantined"}:
+            raise CorpusError("discovery candidate state is invalid")
+        dimensions = candidate["dimensions"]
+        if not isinstance(dimensions, dict) or set(dimensions) != expected_dimensions:
+            raise CorpusError("discovery candidate dimensions are invalid")
+        if any(type(value) is not int or not 0 <= value <= 100 for value in dimensions.values()):
+            raise CorpusError("discovery candidate dimension value is invalid")
+        checks = candidate["promotionChecks"]
+        if not isinstance(checks, dict) or any(type(value) is not bool for value in checks.values()):
+            raise CorpusError("discovery candidate promotion checks are invalid")
+        for evidence_name in ("evidence", "holdoutEvidence", "excludedEvidence"):
+            if not isinstance(candidate[evidence_name], list):
+                raise CorpusError("discovery candidate evidence is invalid")
+        records = [
+            *candidate["evidence"],
+            *candidate["holdoutEvidence"],
+            *candidate["excludedEvidence"],
+        ]
+        if not records or any(not isinstance(item, dict) for item in records):
+            raise CorpusError("discovery candidate contains no valid evidence")
+        observed_fragments += len(records)
+        for record in records:
+            ensure_relative(record.get("path"), "discovery evidence path")
+            if not isinstance(record.get("lineStart"), int) or not isinstance(record.get("lineEnd"), int):
+                raise CorpusError("discovery evidence range is invalid")
+            if record["lineStart"] > record["lineEnd"]:
+                raise CorpusError("discovery evidence range is reversed")
+            if not isinstance(record.get("signature"), dict) or record["signature"] != candidate["signature"]:
+                raise CorpusError("discovery candidate signature is inconsistent")
+            if not isinstance(record.get("lineage"), str) or not re.fullmatch(r"[0-9a-f]{16}", record["lineage"]):
+                raise CorpusError("discovery evidence lineage is invalid")
+            if candidate_id(record) != candidate["id"]:
+                raise CorpusError("discovery candidate identity is inconsistent")
+        training_lineages = {item.get("lineage") for item in candidate["evidence"] if isinstance(item, dict)}
+        holdout_lineages = {item.get("lineage") for item in candidate["holdoutEvidence"] if isinstance(item, dict)}
+        if training_lineages & holdout_lineages:
+            raise CorpusError("discovery holdout lineage leaked into training evidence")
+        if len(candidate["holdoutEvidence"]) > 1:
+            raise CorpusError("discovery candidate has multiple holdouts")
+        observed_coverage[candidate["subsystem"]] = observed_coverage.get(candidate["subsystem"], 0) + 1
+    counts = discovery.get("counts")
+    coverage = discovery.get("coverage")
+    if counts != {"fragments": observed_fragments, "candidates": len(candidates)}:
+        raise CorpusError("discovery report counts are invalid")
+    if not isinstance(coverage, dict) or coverage.get("bySubsystem") != dict(sorted(observed_coverage.items())):
+        raise CorpusError("discovery report coverage is invalid")
+    assert_safe_payload(discovery, "discovery")
+    return {"valid": True, "commit": commit, "candidateCount": len(candidates)}
+
+
 def evaluate_index(index: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
     validate_policy(policy)
     evaluation_policy = policy.get("evaluation", {})
@@ -698,11 +1160,12 @@ def evaluate_index(index: dict[str, Any], policy: dict[str, Any]) -> dict[str, A
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("build", "validate", "lookup", "status", "evaluate"))
+    parser.add_argument("command", choices=("build", "discover", "validate-discovery", "validate", "lookup", "status", "evaluate"))
     parser.add_argument("--repo", type=Path, required=True)
     parser.add_argument("--policy", type=Path, default=DEFAULT_POLICY)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--index", type=Path)
+    parser.add_argument("--discovery", type=Path)
     parser.add_argument("--operation")
     parser.add_argument("--category")
     parser.add_argument("--limit", type=int, default=5)
@@ -714,13 +1177,25 @@ def main() -> int:
     try:
         policy = read_json(args.policy)
         validate_policy(policy)
-        if args.command == "build":
+        if args.command in {"build", "discover"}:
             if args.output is None:
-                raise CorpusError("build requires --output")
+                raise CorpusError(f"{args.command} requires --output")
+            if args.command == "discover":
+                discovery = build_discovery(args.repo.resolve(), policy)
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(json.dumps(discovery, indent=2, sort_keys=True) + "\n")
+                print(json.dumps({"status": "ok", "candidateCount": len(discovery["candidates"]), "commit": discovery["source"]["commit"]}))
+                return 0
             index = build_index(args.repo.resolve(), policy)
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(json.dumps(index, indent=2, sort_keys=True) + "\n")
             print(json.dumps({"status": "ok", "cardCount": len(index["cards"]), "commit": index["source"]["commit"]}))
+            return 0
+        if args.command == "validate-discovery":
+            if args.discovery is None:
+                raise CorpusError("validate-discovery requires --discovery")
+            discovery = read_json(args.discovery)
+            print(json.dumps(validate_discovery(discovery, args.repo.resolve(), policy), sort_keys=True))
             return 0
         if args.index is None:
             raise CorpusError(f"{args.command} requires --index")

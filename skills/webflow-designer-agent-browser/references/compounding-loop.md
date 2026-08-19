@@ -81,9 +81,17 @@ prove that the run inventory is complete.
 ## Incorporate the test corpus without copying it
 
 When a repeated browser sequence should become reusable Designer knowledge,
-use `scripts/test-corpus-index.py` against a read-only Webflow checkout. The
-tracked `test-corpus-policy.json` defines the small source portfolio and the
-initial operation taxonomy; the generated index belongs outside the repository.
+first run `scripts/test-corpus-index.py discover` against a read-only Webflow
+checkout. The tracked `test-corpus-policy.json` allowlists source roots and
+helper sources; discovery extracts bounded test/helper fragments, groups their
+non-sensitive action signatures, and reports subsystem coverage without
+creating executable knowledge. Its independent-lineage holdouts prevent two
+tests that invoke the same helper or live in the same scenario family from
+corroborating each other.
+
+Only after review should `build` use the small, explicit operation taxonomy to
+create cards. Generated discovery and card indexes belong outside the
+repository.
 
 Review operation cards rather than whole test files. Keep the source commit,
 source manifest, bounded line ranges, selector keys, context, postconditions,
@@ -94,8 +102,11 @@ selector, quarantine marker, missing assertion, or unsafe fixture dependency.
 Keep held-out evidence separate from positive evidence. A recipe is improved
 only when a held-out fixture or safe isolated Designer run demonstrates a
 semantic postcondition, not merely because the recipe resembles its source
-test. Promote at most one deterministic helper per maintenance pass and keep
-the existing `agent_browser` transport and runtime ownership boundary intact.
+test. Promotion requires explicit semantic evidence, independent
+corroboration, safe evidence, and human review; a runtime receipt can report
+drift but never promote a candidate. Promote at most one deterministic helper
+per maintenance pass and keep the existing `agent_browser` transport and
+runtime ownership boundary intact.
 
 For final verification, a declared scenario contract may be converted into a
 plan with `scripts/test-scenario-eval.py`. The planner emits external setup,
