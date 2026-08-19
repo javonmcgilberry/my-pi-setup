@@ -175,6 +175,45 @@ Use [the automation maintenance loop](references/compounding-loop.md) only
 during skill maintenance or when reviewing repeated automation opportunities. It is
 not a required step after every browser task.
 
+## Validate current Webflow changes
+
+The normal end-of-work request is: "Validate my current Webflow changes." Do
+not ask the user to build a corpus index or assemble a Playwright command.
+
+Call `webflow_designer` with `operation:"validate_change"`, the read-only
+Webflow `repoPath`, and `phase:"route"`. With no explicit file list, the
+validator includes staged, unstaged, and bounded untracked changes. Its results
+have three paths:
+
+- `ready` with `mode:"trusted"`: call `phase:"execute_trusted"`. The validator
+  runs only the policy's fixed focused adapter. It uses zero model calls and
+  runs AWS preflight only when that adapter requires it.
+- `approval_required`: use only the returned bounded `proposalContext` to make
+  one data-only candidate contract. Submit it with `phase:"submit_candidate"`.
+  Show no self-authored approval. Call `phase:"execute_candidate"` with the
+  exact approval digest and without `userConfirmed`; Pi's confirmation gate
+  displays the exact action graph, evidence, target, semantic oracle, cleanup,
+  and budget, then injects the confirmation only when the user accepts.
+- `insufficient_evidence` or `routing_ambiguous`: report the named gap. Do not
+  invent a browser plan, run a candidate, or claim validation coverage.
+
+Candidate contracts are bounded data, not JavaScript, shell, raw selectors, or
+tool calls. They may use only reviewed operation references, reviewed locator
+keys, a fixed adapter, a semantic oracle, and required adapter teardown. One
+approval covers one isolated run. A successful candidate receipt is not a
+promotion and never changes the policy or corpus.
+
+For diagnostics or CI, the deterministic owner has `route`,
+`proposal-context`, `validate-candidate`, and `execute-trusted` commands:
+
+```sh
+python3 scripts/validate-change.py route --repo /path/to/webflow
+python3 scripts/validate-change.py execute-trusted --repo /path/to/webflow --execute
+```
+
+The CLI cannot execute a candidate. Use the `webflow_designer` operation so
+the host can enforce interactive approval.
+
 ## Use curated test knowledge
 
 The Webflow monorepo's Playwright and Cypress tests are evidence, not an
@@ -221,10 +260,11 @@ assertions and positive/holdout path separation without promoting a candidate.
 The source commit and a source-file manifest must still match before lookup.
 
 The cost boundary is deliberate: discovery and promotion are offline,
-budgeted maintenance work; normal end-of-work validation resolves only a
-known contract and executes its bounded lifecycle with zero model calls. The
-runtime may emit a sanitized drift or failure receipt, but it must not rewrite
-the corpus, add selectors, or promote behavior.
+budgeted maintenance work. Normal end-of-work validation uses zero model calls
+when a known contract matches. Otherwise it may request one approved,
+data-only candidate proposal or report insufficient evidence. The runtime may
+emit a sanitized drift or failure receipt, but it must not rewrite the corpus,
+add selectors, or promote behavior.
 
 The same validated index is available through the `webflow_designer` Code Mode
 operation `test_knowledge`: use `view:"status"` for compact freshness and

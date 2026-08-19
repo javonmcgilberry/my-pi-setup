@@ -38,6 +38,7 @@ OPERATIONS = {
     "capabilities",
     "test_knowledge",
     "scenario_plan",
+    "validate_change",
     "status",
     "reconcile",
     "prepare",
@@ -107,6 +108,9 @@ test_corpus_index = _load_script(
 )
 test_scenario_eval = _load_script(
     "webflow_designer_test_scenario_eval", "test-scenario-eval.py"
+)
+validate_change = _load_script(
+    "webflow_designer_validate_change", "validate-change.py"
 )
 
 
@@ -386,6 +390,10 @@ def parse_request(raw: str) -> dict[str, Any]:
         "scenario_plan": {
             "version", "operation", "scenarioPath", "operationPath",
             "policyPath", "dryRun",
+        },
+        "validate_change": {
+            "version", "operation", "repoPath", "phase",
+            "base", "changedFiles", "candidate", "approvalDigest", "userConfirmed",
         },
         "status": {"version", "operation"},
         "reconcile": {"version", "operation"},
@@ -1678,6 +1686,272 @@ class DesignerCodeMode:
             "plan": plan,
         }
 
+    def _validation_state_path(self) -> Path:
+        return self.store.root / "code-mode-validation-proposal.json"
+
+    def _load_validation_state(self) -> dict[str, Any] | None:
+        self.store._ensure_root()
+        path = self._validation_state_path()
+        if path.is_symlink():
+            _fail("unsafe_validation_state", "validate_change")
+        if not path.exists():
+            return None
+        try:
+            value = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            _fail("validation_state_invalid", "validate_change")
+        state = _require_object(value, "validation_state_invalid")
+        required = {
+            "version",
+            "sourceCommit",
+            "changeSetDigest",
+            "candidateDigest",
+            "approvalDigest",
+            "state",
+        }
+        if set(state) != required or state.get("version") != PROTOCOL_VERSION:
+            _fail("validation_state_invalid", "validate_change")
+        for field in ("sourceCommit", "changeSetDigest", "candidateDigest", "approvalDigest"):
+            value = state.get(field)
+            if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}|[0-9a-f]{40}", value):
+                _fail("validation_state_invalid", "validate_change")
+        if state["state"] not in {"proposed", "running", "consumed"}:
+            _fail("validation_state_invalid", "validate_change")
+        return state
+
+    def _write_validation_state(self, state: dict[str, Any]) -> None:
+        self.store._ensure_root()
+        path = self._validation_state_path()
+        if path.is_symlink():
+            _fail("unsafe_validation_state", "validate_change")
+        payload = json.dumps(state, sort_keys=True, separators=(",", ":"))
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=self.store.root,
+                prefix=".code-mode-validation-",
+                delete=False,
+            ) as handle:
+                temporary = Path(handle.name)
+                handle.write(payload)
+            os.chmod(temporary, 0o600, follow_symlinks=False)
+            os.replace(temporary, path)
+        except OSError:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+            _fail("validation_state_write_failed", "validate_change", True)
+
+    def _record_candidate(self, candidate: dict[str, Any]) -> None:
+        state = {
+            "version": PROTOCOL_VERSION,
+            "sourceCommit": candidate["source"]["commit"],
+            "changeSetDigest": candidate["source"]["changeSetDigest"],
+            "candidateDigest": validate_change.candidate_digest(candidate),
+            "approvalDigest": validate_change.approval_digest(candidate),
+            "state": "proposed",
+        }
+        with self.store.lock():
+            existing = self._load_validation_state()
+            if existing is not None and (
+                existing["sourceCommit"] == state["sourceCommit"]
+                and existing["changeSetDigest"] == state["changeSetDigest"]
+                and existing["candidateDigest"] != state["candidateDigest"]
+            ):
+                _fail("proposal_limit_reached", "validate_change")
+            if existing is not None and existing["candidateDigest"] == state["candidateDigest"]:
+                return
+            self._write_validation_state(state)
+
+    def _claim_candidate_execution(
+        self,
+        candidate: dict[str, Any],
+        approval_digest: str,
+    ) -> None:
+        expected_candidate = validate_change.candidate_digest(candidate)
+        expected_approval = validate_change.approval_digest(candidate)
+        if approval_digest != expected_approval:
+            _fail("approval_digest_mismatch", "validate_change")
+        with self.store.lock():
+            state = self._load_validation_state()
+            if state is None:
+                _fail("candidate_not_proposed", "validate_change")
+            if (
+                state["sourceCommit"] != candidate["source"]["commit"]
+                or state["changeSetDigest"] != candidate["source"]["changeSetDigest"]
+                or state["candidateDigest"] != expected_candidate
+                or state["approvalDigest"] != expected_approval
+            ):
+                _fail("approval_binding_mismatch", "validate_change")
+            if state["state"] != "proposed":
+                _fail("candidate_already_consumed", "validate_change")
+            state["state"] = "running"
+            self._write_validation_state(state)
+
+    def _consume_candidate_execution(self) -> None:
+        with self.store.lock():
+            state = self._load_validation_state()
+            if state is None or state["state"] != "running":
+                _fail("validation_state_invalid", "validate_change")
+            state["state"] = "consumed"
+            self._write_validation_state(state)
+
+    def _validate_change_inputs(
+        self, request: dict[str, Any]
+    ) -> tuple[Path, dict[str, Any], str | None, list[str]]:
+        repo_path = _local_path(request.get("repoPath"), "repo_path")
+        if not repo_path.is_dir() or not validate_change.DEFAULT_POLICY.is_file():
+            _fail("validate_change_input_missing", "validate_change")
+        base = request.get("base")
+        if base is not None:
+            base = _bounded_string(base, "base", maximum=120)
+            if not validate_change.SAFE_BASE.fullmatch(base):
+                _fail("invalid_base", "validate_change")
+        changed_files = request.get("changedFiles", [])
+        if not isinstance(changed_files, list) or len(changed_files) > 200:
+            _fail("invalid_changed_files", "validate_change")
+        try:
+            normalized_files = [validate_change.ensure_relative(item, "changed file") for item in changed_files]
+            if len(set(normalized_files)) != len(normalized_files):
+                _fail("invalid_changed_files", "validate_change")
+            policy = validate_change.validate_policy(validate_change.read_json(validate_change.DEFAULT_POLICY))
+        except ProtocolError:
+            raise
+        except Exception:
+            _fail("validate_change_policy_invalid", "validate_change")
+        return repo_path, policy, base, normalized_files
+
+    def _validate_change(self, request: dict[str, Any]) -> dict[str, object]:
+        phase = request.get("phase", "route")
+        if phase not in {
+            "route",
+            "execute_trusted",
+            "proposal_context",
+            "submit_candidate",
+            "execute_candidate",
+        }:
+            _fail("invalid_validate_change_phase", "validate_change")
+        candidate_fields = {"candidate", "approvalDigest", "userConfirmed"}
+        if phase in {"route", "execute_trusted", "proposal_context"} and any(
+            field in request for field in candidate_fields
+        ):
+            _fail("unexpected_candidate_field", "validate_change")
+        if phase == "submit_candidate" and any(
+            field in request for field in {"approvalDigest", "userConfirmed"}
+        ):
+            _fail("unexpected_approval_field", "validate_change")
+        repo_path, policy, base, changed_files = self._validate_change_inputs(request)
+        try:
+            change_set, route, result = validate_change.validate_change(
+                repo_path, policy, base=base, changed_files=changed_files
+            )
+        except Exception:
+            _fail("validate_change_route_invalid", "validate_change")
+        if phase == "route":
+            return {
+                "version": PROTOCOL_VERSION,
+                "operation": "validate_change",
+                "phase": "route",
+                "changeSet": change_set,
+                "route": route,
+                "receipt": result,
+            }
+        if phase == "execute_trusted":
+            if route["status"] != "trusted":
+                _fail("trusted_validation_not_available", "validate_change")
+            return {
+                "version": PROTOCOL_VERSION,
+                "operation": "validate_change",
+                "phase": "complete",
+                "receipt": validate_change.execute_runner(
+                    repo_path,
+                    policy,
+                    [item["runnerId"] for item in route["matches"]],
+                    change_set,
+                ),
+            }
+        context = result.get("proposalContext") if isinstance(result, dict) else None
+        if not isinstance(context, dict) or context.get("status") != "approval_required":
+            if phase == "proposal_context":
+                return {
+                    "version": PROTOCOL_VERSION,
+                    "operation": "validate_change",
+                    "phase": "proposal",
+                    "receipt": result.get("receipt") if isinstance(result, dict) else result,
+                    "proposalContext": context,
+                }
+            _fail("candidate_proposal_not_available", "validate_change")
+        if phase == "proposal_context":
+            return {
+                "version": PROTOCOL_VERSION,
+                "operation": "validate_change",
+                "phase": "proposal",
+                "receipt": result["receipt"],
+                "proposalContext": context,
+            }
+        candidate = request.get("candidate")
+        if not isinstance(candidate, dict):
+            _fail("candidate_required", "validate_change")
+        try:
+            validated_candidate = validate_change.validate_candidate_contract(
+                candidate, context, policy
+            )
+        except Exception:
+            _fail("candidate_contract_invalid", "validate_change")
+        if phase == "submit_candidate":
+            self._record_candidate(validated_candidate)
+            return {
+                "version": PROTOCOL_VERSION,
+                "operation": "validate_change",
+                "phase": "approval",
+                "receipt": validate_change.build_receipt(
+                    status="approval_required",
+                    phase="proposal",
+                    mode="candidate",
+                    change_set=change_set,
+                    model_proposal_count=1,
+                    candidate=validated_candidate,
+                ),
+                "approval": {
+                    "candidateDigest": validate_change.candidate_digest(validated_candidate),
+                    "approvalDigest": validate_change.approval_digest(validated_candidate),
+                    "runId": validate_change.candidate_run_id(validated_candidate),
+                    "oneRunOnly": True,
+                    "evidenceRefs": validated_candidate["evidenceRefs"],
+                    "target": validated_candidate["target"],
+                    "riskClass": validated_candidate["riskClass"],
+                    "actions": validated_candidate["actions"],
+                    "oracle": validated_candidate["oracle"],
+                    "cleanup": validated_candidate["cleanup"],
+                    "budget": validated_candidate["budget"],
+                },
+            }
+        if phase != "execute_candidate":
+            _fail("invalid_validate_change_phase", "validate_change")
+        if request.get("userConfirmed") is not True:
+            _fail("user_confirmation_required", "validate_change")
+        approval = request.get("approvalDigest")
+        if not isinstance(approval, str) or not re.fullmatch(r"[0-9a-f]{64}", approval):
+            _fail("invalid_approval_digest", "validate_change")
+        self._claim_candidate_execution(validated_candidate, approval)
+        try:
+            receipt = validate_change.execute_runner(
+                repo_path,
+                policy,
+                [validated_candidate["runnerId"]],
+                change_set,
+                candidate=validated_candidate,
+            )
+        finally:
+            self._consume_candidate_execution()
+        return {
+            "version": PROTOCOL_VERSION,
+            "operation": "validate_change",
+            "phase": "complete",
+            "receipt": receipt,
+        }
+
     def _capabilities(self, request: dict[str, Any]) -> dict[str, object]:
         if "id" not in request and "category" not in request:
             _fail("capability_selector_required")
@@ -1750,6 +2024,7 @@ class DesignerCodeMode:
                     "capabilities",
                     "test_knowledge",
                     "scenario_plan",
+                    "validate_change",
                     "status",
                     "reconcile",
                     "prepare",
@@ -1777,6 +2052,8 @@ class DesignerCodeMode:
             return self._test_knowledge(request)
         if operation == "scenario_plan":
             return self._scenario_plan(request)
+        if operation == "validate_change":
+            return self._validate_change(request)
         if operation == "status":
             return self._status(request)
         if operation == "reconcile":

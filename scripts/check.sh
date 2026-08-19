@@ -41,6 +41,8 @@ json_files=(
 	session-spend-dashboard.json
 	skills/webflow-designer-agent-browser/capabilities.json
 	skills/webflow-designer-agent-browser/config/attachment.json
+	skills/webflow-designer-agent-browser/schemas/designer-validation-contract.schema.json
+	skills/webflow-designer-agent-browser/schemas/designer-validation-receipt.schema.json
 )
 
 node -e 'for (const file of process.argv.slice(1)) JSON.parse(require("fs").readFileSync(file, "utf8"))' "${json_files[@]}"
@@ -62,6 +64,7 @@ node --test scripts/macos-tmux-gui-server.test.mjs
 node --test scripts/session-metadata-backfill.test.mjs
 node --test packages/context-budget/context-budget.test.mjs packages/context-budget/index.test.ts
 node --test extensions/agent-browser-policy.test.mjs
+node --test extensions/webflow-validation-approval.test.mjs
 node --test extensions/pretty-footer.test.ts
 node --test extensions/warp-session-title.test.mjs
 node --test scripts/land.test.mjs

@@ -202,6 +202,19 @@
       "maturity": "provisional",
       "disposition": "keep",
       "loadWhen": "planning final scenario-backed Designer verification"
+    },
+    {
+      "id": "designer.change-validation",
+      "category": "verification",
+      "implementation": "scripts/validate-change.py",
+      "owner": "webflow_designer",
+      "purpose": "Route a bounded Webflow change set to reviewed Designer validation contracts, execute fixed focused adapters, and require exact interactive approval before one candidate run.",
+      "inputs": ["webflow-git-change-set", "tracked-validation-policy", "optional-data-only-candidate"],
+      "postconditions": ["zero-model-trusted-route", "approval-bound-candidate", "sanitized-validation-receipt", "no-runtime-promotion"],
+      "sensitivity": "normalized-change-metadata",
+      "maturity": "provisional",
+      "disposition": "keep",
+      "loadWhen": "validating current Webflow Designer changes before completing a feature"
     }
   ]
 }

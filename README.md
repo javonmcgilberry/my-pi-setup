@@ -478,6 +478,36 @@ The private receipt binds the transaction to the runtime identity and lease.
 `leasePresent: false`, and `status: stopped`. After an interruption, `status`
 classifies the runtime and `reconcile` handles only safe stale states.
 
+#### Validate current Webflow changes
+
+In Pi, ask to "Validate my current Webflow changes." The shared `webflow_designer`
+tool reads the staged, unstaged, and bounded untracked Webflow change set. When
+every changed path has a reviewed mapping, it runs the smallest fixed focused
+test set with zero model calls, runs the AWS preflight only when that test
+requires it, and returns a sanitized receipt with the semantic result and
+cleanup proof.
+
+When a change has no trusted mapping, the tool does not guess or browse. It
+returns either `insufficient_evidence` or a bounded proposal context. When it
+has that context, the active model may submit one data-only candidate contract. Pi
+shows the candidate's actions, evidence, target, semantic oracle, cleanup, and
+budget before it permits one isolated run. That approval is bound to the exact
+candidate and current change set. A successful candidate remains untrusted and
+does not alter the corpus or policy.
+
+The direct CLI is for diagnostics and CI, not normal feature work:
+
+```sh
+python3 skills/webflow-designer-agent-browser/scripts/validate-change.py route \
+  --repo /path/to/webflow
+python3 skills/webflow-designer-agent-browser/scripts/validate-change.py execute-trusted \
+  --repo /path/to/webflow --execute
+```
+
+`route` reports `ready`, not `passed`. Only `execute-trusted` or an approved
+candidate run can produce a passing receipt. Candidate execution goes through
+the Pi confirmation gate, not the direct CLI.
+
 For compact native browser results, the recommended host integration is
 [`pi-agent-browser-native`](https://pi.dev/packages/pi-agent-browser-native?name=agent-browser-native).
 The [standalone CLI reference](skills/webflow-designer-agent-browser/references/standalone-cli.md)

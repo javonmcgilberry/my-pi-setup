@@ -129,5 +129,72 @@
       "allowedSpecRoots": ["entrypoints/playwright-tests/designer"],
       "fixedArguments": ["--reporter=line", "--workers=1"]
     }
+  },
+  "changeValidation": {
+    "version": 1,
+    "limits": {
+      "maximumChangedFiles": 200,
+      "maximumFileBytes": 2097152,
+      "maximumTotalBytes": 10485760,
+      "maximumProposalEvidence": 5
+    },
+    "mappings": [
+      {
+        "id": "designer-pages-panel",
+        "pathGlobs": [
+          "public/js/designer-flux/components/PagesPanel/**",
+          "entrypoints/playwright-tests/designer/panels-system/left-sidebar-panel-focus-management.spec.ts"
+        ],
+        "operationIds": ["designer.panel.pages.open"],
+        "runnerId": "designer-pages-panel-focused"
+      },
+      {
+        "id": "designer-add-panel",
+        "pathGlobs": [
+          "public/js/designer-flux/components/AddTab*.tsx",
+          "entrypoints/playwright-tests/designer/shortcuts/add-elements-panel-shortcut.spec.ts"
+        ],
+        "operationIds": ["designer.panel.add.open"],
+        "runnerId": "designer-add-panel-focused"
+      }
+    ],
+    "runners": {
+      "designer-pages-panel-focused": {
+        "adapter": "webflow-playwright-focused",
+        "specPath": "entrypoints/playwright-tests/designer/panels-system/left-sidebar-panel-focus-management.spec.ts",
+        "grep": "manages sending focus to and from the panel when opened and closed using the global keyboard shortcut",
+        "operationIds": ["designer.panel.pages.open"],
+        "evidenceTerms": ["page", "pages", "panel", "sidebar"],
+        "requiresAws": true,
+        "timeoutSeconds": 900
+      },
+      "designer-add-panel-focused": {
+        "adapter": "webflow-playwright-focused",
+        "specPath": "entrypoints/playwright-tests/designer/shortcuts/add-elements-panel-shortcut.spec.ts",
+        "grep": "pressing \"a\" opens Add Elements panel",
+        "operationIds": ["designer.panel.add.open"],
+        "evidenceTerms": ["add", "element", "elements", "panel"],
+        "requiresAws": true,
+        "timeoutSeconds": 900
+      }
+    },
+    "candidate": {
+      "allowedActions": ["invoke_operation", "assert", "compensate"],
+      "allowedRiskClasses": ["read-only", "reversible-ui"],
+      "maximumActions": 8,
+      "maximumRetries": 1,
+      "maximumTimeoutSeconds": 900,
+      "allowedSelectorKeys": [
+        "Sidebar.PAGES_BUTTON",
+        "Panels.PAGES",
+        "Sidebar.SYMBOLS_BUTTON",
+        "Panels.COMPONENTS_LIST_WRAPPER",
+        "Sidebar.ADD_BUTTON",
+        "Panels.ADD",
+        "Pages.LIST_ROW_WRAPPER",
+        "Canvas.LOADING_OVERLAY",
+        "Canvas.TOP_BAR_PAGE_NAME"
+      ]
+    }
   }
 }

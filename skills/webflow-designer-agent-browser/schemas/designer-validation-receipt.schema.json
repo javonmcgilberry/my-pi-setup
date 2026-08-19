@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/webflow-designer/designer-validation-receipt.schema.json",
+  "title": "Webflow Designer change validation receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version", "status", "phase", "mode", "sourceCommit",
+    "changeSetDigest", "contracts", "tests", "modelProposalCount",
+    "preflight", "semanticOracle", "cleanup", "failureClass",
+    "artifacts", "candidate"
+  ],
+  "properties": {
+    "version": {"const": 1},
+    "status": {"enum": ["ready", "passed", "failed", "infrastructure_failed", "approval_required", "insufficient_evidence", "routing_ambiguous", "cleanup_failed"]},
+    "phase": {"enum": ["route", "proposal", "preflight", "execute", "oracle", "cleanup", "complete"]},
+    "mode": {"enum": ["trusted", "candidate", "none"]},
+    "sourceCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "changeSetDigest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "contracts": {"type": "array", "maxItems": 20, "uniqueItems": true, "items": {"type": "string"}},
+    "tests": {"type": "array", "maxItems": 20, "uniqueItems": true, "items": {"type": "string"}},
+    "modelProposalCount": {"type": "integer", "minimum": 0, "maximum": 1},
+    "preflight": {"enum": ["not_required", "not_run", "passed", "failed"]},
+    "semanticOracle": {"enum": ["not_run", "passed", "failed"]},
+    "cleanup": {"enum": ["not_run", "proved", "failed"]},
+    "failureClass": {"type": ["string", "null"], "maxLength": 120},
+    "artifacts": {"type": "array", "maxItems": 8, "items": {"type": "string", "maxLength": 160}},
+    "candidate": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["state", "digest", "runId"],
+      "properties": {
+        "state": {"enum": ["proposed", "approved", "consumed", "rejected"]},
+        "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "runId": {"type": "string", "pattern": "^[0-9a-f-]{36}$"}
+      }
+    }
+  }
+}

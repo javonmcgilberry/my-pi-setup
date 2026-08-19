@@ -285,6 +285,7 @@ class DesignerCodeModeTests(unittest.TestCase):
                 "capabilities",
                 "test_knowledge",
                 "scenario_plan",
+                "validate_change",
                 "status",
                 "reconcile",
                 "prepare",
@@ -295,6 +296,10 @@ class DesignerCodeModeTests(unittest.TestCase):
         self.assertLess(len(str(result)), 2000)
         with self.assertRaisesRegex(designer_code_mode.ProtocolError, "unknown_request_field"):
             designer_code_mode.parse_request('{"version":1,"operation":"help","extra":1}')
+        with self.assertRaisesRegex(designer_code_mode.ProtocolError, "unknown_request_field"):
+            designer_code_mode.parse_request(
+                '{"version":1,"operation":"validate_change","policyPath":"/tmp/unreviewed.json"}'
+            )
         with self.assertRaisesRegex(designer_code_mode.ProtocolError, "invalid_operation"):
             designer_code_mode.parse_request('{"version":1,"operation":[] }')
         with self.assertRaisesRegex(designer_code_mode.ProtocolError, "sensitive_input_rejected"):
@@ -432,6 +437,103 @@ class DesignerCodeModeTests(unittest.TestCase):
                 }
             )
         self.assertEqual(result["plan"]["status"], "plan_only")
+
+    def test_validate_change_routes_trusted_work_without_a_model_and_gates_one_candidate(self):
+        repo_path = Path(self.temp.name) / "repo"
+        repo_path.mkdir()
+        change_set = {
+            "sourceCommit": "a" * 40,
+            "digest": "b" * 64,
+            "files": [{"path": "public/js/designer-flux/components/PagesPanel/PagesPanel.tsx"}],
+        }
+        trusted_route = {
+            "status": "trusted",
+            "matches": [{"runnerId": "designer-pages-panel-focused"}],
+            "operations": ["designer.panel.pages.open"],
+        }
+        trusted_receipt = {"status": "ready", "modelProposalCount": 0}
+        policy = {"changeValidation": {"runners": {}}}
+        request = {
+            "version": 1,
+            "operation": "validate_change",
+            "repoPath": str(repo_path),
+        }
+        with (
+            mock.patch.object(designer_code_mode.validate_change, "read_json", return_value={}),
+            mock.patch.object(designer_code_mode.validate_change, "validate_policy", return_value=policy),
+            mock.patch.object(designer_code_mode.validate_change, "validate_change", return_value=(change_set, trusted_route, trusted_receipt)),
+            mock.patch.object(designer_code_mode.validate_change, "execute_runner", return_value={"status": "passed", "modelProposalCount": 0}) as execute,
+        ):
+            routed = self.service().handle(request)
+            self.assertEqual(routed["receipt"]["modelProposalCount"], 0)
+            executed = self.service().handle({**request, "phase": "execute_trusted"})
+        self.assertEqual(executed["receipt"]["status"], "passed")
+        execute.assert_called_once()
+
+        candidate = {
+            "source": {"commit": "a" * 40, "changeSetDigest": "b" * 64},
+            "target": {"fixture": "isolated-designer-test", "document": "main"},
+            "riskClass": "reversible-ui",
+            "actions": [],
+            "oracle": {"kind": "semantic-fact", "fact": "panel-visible", "expected": True},
+            "cleanup": ["adapter-teardown"],
+            "budget": {"timeoutSeconds": 900, "maxRetries": 1, "maxActions": 8},
+            "runnerId": "designer-pages-panel-focused",
+            "evidenceRefs": ["policy:runner:designer-pages-panel-focused"],
+        }
+        context = {
+            "status": "approval_required",
+            "changeSet": {"sourceCommit": "a" * 40, "digest": "b" * 64},
+            "nearbyContracts": [{"runnerId": "designer-pages-panel-focused"}],
+        }
+        unknown_route = {"status": "unknown"}
+        unknown_result = {"receipt": {"status": "approval_required"}, "proposalContext": context}
+        candidate_request = {**request, "phase": "submit_candidate", "candidate": candidate}
+        with (
+            mock.patch.object(designer_code_mode.validate_change, "read_json", return_value={}),
+            mock.patch.object(designer_code_mode.validate_change, "validate_policy", return_value=policy),
+            mock.patch.object(designer_code_mode.validate_change, "validate_change", return_value=(change_set, unknown_route, unknown_result)),
+            mock.patch.object(designer_code_mode.validate_change, "validate_candidate_contract", return_value=candidate),
+            mock.patch.object(designer_code_mode.validate_change, "candidate_digest", return_value="c" * 64),
+            mock.patch.object(designer_code_mode.validate_change, "approval_digest", return_value="d" * 64),
+            mock.patch.object(designer_code_mode.validate_change, "candidate_run_id", return_value="12345678-1234-1234-1234-123456789abc"),
+            mock.patch.object(designer_code_mode.validate_change, "build_receipt", return_value={"status": "approval_required", "modelProposalCount": 1}),
+            mock.patch.object(designer_code_mode.validate_change, "execute_runner", return_value={"status": "passed", "candidate": {"state": "consumed"}}) as candidate_execute,
+        ):
+            service = self.service()
+            proposed = service.handle(candidate_request)
+            self.assertEqual(proposed["approval"]["approvalDigest"], "d" * 64)
+            with self.assertRaisesRegex(designer_code_mode.ProtocolError, "user_confirmation_required"):
+                service.handle({**candidate_request, "phase": "execute_candidate", "approvalDigest": "d" * 64})
+            with self.assertRaisesRegex(designer_code_mode.ProtocolError, "approval_digest_mismatch"):
+                service.handle({**candidate_request, "phase": "execute_candidate", "approvalDigest": "e" * 64, "userConfirmed": True})
+            completed = service.handle({**candidate_request, "phase": "execute_candidate", "approvalDigest": "d" * 64, "userConfirmed": True})
+            with self.assertRaisesRegex(designer_code_mode.ProtocolError, "candidate_already_consumed"):
+                service.handle({**candidate_request, "phase": "execute_candidate", "approvalDigest": "d" * 64, "userConfirmed": True})
+        self.assertEqual(completed["receipt"]["status"], "passed")
+        candidate_execute.assert_called_once()
+
+    def test_validate_change_rejects_a_second_candidate_for_the_same_change_set(self):
+        service = self.service()
+        first = {
+            "source": {"commit": "a" * 40, "changeSetDigest": "b" * 64},
+            "id": "first",
+        }
+        second = {
+            "source": {"commit": "a" * 40, "changeSetDigest": "b" * 64},
+            "id": "second",
+        }
+        with (
+            mock.patch.object(
+                designer_code_mode.validate_change,
+                "candidate_digest",
+                side_effect=lambda candidate: "c" * 64 if candidate["id"] == "first" else "d" * 64,
+            ),
+            mock.patch.object(designer_code_mode.validate_change, "approval_digest", return_value="e" * 64),
+        ):
+            service._record_candidate(first)
+            with self.assertRaisesRegex(designer_code_mode.ProtocolError, "proposal_limit_reached"):
+                service._record_candidate(second)
 
     def test_status_preserves_direct_owner_and_reconciles_dead_lease(self):
         service = self.service()
