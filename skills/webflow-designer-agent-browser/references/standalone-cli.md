@@ -1,11 +1,36 @@
 # Standalone CLI
 
-The standalone path uses Python, the helpers in `scripts/`, Chrome for Testing,
-and the `agent-browser` CLI. Native `agent_browser` is a host integration, not
-a requirement for this path. The current helpers do not provide a Playwright,
-Selenium, or Puppeteer page adapter.
+The standalone path exposes change-validation diagnostics and the managed
+browser lifecycle. Native `agent_browser` is a host integration and is not
+required here.
 
-## Requirements
+## Change validation
+
+Use `validate-change.py` for diagnostics or CI. It reads the tracked policy;
+runtime callers cannot replace that policy.
+
+```sh
+SKILL_DIR=/path/to/webflow-designer-agent-browser
+python3 "$SKILL_DIR/scripts/validate-change.py" route \
+  --repo /path/to/webflow
+python3 "$SKILL_DIR/scripts/validate-change.py" execute-trusted \
+  --repo /path/to/webflow --execute
+```
+
+`route` is complete when it returns the bounded change set, route, and receipt.
+A `ready` receipt means a trusted runner exists but has not run.
+`execute-trusted` is complete only when it returns a terminal receipt.
+
+For an unknown route, inspect the bounded context with `proposal-context`. A
+candidate contract can be checked with `validate-candidate --candidate
+<contract.json>`, but this CLI cannot execute it. Candidate execution requires
+Pi's interactive confirmation extension.
+
+## Browser requirements
+
+The managed browser path uses Python, the helpers in `scripts/`, Chrome for
+Testing, and the `agent-browser` CLI. These helpers do not provide a
+Playwright, Selenium, or Puppeteer page adapter.
 
 Verify the tools before claiming a runtime:
 

@@ -1,6 +1,6 @@
 ---
 name: webflow-designer-agent-browser
-description: Inspect, debug, and verify authenticated Webflow Designer sessions, local Designer apps, extension iframes, and canvas state with isolated or attached browser runs. Use for Designer URLs, unsaved or collaborative tabs, iframe and canvas debugging, visual QA, CDP, and agent-browser workflows. Choose the native agent_browser integration when available or the agent-browser CLI for standalone runs.
+description: Validate current Webflow Designer changes or inspect authenticated Designer sessions, local Designer apps, extension iframes, and canvas state. Use for end-of-work change validation, Designer URLs, unsaved or collaborative tabs, iframe and canvas debugging, visual QA, CDP, and agent-browser workflows. Choose native agent_browser when available or the agent-browser CLI for standalone runs.
 ---
 
 # Webflow Designer browser workflow
@@ -177,42 +177,39 @@ not a required step after every browser task.
 
 ## Validate current Webflow changes
 
-The normal end-of-work request is: "Validate my current Webflow changes." Do
-not ask the user to build a corpus index or assemble a Playwright command.
+Use this branch for the normal end-of-work request, "Validate my current
+Webflow changes." Corpus discovery and manual Playwright command assembly are
+maintenance tasks, not prerequisites.
 
-Call `webflow_designer` with `operation:"validate_change"`, the read-only
-Webflow `repoPath`, and `phase:"route"`. With no explicit file list, the
-validator includes staged, unstaged, and bounded untracked changes. Its results
-have three paths:
+1. Route the change set. Call `webflow_designer` with
+   `operation:"validate_change"`, the read-only Webflow `repoPath`, and
+   `phase:"route"`. Without `changedFiles`, routing includes staged, unstaged,
+   and bounded untracked files. This step is complete when the response has a
+   receipt and one route status.
+2. Follow that status:
+   - For `ready` with `mode:"trusted"`, call `phase:"execute_trusted"`. The
+     tracked policy supplies every fixed runner and its AWS requirement. This
+     branch is complete when execution returns a terminal receipt.
+   - For `approval_required`, build one data-only contract from the returned
+     `proposalContext`, then call `phase:"submit_candidate"`. Call
+     `phase:"execute_candidate"` with the exact approval digest and omit
+     `userConfirmed`. The host displays the action graph, evidence, target,
+     semantic oracle, cleanup, and budget. This branch is complete when the
+     user declines or the approved run returns a terminal receipt.
+   - For `insufficient_evidence` or `routing_ambiguous`, report the named gap.
+     This branch is complete when the response states that this workflow did
+     not validate the change.
+3. Report the result. Only `passed` is a successful validation. `ready` records
+   routing only. Include the receipt's contracts, tests, cleanup state, and
+   `failureClass` when present.
 
-- `ready` with `mode:"trusted"`: call `phase:"execute_trusted"`. The validator
-  runs only the policy's fixed focused adapter. It uses zero model calls and
-  runs AWS preflight only when that adapter requires it.
-- `approval_required`: use only the returned bounded `proposalContext` to make
-  one data-only candidate contract. Submit it with `phase:"submit_candidate"`.
-  Show no self-authored approval. Call `phase:"execute_candidate"` with the
-  exact approval digest and without `userConfirmed`; Pi's confirmation gate
-  displays the exact action graph, evidence, target, semantic oracle, cleanup,
-  and budget, then injects the confirmation only when the user accepts.
-- `insufficient_evidence` or `routing_ambiguous`: report the named gap. Do not
-  invent a browser plan, run a candidate, or claim validation coverage.
+A candidate contains bounded data: reviewed operation references, reviewed
+locator keys, one fixed adapter, a semantic oracle, and adapter teardown. Pi
+collects approval for one exact run. Candidate success produces evidence but
+does not change the tracked policy or corpus.
 
-Candidate contracts are bounded data, not JavaScript, shell, raw selectors, or
-tool calls. They may use only reviewed operation references, reviewed locator
-keys, a fixed adapter, a semantic oracle, and required adapter teardown. One
-approval covers one isolated run. A successful candidate receipt is not a
-promotion and never changes the policy or corpus.
-
-For diagnostics or CI, the deterministic owner has `route`,
-`proposal-context`, `validate-candidate`, and `execute-trusted` commands:
-
-```sh
-python3 scripts/validate-change.py route --repo /path/to/webflow
-python3 scripts/validate-change.py execute-trusted --repo /path/to/webflow --execute
-```
-
-The CLI cannot execute a candidate. Use the `webflow_designer` operation so
-the host can enforce interactive approval.
+For diagnostics or CI, follow the
+[standalone change-validation reference](references/standalone-cli.md#change-validation).
 
 ## Use curated test knowledge
 
@@ -259,12 +256,9 @@ positive executable knowledge. The `evaluate` report checks held-out semantic
 assertions and positive/holdout path separation without promoting a candidate.
 The source commit and a source-file manifest must still match before lookup.
 
-The cost boundary is deliberate: discovery and promotion are offline,
-budgeted maintenance work. Normal end-of-work validation uses zero model calls
-when a known contract matches. Otherwise it may request one approved,
-data-only candidate proposal or report insufficient evidence. The runtime may
-emit a sanitized drift or failure receipt, but it must not rewrite the corpus,
-add selectors, or promote behavior.
+Discovery and promotion are offline maintenance work. The runtime can emit a
+sanitized drift or failure receipt, but the maintenance process owns every
+policy, selector, and promotion change.
 
 The same validated index is available through the `webflow_designer` Code Mode
 operation `test_knowledge`: use `view:"status"` for compact freshness and

@@ -480,37 +480,47 @@ classifies the runtime and `reconcile` handles only safe stale states.
 
 #### Validate current Webflow changes
 
-In Pi, ask to "Validate my current Webflow changes." The shared `webflow_designer`
-tool reads the staged, unstaged, and bounded untracked Webflow change set. When
-every changed path has a reviewed mapping, it runs the smallest fixed focused
-test set with zero model calls, runs the AWS preflight only when that test
-requires it, and returns a sanitized receipt with the semantic result and
-cleanup proof.
+Run this near the end of a focused Designer change, before the PR handoff:
 
-When a change has no trusted mapping, the tool does not guess or browse. It
-returns either `insufficient_evidence` or a bounded proposal context. When it
-has that context, the active model may submit one data-only candidate contract. Pi
-shows the candidate's actions, evidence, target, semantic oracle, cleanup, and
-budget before it permits one isolated run. That approval is bound to the exact
-candidate and current change set. A successful candidate remains untrusted and
-does not alter the corpus or policy.
+1. Start Pi with this setup loaded. Open it from the Webflow checkout, or give
+   Pi the checkout path.
+2. Ask: "Validate my current Webflow changes."
+3. Pi reads the staged, unstaged, and bounded untracked files. A trusted route
+   runs the smallest reviewed Playwright set, including AWS preflight when the
+   runner requires it.
+4. Read the final receipt. Only `passed` means validation completed. `ready`
+   means Pi found a trusted route but has not run it.
+5. Add the sanitized status, contracts, tests, and any `failureClass` to the PR
+   handoff.
 
-The direct CLI is for diagnostics and CI, not normal feature work:
+An unmapped file moves the whole change set out of the trusted path. Pi then
+returns `insufficient_evidence`, `routing_ambiguous`, or evidence for one
+candidate proposal. Before a candidate runs, Pi shows its actions, evidence,
+target, semantic oracle, cleanup, and budget. Approval covers that candidate
+and change set once. The run remains untrusted and cannot modify the corpus or
+policy.
 
-```sh
-python3 skills/webflow-designer-agent-browser/scripts/validate-change.py route \
-  --repo /path/to/webflow
-python3 skills/webflow-designer-agent-browser/scripts/validate-change.py execute-trusted \
-  --repo /path/to/webflow --execute
-```
+Current trusted coverage is deliberately small:
 
-`route` reports `ready`, not `passed`. Only `execute-trusted` or an approved
-candidate run can produce a passing receipt. Candidate execution goes through
-the Pi confirmation gate, not the direct CLI.
+- Pages panel files under
+  `public/js/designer-flux/components/PagesPanel/**`
+- Add panel files matching
+  `public/js/designer-flux/components/AddTab*.tsx`
+- the reviewed Playwright spec for either surface
+
+Every changed file must match a reviewed mapping. A mixed change set that also
+contains an unmapped file needs separate validation and should report the
+coverage gap. The tracked
+[`test-corpus-policy.json`](skills/webflow-designer-agent-browser/test-corpus-policy.json)
+is the source of truth for mappings and fixed runners.
+
+The [standalone CLI reference](skills/webflow-designer-agent-browser/references/standalone-cli.md#change-validation)
+covers diagnostics and CI. Candidate execution is available only through Pi,
+where the confirmation extension can collect the user's approval.
 
 For compact native browser results, the recommended host integration is
 [`pi-agent-browser-native`](https://pi.dev/packages/pi-agent-browser-native?name=agent-browser-native).
-The [standalone CLI reference](skills/webflow-designer-agent-browser/references/standalone-cli.md)
+The [standalone CLI reference](skills/webflow-designer-agent-browser/references/standalone-cli.md#managed-transaction)
 documents direct JSON use with `agent-browser`. A Playwright or Selenium
 adapter is not included. All paths use a dedicated Chrome for Testing profile
 and keep it separate from normal Chrome. The skill never stores credentials,

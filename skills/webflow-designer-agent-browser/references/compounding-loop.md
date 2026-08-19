@@ -1,27 +1,10 @@
 # Automation maintenance loop
 
-Use this reference during a separate maintenance review, not as a required
-step after every browser task. Repeated browser actions can justify a helper,
-but live task execution must stay separate from code generation and promotion.
-
-## Daily change validation
-
-Daily validation starts with the current Webflow Git change set, not corpus
-discovery. The validator first checks reviewed path-to-contract mappings. A
-known mapping runs its fixed focused adapter with zero model calls and returns
-a receipt that distinguishes product/test failure, infrastructure failure, and
-cleanup failure.
-
-If no mapping covers the change, the validator can return bounded evidence for
-one candidate proposal. The model may propose a data-only contract but cannot
-execute it, add it to the registry, or mark it trusted. Pi asks the user to
-approve that exact action graph for one isolated run. The candidate and current
-change set are digest-bound, so changing the target, action, oracle, cleanup,
-budget, source commit, or diff requires another approval.
-
-Candidate success is a receipt, not promotion. Bring receipts back to this
-maintenance loop only when deciding whether reviewed evidence supports a
-durable mapping or operation card.
+Use this reference when repeated browser work or a candidate validation receipt
+needs a maintenance decision. Start after live execution and cleanup. The
+[daily validation workflow](../SKILL.md#validate-current-webflow-changes) owns
+routing and one-run approval; this loop decides whether accumulated evidence
+supports a durable helper, mapping, or operation card.
 
 ## Review a complete run
 
