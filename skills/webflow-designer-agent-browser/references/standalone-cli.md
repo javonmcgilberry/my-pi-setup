@@ -6,8 +6,12 @@ required here.
 
 ## Change validation
 
-Use `validate-change.py` for diagnostics or CI. It reads the tracked policy;
-runtime callers cannot replace that policy.
+Use `validate-change.py` when Pi is unavailable, the user chooses another host,
+or CI needs deterministic trusted routing. It reads the tracked policy;
+runtime callers cannot replace that policy. All non-ignored changed files take
+part in routing. The route output lists excluded lockfiles, TypeScript config,
+and lint config under `ignoredFiles`. Run the repository's normal checks for
+those files.
 
 ```sh
 SKILL_DIR=/path/to/webflow-designer-agent-browser
@@ -21,10 +25,31 @@ python3 "$SKILL_DIR/scripts/validate-change.py" execute-trusted \
 A `ready` receipt means a trusted runner exists but has not run.
 `execute-trusted` is complete only when it returns a terminal receipt.
 
-For an unknown route, inspect the bounded context with `proposal-context`. A
-candidate contract can be checked with `validate-candidate --candidate
-<contract.json>`, but this CLI cannot execute it. Candidate execution requires
-Pi's interactive confirmation extension.
+For an unknown route, inspect the bounded context with `proposal-context`.
+After a model or engineer writes one data-only candidate contract, validate and
+record it:
+
+```sh
+python3 "$SKILL_DIR/scripts/validate-change.py" validate-candidate \
+  --repo /path/to/webflow \
+  --candidate /path/to/contract.json
+```
+
+The result includes an `approvalDigest`. The user can then run the candidate
+from an interactive terminal:
+
+```sh
+python3 "$SKILL_DIR/scripts/validate-change.py" execute-candidate \
+  --repo /path/to/webflow \
+  --candidate /path/to/contract.json \
+  --approval-digest <approval-digest> \
+  --execute
+```
+
+The command displays the exact evidence, target, actions, oracle, cleanup, and
+budget. It runs only after the user types the full digest. The private state
+file prevents a second run of the same approved candidate. A noninteractive
+caller cannot execute a candidate.
 
 ## Browser requirements
 

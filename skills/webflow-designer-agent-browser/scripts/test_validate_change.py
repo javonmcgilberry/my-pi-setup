@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import importlib.util
 import hashlib
+import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -53,6 +55,7 @@ class ValidationChangeTests(unittest.TestCase):
         return validate_change.collect_change_set(
             self.repo,
             self.policy["changeValidation"]["limits"],
+            ignored_path_globs=self.policy["changeValidation"]["ignoredPathGlobs"],
             **kwargs,
         )
 
@@ -125,6 +128,39 @@ class ValidationChangeTests(unittest.TestCase):
                 "sha256": hashlib.sha256(b"changed since base\n").hexdigest(),
             }
         ])
+
+    def test_ignores_tracked_noise_without_hiding_product_changes(self):
+        self.write("package-lock.json", '{"lockfileVersion": 3}\n')
+        self.write("packages/designer/tsconfig.json", '{}\n')
+        self.write("packages/designer/eslint.config.js", "export default {};\n")
+        self.write(
+            "public/js/designer-flux/components/PagesPanel/PagesPanel.tsx",
+            "export const pages = false;\n",
+        )
+        changes = self.changes()
+        self.assertEqual(
+            changes["ignoredFiles"],
+            [
+                "package-lock.json",
+                "packages/designer/eslint.config.js",
+                "packages/designer/tsconfig.json",
+            ],
+        )
+        self.assertEqual(
+            [item["path"] for item in changes["files"]],
+            ["public/js/designer-flux/components/PagesPanel/PagesPanel.tsx"],
+        )
+        route = validate_change.route_trusted_contracts(changes, self.policy)
+        self.assertEqual(route["status"], "trusted")
+
+    def test_noise_only_change_set_reports_ignored_files(self):
+        self.write("package-lock.json", '{"lockfileVersion": 3}\n')
+        changes = self.changes(changed_files=["package-lock.json"])
+        self.assertEqual(changes["files"], [])
+        self.assertEqual(changes["ignoredFiles"], ["package-lock.json"])
+        route = validate_change.route_trusted_contracts(changes, self.policy)
+        self.assertEqual(route["status"], "insufficient_evidence")
+        self.assertEqual(route["reason"], "change_set_empty")
 
     def test_known_mapping_is_deterministic_and_zero_model(self):
         changes = self.changes(changed_files=["public/js/designer-flux/components/PagesPanel/PagesPanel.tsx"])
@@ -264,6 +300,78 @@ class ValidationChangeTests(unittest.TestCase):
         self.assertEqual(self.policy, original)
         self.assertNotIn(str(self.repo), json.dumps(receipt))
         self.assertEqual(calls, 2)
+
+    def test_standalone_candidate_approval_is_exact_and_one_run_only(self):
+        _, context = self.candidate_context()
+        candidate = validate_change.validate_candidate_contract(
+            self.candidate(context), context, self.policy
+        )
+        state_path = Path(self.temp.name) / "state" / "candidate.json"
+        approval = validate_change.approval_digest(candidate)
+        validate_change.record_candidate_proposal(candidate, state_path)
+        self.assertEqual(state_path.stat().st_mode & 0o777, 0o600)
+        prompt = io.StringIO()
+        self.assertTrue(
+            validate_change.confirm_candidate_execution(
+                candidate,
+                approval,
+                input_fn=lambda _prompt: approval,
+                output=prompt,
+            )
+        )
+        self.assertIn("designer.panel.pages.open", prompt.getvalue())
+        with self.assertRaisesRegex(validate_change.ValidationError, "digest"):
+            validate_change.claim_candidate_execution(
+                candidate, "0" * 64, state_path
+            )
+        validate_change.claim_candidate_execution(candidate, approval, state_path)
+        validate_change.consume_candidate_execution(state_path)
+        with self.assertRaisesRegex(validate_change.ValidationError, "consumed"):
+            validate_change.claim_candidate_execution(candidate, approval, state_path)
+
+    def test_standalone_cli_records_a_candidate_but_requires_a_tty_to_run(self):
+        _, context = self.candidate_context()
+        candidate_path = Path(self.temp.name) / "candidate.json"
+        candidate_path.write_text(json.dumps(self.candidate(context)))
+        environment = {**os.environ, "HOME": self.temp.name}
+        proposed = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_DIR / "validate-change.py"),
+                "validate-candidate",
+                "--repo",
+                str(self.repo),
+                "--candidate",
+                str(candidate_path),
+            ],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=environment,
+        )
+        approval = json.loads(proposed.stdout)["approvalDigest"]
+        executed = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_DIR / "validate-change.py"),
+                "execute-candidate",
+                "--repo",
+                str(self.repo),
+                "--candidate",
+                str(candidate_path),
+                "--approval-digest",
+                approval,
+                "--execute",
+            ],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=environment,
+        )
+        self.assertEqual(executed.returncode, 2)
+        self.assertIn("interactive terminal", executed.stderr)
 
 
 if __name__ == "__main__":

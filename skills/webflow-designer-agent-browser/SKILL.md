@@ -1,6 +1,6 @@
 ---
 name: webflow-designer-agent-browser
-description: Validate current Webflow Designer changes or inspect authenticated Designer sessions, local Designer apps, extension iframes, and canvas state. Use for end-of-work change validation, Designer URLs, unsaved or collaborative tabs, iframe and canvas debugging, visual QA, CDP, and agent-browser workflows. Choose native agent_browser when available or the agent-browser CLI for standalone runs.
+description: Validate current Webflow Designer changes or inspect authenticated Designer sessions, local Designer apps, extension iframes, and canvas state. Use for end-of-work change validation, Designer URLs, unsaved or collaborative tabs, iframe and canvas debugging, visual QA, CDP, and agent-browser workflows. Prefer Pi's native agent_browser integration; use the standalone CLI when Pi is unavailable or the user chooses another host.
 ---
 
 # Webflow Designer browser workflow
@@ -184,8 +184,9 @@ maintenance tasks, not prerequisites.
 1. Route the change set. Call `webflow_designer` with
    `operation:"validate_change"`, the read-only Webflow `repoPath`, and
    `phase:"route"`. Without `changedFiles`, routing includes staged, unstaged,
-   and bounded untracked files. This step is complete when the response has a
-   receipt and one route status.
+   and bounded untracked files after the tracked exclusion list is applied.
+   Every remaining file participates in routing. This step is complete when
+   the response has a receipt and one route status.
 2. Follow that status:
    - For `ready` with `mode:"trusted"`, call `phase:"execute_trusted"`. The
      tracked policy supplies every fixed runner and its AWS requirement. This
@@ -201,15 +202,19 @@ maintenance tasks, not prerequisites.
      not validate the change.
 3. Report the result. Only `passed` is a successful validation. `ready` records
    routing only. Include the receipt's contracts, tests, cleanup state, and
-   `failureClass` when present.
+   `failureClass` when present. Include `ignoredFiles` from the change set so
+   the user can see what routing skipped.
 
 A candidate contains bounded data: reviewed operation references, reviewed
 locator keys, one fixed adapter, a semantic oracle, and adapter teardown. Pi
 collects approval for one exact run. Candidate success produces evidence but
 does not change the tracked policy or corpus.
 
-For diagnostics or CI, follow the
+Pi is the preferred host, not a requirement. Outside Pi, follow the
 [standalone change-validation reference](references/standalone-cli.md#change-validation).
+The standalone command validates the same contract, records the same one-run
+state, displays the bounded plan, and requires the user to type the full
+approval digest in an interactive terminal.
 
 ## Use curated test knowledge
 

@@ -1669,7 +1669,8 @@ class DesignerCodeMode:
         )
         if not scenario_path.is_file() or not operation_path.is_file() or not policy_path.is_file():
             _fail("scenario_plan_input_missing", "scenario_plan")
-        if request.get("dryRun") is not True:
+        dry_run = request.get("dryRun")
+        if not isinstance(dry_run, bool) or not dry_run:
             _fail("scenario_plan_requires_dry_run", "scenario_plan")
         try:
             policy = test_scenario_eval.load_json(policy_path)
@@ -1937,7 +1938,8 @@ class DesignerCodeMode:
             }
         if phase != "execute_candidate":
             _fail("invalid_validate_change_phase", "validate_change")
-        if request.get("userConfirmed") is not True:
+        user_confirmed = request.get("userConfirmed")
+        if not isinstance(user_confirmed, bool) or not user_confirmed:
             _fail("user_confirmation_required", "validate_change")
         approval = request.get("approvalDigest")
         if not isinstance(approval, str) or not re.fullmatch(r"[0-9a-f]{64}", approval):

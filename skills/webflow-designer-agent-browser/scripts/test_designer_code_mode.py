@@ -538,6 +538,41 @@ class DesignerCodeModeTests(unittest.TestCase):
             with self.assertRaisesRegex(designer_code_mode.ProtocolError, "proposal_limit_reached"):
                 service._record_candidate(second)
 
+    def test_standalone_candidate_state_is_compatible_with_code_mode(self):
+        service = self.service()
+        candidate = {
+            "source": {"commit": "a" * 40, "changeSetDigest": "b" * 64},
+            "target": {"fixture": "isolated-designer-test", "document": "main"},
+            "riskClass": "reversible-ui",
+            "actions": [
+                {
+                    "id": "open-panel",
+                    "op": "invoke_operation",
+                    "dependsOn": [],
+                    "operationId": "designer.panel.pages.open",
+                }
+            ],
+            "oracle": {
+                "kind": "semantic-fact",
+                "fact": "panel-visible",
+                "expected": True,
+            },
+            "cleanup": ["adapter-teardown"],
+            "budget": {"timeoutSeconds": 900, "maxRetries": 1, "maxActions": 8},
+        }
+        state_path = service._validation_state_path()
+        designer_code_mode.validate_change.record_candidate_proposal(
+            candidate, state_path
+        )
+        state = service._load_validation_state()
+        self.assertIsNotNone(state)
+        self.assertEqual(state["state"], "proposed")
+        service._claim_candidate_execution(
+            candidate, designer_code_mode.validate_change.approval_digest(candidate)
+        )
+        service._consume_candidate_execution()
+        self.assertEqual(service._load_validation_state()["state"], "consumed")
+
     def test_status_preserves_direct_owner_and_reconciles_dead_lease(self):
         service = self.service()
         self.runtime.owned = True

@@ -132,6 +132,28 @@
   },
   "changeValidation": {
     "version": 1,
+    "ignoredPathGlobs": [
+      "package-lock.json",
+      "**/package-lock.json",
+      "yarn.lock",
+      "**/yarn.lock",
+      "pnpm-lock.yaml",
+      "**/pnpm-lock.yaml",
+      "bun.lock",
+      "**/bun.lock",
+      "bun.lockb",
+      "**/bun.lockb",
+      "tsconfig.json",
+      "**/tsconfig.json",
+      "tsconfig.*.json",
+      "**/tsconfig.*.json",
+      ".eslintrc",
+      "**/.eslintrc",
+      ".eslintrc.*",
+      "**/.eslintrc.*",
+      "eslint.config.*",
+      "**/eslint.config.*"
+    ],
     "limits": {
       "maximumChangedFiles": 200,
       "maximumFileBytes": 2097152,

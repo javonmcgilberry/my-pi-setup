@@ -482,25 +482,29 @@ classifies the runtime and `reconcile` handles only safe stale states.
 
 Run this near the end of a focused Designer change, before the PR handoff:
 
-1. Start Pi with this setup loaded. Open it from the Webflow checkout, or give
-   Pi the checkout path.
+1. Start Pi with this setup loaded. Pi is the recommended host because it can
+   show candidate approval in its UI. Open it from the Webflow checkout, or
+   give Pi the checkout path.
 2. Ask: "Validate my current Webflow changes."
-3. Pi reads the staged, unstaged, and bounded untracked files. A trusted route
-   runs the smallest reviewed Playwright set, including AWS preflight when the
-   runner requires it.
+3. Pi reads the staged, unstaged, and bounded untracked files. The tracked
+   exclusion list removes lockfiles, TypeScript config, and lint config from
+   Designer behavioral routing. Normal repository checks still own those
+   files. A trusted route runs the smallest reviewed Playwright set, including
+   AWS preflight when the runner requires it.
 4. Read the final receipt. Only `passed` means validation completed. `ready`
    means Pi found a trusted route but has not run it.
 5. Add the sanitized status, contracts, tests, and any `failureClass` to the PR
    handoff.
 
-An unmapped file moves the whole change set out of the trusted path. Pi then
-returns `insufficient_evidence`, `routing_ambiguous`, or evidence for one
-candidate proposal. Before a candidate runs, Pi shows its actions, evidence,
-target, semantic oracle, cleanup, and budget. Approval covers that candidate
-and change set once. The run remains untrusted and cannot modify the corpus or
+Every non-ignored file participates in routing. An unmapped file moves the
+whole change set out of the trusted path. Pi then returns
+`insufficient_evidence`, `routing_ambiguous`, or evidence for one candidate
+proposal. Before a candidate runs, Pi shows its actions, evidence, target,
+semantic oracle, cleanup, and budget. Approval covers that candidate and
+change set once. The run remains untrusted and cannot modify the corpus or
 policy.
 
-Current trusted coverage is deliberately small:
+Only these changes can run without a proposal today:
 
 - Pages panel files under
   `public/js/designer-flux/components/PagesPanel/**`
@@ -508,15 +512,14 @@ Current trusted coverage is deliberately small:
   `public/js/designer-flux/components/AddTab*.tsx`
 - the reviewed Playwright spec for either surface
 
-Every changed file must match a reviewed mapping. A mixed change set that also
-contains an unmapped file needs separate validation and should report the
-coverage gap. The tracked
+A mixed change set that contains an unmapped, non-ignored file needs separate
+validation and should report the coverage gap. The tracked
 [`test-corpus-policy.json`](skills/webflow-designer-agent-browser/test-corpus-policy.json)
-is the source of truth for mappings and fixed runners.
+is the source of truth for exclusions, mappings, and fixed runners.
 
 The [standalone CLI reference](skills/webflow-designer-agent-browser/references/standalone-cli.md#change-validation)
-covers diagnostics and CI. Candidate execution is available only through Pi,
-where the confirmation extension can collect the user's approval.
+covers the same workflow outside Pi. Its candidate path requires an interactive
+terminal and the full approval digest before one run.
 
 For compact native browser results, the recommended host integration is
 [`pi-agent-browser-native`](https://pi.dev/packages/pi-agent-browser-native?name=agent-browser-native).

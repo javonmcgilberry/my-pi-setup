@@ -19,16 +19,26 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, Iterable, NoReturn
+from typing import Any, Callable, Iterable, Iterator, NoReturn, TextIO
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - supported runtime is macOS/Linux.
+    fcntl = None  # type: ignore[assignment]
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
 DEFAULT_POLICY = SKILL_DIR / "test-corpus-policy.json"
 DEFAULT_PREFLIGHT = SCRIPT_DIR / "ensure-test-aws.py"
+DEFAULT_STATE_ROOT = Path.home() / ".config" / "webflow-designer-agent-browser"
+VALIDATION_STATE_FILENAME = "code-mode-validation-proposal.json"
+VALIDATION_LOCK_FILENAME = ".code-mode.lock"
 VERSION = 1
 STATUS_VALUES = {
     "ready",
@@ -232,7 +242,10 @@ def merge_change_records(records: Iterable[dict[str, str]], repo: Path, limits: 
     for path in sorted(merged):
         item = validate_changed_file(repo, merged[path], limits)
         item["sources"] = sorted(set(sources[path]))
-        total += int(item["bytes"])
+        byte_count = item.get("bytes")
+        if type(byte_count) is not int:
+            fail("changed file byte count is invalid")
+        total += byte_count
         result.append(item)
     if total > limits["maximumTotalBytes"]:
         fail("change set exceeds maximumTotalBytes")
@@ -243,6 +256,7 @@ def collect_change_set(
     repo: Path,
     limits: dict[str, int],
     *,
+    ignored_path_globs: Iterable[str] = (),
     base: str | None = None,
     changed_files: Iterable[str] = (),
 ) -> dict[str, Any]:
@@ -264,8 +278,20 @@ def collect_change_set(
         for raw_path in run_git(repo, "ls-files", "--others", "--exclude-standard", "-z").split(b"\0"):
             if raw_path:
                 records.append({"path": ensure_relative(raw_path.decode("utf-8", "surrogateescape"), "untracked path"), "status": "untracked", "source": "untracked"})
+    ignored_patterns = list(ignored_path_globs)
+    ignored_files = sorted(
+        {record["path"] for record in records if path_matches(record["path"], ignored_patterns)}
+    )
+    if len(ignored_files) > limits["maximumChangedFiles"]:
+        fail("ignored change set exceeds maximumChangedFiles")
+    records = [record for record in records if record["path"] not in ignored_files]
     files = merge_change_records(records, repo, limits)
-    return {"sourceCommit": source_commit(repo), "files": files, "digest": sha256_json(files)}
+    return {
+        "sourceCommit": source_commit(repo),
+        "files": files,
+        "ignoredFiles": ignored_files,
+        "digest": sha256_json(files),
+    }
 
 
 def validate_limits(value: object) -> dict[str, int]:
@@ -303,12 +329,23 @@ def validate_policy(policy: object) -> dict[str, Any]:
         operation_ids.add(identifier)
     section = require_keys(
         change_validation,
-        {"version", "limits", "mappings", "runners", "candidate"},
-        {"version", "limits", "mappings", "runners", "candidate"},
+        {"version", "ignoredPathGlobs", "limits", "mappings", "runners", "candidate"},
+        {"version", "ignoredPathGlobs", "limits", "mappings", "runners", "candidate"},
         "changeValidation",
     )
     if section["version"] != 1:
         fail("unsupported changeValidation version")
+    ignored_path_globs = bounded_string_list(
+        section["ignoredPathGlobs"],
+        "changeValidation.ignoredPathGlobs",
+        minimum=1,
+        maximum=40,
+    )
+    if any(
+        glob.startswith("/") or ".." in PurePosixPath(glob).parts or "\x00" in glob
+        for glob in ignored_path_globs
+    ):
+        fail("ignored path glob is invalid")
     limits = validate_limits(section["limits"])
     raw_runners = require_object(section["runners"], "changeValidation.runners")
     runners: dict[str, dict[str, Any]] = {}
@@ -382,7 +419,7 @@ def validate_policy(policy: object) -> dict[str, Any]:
     if not 2 <= candidate["maximumActions"] <= 8 or candidate["maximumRetries"] > 1 or not 1 <= candidate["maximumTimeoutSeconds"] <= 900:
         fail("candidate limits are outside the supported bounds")
     selector_keys = bounded_string_list(candidate["allowedSelectorKeys"], "candidate.allowedSelectorKeys", maximum=40)
-    return {**policy, "changeValidation": {**section, "limits": limits, "mappings": validated_mappings, "runners": runners, "candidate": {**candidate, "allowedActions": allowed_actions, "allowedRiskClasses": risk_classes, "allowedSelectorKeys": selector_keys}}}
+    return {**policy, "changeValidation": {**section, "ignoredPathGlobs": ignored_path_globs, "limits": limits, "mappings": validated_mappings, "runners": runners, "candidate": {**candidate, "allowedActions": allowed_actions, "allowedRiskClasses": risk_classes, "allowedSelectorKeys": selector_keys}}}
 
 
 def path_matches(path: str, patterns: Iterable[str]) -> bool:
@@ -591,6 +628,184 @@ def candidate_run_id(candidate: dict[str, Any]) -> str:
     return str(uuid.UUID(hex=candidate_digest(candidate)[:32]))
 
 
+def candidate_state(candidate: dict[str, Any], state: str) -> dict[str, Any]:
+    if state not in {"proposed", "running", "consumed"}:
+        fail("candidate state is invalid")
+    return {
+        "version": VERSION,
+        "sourceCommit": candidate["source"]["commit"],
+        "changeSetDigest": candidate["source"]["changeSetDigest"],
+        "candidateDigest": candidate_digest(candidate),
+        "approvalDigest": approval_digest(candidate),
+        "state": state,
+    }
+
+
+def validate_candidate_state(value: object) -> dict[str, Any]:
+    state = require_keys(
+        value,
+        {
+            "version",
+            "sourceCommit",
+            "changeSetDigest",
+            "candidateDigest",
+            "approvalDigest",
+            "state",
+        },
+        {
+            "version",
+            "sourceCommit",
+            "changeSetDigest",
+            "candidateDigest",
+            "approvalDigest",
+            "state",
+        },
+        "candidate state",
+    )
+    if (
+        state["version"] != VERSION
+        or not isinstance(state["sourceCommit"], str)
+        or not COMMIT.fullmatch(state["sourceCommit"])
+    ):
+        fail("candidate state is invalid")
+    if any(
+        not isinstance(state[field], str) or not SHA256.fullmatch(state[field])
+        for field in ("changeSetDigest", "candidateDigest", "approvalDigest")
+    ):
+        fail("candidate state is invalid")
+    if state["state"] not in {"proposed", "running", "consumed"}:
+        fail("candidate state is invalid")
+    return state
+
+
+@contextmanager
+def candidate_state_lock(state_path: Path) -> Iterator[None]:
+    root = state_path.parent
+    if root.is_symlink():
+        fail("candidate state root is unsafe")
+    try:
+        root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        root.chmod(0o700)
+        lock_path = root / VALIDATION_LOCK_FILENAME
+        if state_path.is_symlink() or lock_path.is_symlink():
+            fail("candidate state path is unsafe")
+        with lock_path.open("a+") as handle:
+            lock_path.chmod(0o600)
+            if fcntl is not None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                if fcntl is not None:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except OSError as error:
+        raise ValidationError("candidate state lock failed") from error
+
+
+def load_candidate_state(state_path: Path) -> dict[str, Any] | None:
+    if state_path.is_symlink():
+        fail("candidate state path is unsafe")
+    if not state_path.exists():
+        return None
+    try:
+        return validate_candidate_state(json.loads(state_path.read_text()))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValidationError("candidate state is invalid") from error
+
+
+def write_candidate_state(state_path: Path, state: dict[str, Any]) -> None:
+    validated = validate_candidate_state(state)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=state_path.parent,
+            prefix=".validation-candidate-",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(canonical_json(validated))
+        os.chmod(temporary, 0o600, follow_symlinks=False)
+        os.replace(temporary, state_path)
+    except OSError as error:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+        raise ValidationError("candidate state write failed") from error
+
+
+def record_candidate_proposal(candidate: dict[str, Any], state_path: Path) -> None:
+    proposed = candidate_state(candidate, "proposed")
+    with candidate_state_lock(state_path):
+        existing = load_candidate_state(state_path)
+        if existing is not None and (
+            existing["sourceCommit"] == proposed["sourceCommit"]
+            and existing["changeSetDigest"] == proposed["changeSetDigest"]
+            and existing["candidateDigest"] != proposed["candidateDigest"]
+        ):
+            fail("candidate proposal limit reached for this change set")
+        if existing is not None and existing["candidateDigest"] == proposed["candidateDigest"]:
+            return
+        write_candidate_state(state_path, proposed)
+
+
+def claim_candidate_execution(
+    candidate: dict[str, Any], approval: str, state_path: Path
+) -> None:
+    expected = candidate_state(candidate, "proposed")
+    if approval != expected["approvalDigest"]:
+        fail("candidate approval digest does not match")
+    with candidate_state_lock(state_path):
+        existing = load_candidate_state(state_path)
+        if existing is None:
+            fail("candidate was not proposed")
+        if any(
+            existing[field] != expected[field]
+            for field in (
+                "sourceCommit",
+                "changeSetDigest",
+                "candidateDigest",
+                "approvalDigest",
+            )
+        ):
+            fail("candidate approval binding does not match")
+        if existing["state"] != "proposed":
+            fail("candidate was already consumed")
+        write_candidate_state(state_path, {**existing, "state": "running"})
+
+
+def consume_candidate_execution(state_path: Path) -> None:
+    with candidate_state_lock(state_path):
+        existing = load_candidate_state(state_path)
+        if existing is None or existing["state"] != "running":
+            fail("candidate state is invalid")
+        write_candidate_state(state_path, {**existing, "state": "consumed"})
+
+
+def confirm_candidate_execution(
+    candidate: dict[str, Any],
+    approval: str,
+    *,
+    input_fn: Callable[[str], str] = input,
+    output: TextIO = sys.stderr,
+) -> bool:
+    details = {
+        "approvalDigest": approval,
+        "oneRunOnly": True,
+        "evidenceRefs": candidate["evidenceRefs"],
+        "target": candidate["target"],
+        "riskClass": candidate["riskClass"],
+        "actions": candidate["actions"],
+        "oracle": candidate["oracle"],
+        "cleanup": candidate["cleanup"],
+        "budget": candidate["budget"],
+    }
+    print("This authorizes one isolated candidate validation run.", file=output)
+    print(json.dumps(details, indent=2, sort_keys=True), file=output)
+    entered = input_fn("Type the full approval digest to run once: ").strip()
+    return entered == approval
+
+
 def build_command(policy: dict[str, Any], runner_id: str) -> list[str]:
     runner = policy["changeValidation"]["runners"][runner_id]
     adapter = policy["scenarioAdapters"][runner["adapter"]]
@@ -684,7 +899,13 @@ def validate_change(
     base: str | None = None,
     changed_files: Iterable[str] = (),
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
-    change_set = collect_change_set(repo, policy["changeValidation"]["limits"], base=base, changed_files=changed_files)
+    change_set = collect_change_set(
+        repo,
+        policy["changeValidation"]["limits"],
+        ignored_path_globs=policy["changeValidation"]["ignoredPathGlobs"],
+        base=base,
+        changed_files=changed_files,
+    )
     route = route_trusted_contracts(change_set, policy)
     if route["status"] == "trusted":
         receipt = build_receipt(status="ready", phase="route", mode="trusted", change_set=change_set, contracts=route["operations"], tests=[policy["changeValidation"]["runners"][item["runnerId"]]["specPath"] for item in route["matches"]])
@@ -698,11 +919,12 @@ def validate_change(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["route", "proposal-context", "validate-candidate", "execute-trusted"])
+    parser.add_argument("command", choices=["route", "proposal-context", "validate-candidate", "execute-trusted", "execute-candidate"])
     parser.add_argument("--repo", required=True, type=Path)
     parser.add_argument("--base")
     parser.add_argument("--changed-file", action="append", default=[])
     parser.add_argument("--candidate", type=Path)
+    parser.add_argument("--approval-digest")
     parser.add_argument("--execute", action="store_true")
     return parser.parse_args()
 
@@ -716,13 +938,39 @@ def main() -> int:
             output: dict[str, Any] = {"version": VERSION, "changeSet": change_set, "route": route, "result": result}
         elif args.command == "proposal-context":
             output = result if isinstance(result, dict) and "proposalContext" in result else {"receipt": build_receipt(status="insufficient_evidence", phase="proposal", mode="none", change_set=change_set, failure_class="trusted_route_requires_no_proposal"), "proposalContext": {"status": "insufficient_evidence", "missingEvidence": ["trusted_route_requires_no_proposal"]}}
-        elif args.command == "validate-candidate":
+        elif args.command in {"validate-candidate", "execute-candidate"}:
             if args.candidate is None:
-                fail("validate-candidate requires --candidate")
+                fail(f"{args.command} requires --candidate")
             if not isinstance(result, dict) or "proposalContext" not in result:
                 fail("candidate proposals require an unknown route")
             candidate = validate_candidate_contract(read_json(args.candidate), result["proposalContext"], policy)
-            output = {"version": VERSION, "status": "approval_required", "candidateDigest": candidate_digest(candidate), "approvalDigest": approval_digest(candidate), "runId": candidate_run_id(candidate), "receipt": build_receipt(status="approval_required", phase="proposal", mode="candidate", change_set=change_set, model_proposal_count=1, candidate=candidate)}
+            state_path = DEFAULT_STATE_ROOT / VALIDATION_STATE_FILENAME
+            if args.command == "validate-candidate":
+                record_candidate_proposal(candidate, state_path)
+                output = {"version": VERSION, "status": "approval_required", "candidateDigest": candidate_digest(candidate), "approvalDigest": approval_digest(candidate), "runId": candidate_run_id(candidate), "receipt": build_receipt(status="approval_required", phase="proposal", mode="candidate", change_set=change_set, model_proposal_count=1, candidate=candidate)}
+            else:
+                if not args.execute:
+                    fail("execute-candidate requires --execute")
+                approval = args.approval_digest
+                if not isinstance(approval, str) or not SHA256.fullmatch(approval):
+                    fail("execute-candidate requires a valid --approval-digest")
+                if approval != approval_digest(candidate):
+                    fail("candidate approval digest does not match")
+                if not sys.stdin.isatty():
+                    fail("execute-candidate requires an interactive terminal")
+                if not confirm_candidate_execution(candidate, approval):
+                    fail("candidate approval was not confirmed")
+                claim_candidate_execution(candidate, approval, state_path)
+                try:
+                    output = execute_runner(
+                        args.repo.resolve(),
+                        policy,
+                        [candidate["runnerId"]],
+                        change_set,
+                        candidate=candidate,
+                    )
+                finally:
+                    consume_candidate_execution(state_path)
         else:
             if route["status"] != "trusted":
                 fail("execute-trusted requires a trusted route")
