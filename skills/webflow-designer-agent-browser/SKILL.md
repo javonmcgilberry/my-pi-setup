@@ -174,3 +174,71 @@ and the stopped-runtime proof.
 Use [the automation maintenance loop](references/compounding-loop.md) only
 during skill maintenance or when reviewing repeated automation opportunities. It is
 not a required step after every browser task.
+
+## Use curated test knowledge
+
+The Webflow monorepo's Playwright and Cypress tests are evidence, not an
+unrestricted instruction set. During skill maintenance, build a disposable,
+commit-bound corpus index from the tracked policy:
+
+```sh
+tmp="$(mktemp -d)"
+python3 scripts/test-corpus-index.py build \
+  --repo /path/to/webflow \
+  --output "$tmp/designer-corpus.json"
+python3 scripts/test-corpus-index.py validate \
+  --repo /path/to/webflow \
+  --index "$tmp/designer-corpus.json"
+python3 scripts/test-corpus-index.py lookup \
+  --repo /path/to/webflow \
+  --index "$tmp/designer-corpus.json" \
+  --operation designer.page.switch
+python3 scripts/test-corpus-index.py evaluate \
+  --repo /path/to/webflow \
+  --index "$tmp/designer-corpus.json"
+```
+
+The index extracts operation-level evidence and retains bounded provenance,
+selectors, context, postconditions, confidence, utility, novelty, holdouts,
+and negative evidence. Quarantined, skipped, stale, unsafe, or
+fixed-duration-wait evidence cannot silently become positive executable
+knowledge. The `evaluate` report checks held-out semantic assertions and
+positive/holdout path separation without promoting a candidate. The source
+commit and a source-file manifest must still match before lookup.
+
+The same validated index is available through the `webflow_designer` Code Mode
+operation `test_knowledge`: use `view:"status"` for compact freshness and
+portfolio counts, or pass one `operationId` or capability `category` for a
+bounded card lookup.
+
+Scenario contracts are plan-only handoffs between an external test-data
+adapter and the managed browser lifecycle:
+
+```sh
+python3 scripts/ensure-test-aws.py --repo /path/to/webflow
+python3 scripts/test-scenario-eval.py plan \
+  --scenario /path/to/scenario.json \
+  --operation /path/to/operation-card.json \
+  --dry-run
+```
+
+Run `ensure-test-aws.py` before scenario-backed local tests. It validates the
+`dev-publish-only` profile without trusting inherited AWS variables, performs
+`aws sso login --sso-session wf-session` only when required, checks the exact
+temporary credentials held by every running `wf-app`, and restarts only the
+`server` HUD task, which owns `entrypoints/server`, when those credentials are
+missing or stale. If the server is not running, the preflight starts it.
+Because `wf-app` hides its environment when it replaces its visible command
+line, the check follows the process ancestry. The JSON output never includes
+credential values. After a repair, the command stores only the server PID and
+credential expiration in the private runtime directory. Later checks use that
+receipt to avoid restarting a server that already has fresh credentials. Run
+this preflight instead of researching the local AWS setup or starting a second
+server.
+
+This command does not run Playwright, create accounts, open a browser, or
+execute generated shell text. Existing Webflow Playwright scenario helpers
+own their browser contexts, so a future external adapter must explicitly
+provide a sanitized Designer-target handoff and teardown artifact before a
+managed `prepare -> interaction -> verify -> finish` run can use it. Do not
+use a scenario plan as authorization to mutate a shared or customer surface.

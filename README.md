@@ -501,6 +501,25 @@ For a recorded result, generate and validate a mode-specific report with
 report includes the five readiness checks, sanitized semantic evidence, the
 ownership boundary, and stopped-runtime proof.
 
+The skill also has a maintenance-only, evidence-backed test-knowledge path.
+`skills/webflow-designer-agent-browser/test-corpus-policy.json` selects a
+small set of operation sources from the Webflow monorepo; the disposable
+`test-corpus-index.py` command extracts commit-bound operation cards with
+bounded provenance, confidence, holdouts, and negative evidence. It does not
+copy test bodies or add a Playwright runtime transport. The companion
+`ensure-test-aws.py` command validates the local AWS profile and the temporary
+credentials inherited by `wf-app`, refreshing SSO and restarting only the stale
+`server` HUD task, which owns `entrypoints/server`. It verifies the replacement
+process, starts the task when it is missing, and keeps a credential-free PID
+and expiration receipt in the private runtime directory. The companion
+`test-scenario-eval.py` command validates a declared scenario contract and
+emits a plan-only external setup/browser/assertion/teardown handoff. Existing
+Webflow Playwright scenario helpers still own their browser contexts, so a
+scenario cannot be treated as an agent-browser handoff until an explicitly
+reviewed adapter provides a sanitized target and teardown artifact. The corpus
+`evaluate` command checks held-out semantic evidence and overlap without
+promoting a candidate.
+
 ## Cache, sessions, compaction, and retention
 
 They are related, but each system preserves something different.

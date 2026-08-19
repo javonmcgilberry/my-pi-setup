@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/webflow-designer/designer-scenario-contract.schema.json",
+  "title": "Designer scenario contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version", "id", "mode", "sourceCommit", "adapter", "specPath",
+    "target", "setup", "expected", "allowedOperations", "teardown"
+  ],
+  "properties": {
+    "version": {"const": 1},
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]+$"},
+    "mode": {"enum": ["fixture", "external"]},
+    "sourceCommit": {"type": "string", "minLength": 6, "maxLength": 40},
+    "adapter": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]+$"},
+    "specPath": {"type": "string", "pattern": "^[^/].*"},
+    "grep": {"type": "string", "maxLength": 160},
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "pathTemplate", "document"],
+      "properties": {
+        "origin": {"enum": ["local-designer", "designer-test"]},
+        "pathTemplate": {"type": "string", "pattern": "^/design/"},
+        "document": {"enum": ["main", "canvas", "frame"]}
+      }
+    },
+    "setup": {"type": "object"},
+    "expected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["initialState", "success"],
+      "properties": {
+        "initialState": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "success": {"type": "array", "items": {"type": "string"}, "minItems": 1}
+      }
+    },
+    "allowedOperations": {"type": "array", "items": {"type": "string"}, "minItems": 1, "uniqueItems": true},
+    "teardown": {"type": "object"}
+  }
+}

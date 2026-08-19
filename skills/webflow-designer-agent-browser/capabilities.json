@@ -176,6 +176,32 @@
       "maturity": "stable",
       "disposition": "keep",
       "loadWhen": "testing a published site that depends on a renderer"
+    },
+    {
+      "id": "test-knowledge.corpus-index",
+      "category": "test-knowledge",
+      "implementation": "scripts/test-corpus-index.py",
+      "owner": "test-corpus-index",
+      "purpose": "Build, validate, retrieve, and evaluate a commit-bound curated index of evidence-backed Designer operation cards.",
+      "inputs": ["read-only-monorepo-root", "tracked-corpus-policy", "disposable-index-path"],
+      "postconditions": ["version-aware-corpus-index", "bounded-operation-lookup", "heldout-evaluation-report", "provenance-preserved"],
+      "sensitivity": "normalized-test-provenance",
+      "maturity": "provisional",
+      "disposition": "keep",
+      "loadWhen": "selecting or retrieving evidence-backed Designer operations"
+    },
+    {
+      "id": "test-knowledge.scenario-eval",
+      "category": "test-knowledge",
+      "implementation": "scripts/test-scenario-eval.py",
+      "owner": "test-scenario-eval",
+      "purpose": "Validate a declared scenario contract and emit a plan-only external setup, managed browser, assertion, and teardown handoff.",
+      "inputs": ["tracked-scenario-contract", "validated-operation-card", "tracked-adapter-policy"],
+      "postconditions": ["bounded-scenario-plan", "managed-browser-lifecycle", "required-teardown"],
+      "sensitivity": "sanitized-scenario-metadata",
+      "maturity": "provisional",
+      "disposition": "keep",
+      "loadWhen": "planning final scenario-backed Designer verification"
     }
   ]
 }

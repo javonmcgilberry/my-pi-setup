@@ -36,6 +36,8 @@ CONSUMER = "agent_browser"
 OPERATIONS = {
     "help",
     "capabilities",
+    "test_knowledge",
+    "scenario_plan",
     "status",
     "reconcile",
     "prepare",
@@ -99,6 +101,12 @@ sanitize_evidence = _load_script(
 )
 capability_catalog = _load_script(
     "webflow_designer_capability_catalog", "capability-catalog.py"
+)
+test_corpus_index = _load_script(
+    "webflow_designer_test_corpus_index", "test-corpus-index.py"
+)
+test_scenario_eval = _load_script(
+    "webflow_designer_test_scenario_eval", "test-scenario-eval.py"
 )
 
 
@@ -171,6 +179,16 @@ def _bounded_int(
     if value < minimum or value > maximum:
         _fail("invalid_request")
     return value
+
+
+def _local_path(value: object, field: str, *, maximum: int = 1000) -> Path:
+    raw = _bounded_string(value, field, maximum=maximum)
+    if raw.startswith(("http://", "https://", "file://")):
+        _fail(f"invalid_{field}")
+    path = Path(raw)
+    if "\x00" in raw or ".." in path.parts:
+        _fail(f"invalid_{field}")
+    return path
 
 
 def _is_true(value: object) -> bool:
@@ -361,6 +379,14 @@ def parse_request(raw: str) -> dict[str, Any]:
     allowed = {
         "help": {"version", "operation"},
         "capabilities": {"version", "operation", "id", "category", "offset", "limit"},
+        "test_knowledge": {
+            "version", "operation", "indexPath", "repoPath", "policyPath",
+            "operationId", "category", "limit", "view",
+        },
+        "scenario_plan": {
+            "version", "operation", "scenarioPath", "operationPath",
+            "policyPath", "dryRun",
+        },
         "status": {"version", "operation"},
         "reconcile": {"version", "operation"},
         "prepare": {
@@ -1566,6 +1592,92 @@ class DesignerCodeMode:
         with self.store.lock():
             return self._finish_locked(request)
 
+    def _test_knowledge(self, request: dict[str, Any]) -> dict[str, object]:
+        index_path = _local_path(request.get("indexPath"), "index_path")
+        repo_path = _local_path(request.get("repoPath"), "repo_path")
+        policy_path = _local_path(
+            request.get("policyPath", str(test_corpus_index.DEFAULT_POLICY)),
+            "policy_path",
+        )
+        if not index_path.is_file() or not repo_path.is_dir() or not policy_path.is_file():
+            _fail("test_knowledge_input_missing", "test_knowledge")
+        operation_id = request.get("operationId")
+        category = request.get("category")
+        if operation_id is not None:
+            operation_id = _bounded_string(operation_id, "operation_id", maximum=120)
+            if not re.fullmatch(r"[a-z0-9_.-]+", operation_id):
+                _fail("invalid_operation_id")
+        if category is not None:
+            category = _bounded_string(category, "category", maximum=120)
+            if not re.fullmatch(r"[a-z0-9_.-]+", category):
+                _fail("invalid_category")
+        limit = _bounded_int(request.get("limit", 5), "limit", minimum=1, maximum=5)
+        view = request.get("view", "cards")
+        if not isinstance(view, str) or view not in {"cards", "status"}:
+            _fail("invalid_test_knowledge_view")
+        if view == "status" and (operation_id is not None or category is not None):
+            _fail("status_view_disallows_selector")
+        try:
+            policy = test_corpus_index.read_json(policy_path)
+            index = test_corpus_index.read_json(index_path)
+            freshness = test_corpus_index.validate_index(index, repo_path, policy)
+        except Exception as error:
+            _fail(getattr(error, "code", "test_knowledge_invalid"), "test_knowledge")
+        cards = index["cards"]
+        if view == "status":
+            return {
+                "version": PROTOCOL_VERSION,
+                "status": "ok",
+                "operation": "test_knowledge",
+                "view": "status",
+                "freshness": freshness,
+                "counts": test_corpus_index.summarize_cards(cards),
+                "portfolio": test_corpus_index.choose_portfolio(cards),
+            }
+        if operation_id is not None:
+            cards = [card for card in cards if card["id"] == operation_id]
+            if not cards:
+                _fail("operation_not_found", "test_knowledge")
+        if category is not None:
+            cards = [card for card in cards if category in card["capabilities"]]
+        if not cards:
+            _fail("operation_category_empty", "test_knowledge")
+        return {
+            "version": PROTOCOL_VERSION,
+            "status": "ok",
+            "operation": "test_knowledge",
+            "freshness": freshness,
+            "operations": cards[:limit],
+            "count": min(len(cards), limit),
+            "total": len(cards),
+        }
+
+    def _scenario_plan(self, request: dict[str, Any]) -> dict[str, object]:
+        scenario_path = _local_path(request.get("scenarioPath"), "scenario_path")
+        operation_path = _local_path(request.get("operationPath"), "operation_path")
+        policy_path = _local_path(
+            request.get("policyPath", str(test_scenario_eval.POLICY_PATH)),
+            "policy_path",
+        )
+        if not scenario_path.is_file() or not operation_path.is_file() or not policy_path.is_file():
+            _fail("scenario_plan_input_missing", "scenario_plan")
+        if request.get("dryRun") is not True:
+            _fail("scenario_plan_requires_dry_run", "scenario_plan")
+        try:
+            policy = test_scenario_eval.load_json(policy_path)
+            contract = test_scenario_eval.load_json(scenario_path)
+            operation = test_scenario_eval.load_json(operation_path)
+            adapter = test_scenario_eval.validate_contract(contract, policy)
+            plan = test_scenario_eval.build_plan(contract, operation, adapter)
+        except Exception as error:
+            _fail(getattr(error, "code", "scenario_plan_invalid"), "scenario_plan")
+        return {
+            "version": PROTOCOL_VERSION,
+            "status": "ok",
+            "operation": "scenario_plan",
+            "plan": plan,
+        }
+
     def _capabilities(self, request: dict[str, Any]) -> dict[str, object]:
         if "id" not in request and "category" not in request:
             _fail("capability_selector_required")
@@ -1636,6 +1748,8 @@ class DesignerCodeMode:
                 "operations": [
                     "help",
                     "capabilities",
+                    "test_knowledge",
+                    "scenario_plan",
                     "status",
                     "reconcile",
                     "prepare",
@@ -1659,6 +1773,10 @@ class DesignerCodeMode:
             }
         if operation == "capabilities":
             return self._capabilities(request)
+        if operation == "test_knowledge":
+            return self._test_knowledge(request)
+        if operation == "scenario_plan":
+            return self._scenario_plan(request)
         if operation == "status":
             return self._status(request)
         if operation == "reconcile":

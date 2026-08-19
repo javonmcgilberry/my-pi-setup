@@ -78,6 +78,32 @@ The result chooses one disposition:
 The classifier checks the supplied evidence. It does not discover candidates or
 prove that the run inventory is complete.
 
+## Incorporate the test corpus without copying it
+
+When a repeated browser sequence should become reusable Designer knowledge,
+use `scripts/test-corpus-index.py` against a read-only Webflow checkout. The
+tracked `test-corpus-policy.json` defines the small source portfolio and the
+initial operation taxonomy; the generated index belongs outside the repository.
+
+Review operation cards rather than whole test files. Keep the source commit,
+source manifest, bounded line ranges, selector keys, context, postconditions,
+and reason codes. Treat `candidate`, `negative_evidence`, and `holdout` as
+meaningful outcomes. A high-frequency legacy test does not override a stale
+selector, quarantine marker, missing assertion, or unsafe fixture dependency.
+
+Keep held-out evidence separate from positive evidence. A recipe is improved
+only when a held-out fixture or safe isolated Designer run demonstrates a
+semantic postcondition, not merely because the recipe resembles its source
+test. Promote at most one deterministic helper per maintenance pass and keep
+the existing `agent_browser` transport and runtime ownership boundary intact.
+
+For final verification, a declared scenario contract may be converted into a
+plan with `scripts/test-scenario-eval.py`. The planner emits external setup,
+managed browser, assertion, and teardown phases, but does not execute the
+Playwright adapter. Existing Webflow scenario utilities own their own
+Playwright contexts; only an explicitly reviewed adapter with a sanitized
+target handoff may bridge that boundary.
+
 ## Promote one change
 
 For one promotable candidate:

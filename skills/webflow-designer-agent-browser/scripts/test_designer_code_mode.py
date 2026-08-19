@@ -283,6 +283,8 @@ class DesignerCodeModeTests(unittest.TestCase):
             [
                 "help",
                 "capabilities",
+                "test_knowledge",
+                "scenario_plan",
                 "status",
                 "reconcile",
                 "prepare",
@@ -320,6 +322,116 @@ class DesignerCodeModeTests(unittest.TestCase):
             "clean_stopped",
         )
         self.assertIsNotNone(prepared["transactionId"])
+
+    def test_test_knowledge_returns_fresh_exact_operation_lookup(self):
+        index_path = Path(self.temp.name) / "index.json"
+        policy_path = Path(self.temp.name) / "policy.json"
+        index_path.write_text("{}")
+        policy_path.write_text("{}")
+        card = {
+            "id": "designer.panel.pages.open",
+            "capabilities": ["panel-management"],
+        }
+        with (
+            mock.patch.object(
+                designer_code_mode.test_corpus_index,
+                "read_json",
+                side_effect=[{"version": 1}, {"cards": [card]}],
+            ),
+            mock.patch.object(
+                designer_code_mode.test_corpus_index,
+                "validate_index",
+                return_value={"valid": True, "commit": "fixture", "cardCount": 1},
+            ),
+        ):
+            result = self.service().handle(
+                {
+                    "version": 1,
+                    "operation": "test_knowledge",
+                    "indexPath": str(index_path),
+                    "repoPath": self.temp.name,
+                    "policyPath": str(policy_path),
+                    "operationId": "designer.panel.pages.open",
+                }
+            )
+        self.assertEqual(result["freshness"]["valid"], True)
+        self.assertEqual(result["operations"], [card])
+
+    def test_test_knowledge_returns_compact_status_view(self):
+        index_path = Path(self.temp.name) / "index.json"
+        policy_path = Path(self.temp.name) / "policy.json"
+        index_path.write_text("{}")
+        policy_path.write_text("{}")
+        card = {
+            "id": "designer.panel.pages.open",
+            "selectionStatus": "include",
+            "capabilities": ["panel-management"],
+            "scores": {"confidence": 90, "utility": 70, "novelty": 60},
+            "evidence": [],
+            "holdoutEvidence": [],
+            "negativeEvidence": [],
+        }
+        index = {"cards": [card]}
+        with (
+            mock.patch.object(
+                designer_code_mode.test_corpus_index,
+                "read_json",
+                side_effect=[{"version": 1}, index],
+            ),
+            mock.patch.object(
+                designer_code_mode.test_corpus_index,
+                "validate_index",
+                return_value={"valid": True, "commit": "fixture", "cardCount": 1},
+            ),
+        ):
+            result = self.service().handle(
+                {
+                    "version": 1,
+                    "operation": "test_knowledge",
+                    "indexPath": str(index_path),
+                    "repoPath": self.temp.name,
+                    "policyPath": str(policy_path),
+                    "view": "status",
+                }
+            )
+        self.assertEqual(result["view"], "status")
+        self.assertEqual(result["counts"]["cards"], 1)
+        self.assertEqual(result["portfolio"]["uncoveredCapabilities"], [])
+
+    def test_scenario_plan_requires_dry_run_and_returns_plan(self):
+        scenario_path = Path(self.temp.name) / "scenario.json"
+        operation_path = Path(self.temp.name) / "operation.json"
+        policy_path = Path(self.temp.name) / "policy.json"
+        for path in (scenario_path, operation_path, policy_path):
+            path.write_text("{}")
+        with (
+            mock.patch.object(
+                designer_code_mode.test_scenario_eval,
+                "load_json",
+                side_effect=[{"version": 1}, {"id": "scenario"}, {"id": "operation"}],
+            ),
+            mock.patch.object(
+                designer_code_mode.test_scenario_eval,
+                "validate_contract",
+                return_value={"executable": "npx", "argumentPrefix": [], "fixedArguments": []},
+            ),
+            mock.patch.object(
+                designer_code_mode.test_scenario_eval,
+                "build_plan",
+                return_value={"status": "plan_only"},
+            ),
+        ):
+            result = self.service().handle(
+                {
+                    "version": 1,
+                    "operation": "scenario_plan",
+                    "scenarioPath": str(scenario_path),
+                    "operationPath": str(operation_path),
+                    "policyPath": str(policy_path),
+                    "dryRun": True,
+                }
+            )
+        self.assertEqual(result["plan"]["status"], "plan_only")
 
     def test_status_preserves_direct_owner_and_reconciles_dead_lease(self):
         service = self.service()
