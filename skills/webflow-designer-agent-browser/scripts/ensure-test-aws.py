@@ -257,7 +257,7 @@ def repair(
         start = runner.run(
             ["npm", "run", "hud", "start", SERVER_TASK], cwd=repo, timeout=15
         )
-        if start.returncode not in (0, 124):
+        if start.returncode != 0:
             raise AwsRepairError(f"unable to start the {SERVER_TASK} HUD task")
         new_pids = wait_for_started_server(runner)
         expiration_epoch = profile_expiration_epoch(runner, environment)
@@ -266,7 +266,7 @@ def repair(
         start = runner.run(
             ["npm", "run", "hud", "start", SERVER_TASK], cwd=repo, timeout=15
         )
-        if start.returncode not in (0, 124):
+        if start.returncode != 0:
             raise AwsRepairError(f"unable to start the {SERVER_TASK} HUD task")
         new_pids = wait_for_started_server(runner)
         expiration_epoch = profile_expiration_epoch(runner, environment)

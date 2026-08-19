@@ -501,6 +501,9 @@ class DesignerCodeModeTests(unittest.TestCase):
             mock.patch.object(designer_code_mode.validate_change, "execute_runner", return_value={"status": "passed", "candidate": {"state": "consumed"}}) as candidate_execute,
         ):
             service = self.service()
+            routed_unknown = service.handle(request)
+            self.assertEqual(routed_unknown["receipt"]["status"], "approval_required")
+            self.assertEqual(routed_unknown["proposalContext"], context)
             proposed = service.handle(candidate_request)
             self.assertEqual(proposed["approval"]["approvalDigest"], "d" * 64)
             with self.assertRaisesRegex(designer_code_mode.ProtocolError, "user_confirmation_required"):

@@ -1848,15 +1848,24 @@ class DesignerCodeMode:
             )
         except Exception:
             _fail("validate_change_route_invalid", "validate_change")
+        context = result.get("proposalContext") if isinstance(result, dict) else None
+        receipt = (
+            result.get("receipt")
+            if isinstance(result, dict) and "proposalContext" in result
+            else result
+        )
         if phase == "route":
-            return {
+            response = {
                 "version": PROTOCOL_VERSION,
                 "operation": "validate_change",
                 "phase": "route",
                 "changeSet": change_set,
                 "route": route,
-                "receipt": result,
+                "receipt": receipt,
             }
+            if context is not None:
+                response["proposalContext"] = context
+            return response
         if phase == "execute_trusted":
             if route["status"] != "trusted":
                 _fail("trusted_validation_not_available", "validate_change")
@@ -1871,14 +1880,13 @@ class DesignerCodeMode:
                     change_set,
                 ),
             }
-        context = result.get("proposalContext") if isinstance(result, dict) else None
         if not isinstance(context, dict) or context.get("status") != "approval_required":
             if phase == "proposal_context":
                 return {
                     "version": PROTOCOL_VERSION,
                     "operation": "validate_change",
                     "phase": "proposal",
-                    "receipt": result.get("receipt") if isinstance(result, dict) else result,
+                    "receipt": receipt,
                     "proposalContext": context,
                 }
             _fail("candidate_proposal_not_available", "validate_change")

@@ -162,6 +162,39 @@ class EnsureTestAwsTests(unittest.TestCase):
             [["npm", "run", "hud", "start", "server"]],
         )
 
+    def test_missing_server_start_timeout_fails_closed(self):
+        runner = FakeRunner([(1, ""), (0, "identity"), (124, "")])
+        with tempfile.TemporaryDirectory() as root:
+            with self.assertRaisesRegex(
+                ensure_test_aws.AwsRepairError, "unable to start"
+            ):
+                ensure_test_aws.repair(
+                    self.repo(root), runner, {}, Path(root) / "state.json"
+                )
+
+    def test_restarted_server_start_timeout_fails_closed(self):
+        runner = FakeRunner(
+            [
+                (0, "123\n"),
+                (
+                    0,
+                    "wf-app AWS_ACCESS_KEY_ID=a AWS_SECRET_ACCESS_KEY=b AWS_SESSION_TOKEN=c",
+                ),
+                (1, ""),
+                (0, "identity"),
+                (0, "stopped"),
+                (1, ""),
+                (124, ""),
+            ]
+        )
+        with tempfile.TemporaryDirectory() as root:
+            with self.assertRaisesRegex(
+                ensure_test_aws.AwsRepairError, "unable to start"
+            ):
+                ensure_test_aws.repair(
+                    self.repo(root), runner, {}, Path(root) / "state.json"
+                )
+
     def test_valid_private_receipt_skips_process_environment_inspection(self):
         runner = FakeRunner([(0, "123\n")])
         with tempfile.TemporaryDirectory() as root:
