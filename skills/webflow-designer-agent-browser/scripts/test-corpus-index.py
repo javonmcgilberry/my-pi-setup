@@ -159,7 +159,7 @@ def file_git_metadata(repo: Path, relative_path: str, cache: dict[str, dict[str,
     if relative_path in cache:
         return cache[relative_path]
     if METADATA_BATCH_MARKER not in cache:
-        output = run_git(repo, "log", "--all", "--name-only", "--format=%H%x00%cI", "--")
+        output = run_git(repo, "log", "--name-only", "--format=%H%x00%cI", "--")
         current: tuple[str, str] | None = None
         for line in output.splitlines():
             if "\x00" in line:
