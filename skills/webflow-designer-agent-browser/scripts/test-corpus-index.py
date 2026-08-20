@@ -48,6 +48,7 @@ _SOURCE_MANIFEST_CACHE_TEXTS: dict[str, bytes] | None = None
 _METADATA_BATCH_CACHE_KEY: tuple[str, str] | None = None
 _METADATA_BATCH_CACHE_VALUE: dict[str, dict[str, str]] | None = None
 _SOURCE_STATE_KEY: tuple[str, str] | None = None
+_SOURCE_STATE_PATHS: frozenset[str] | None = None
 _SOURCE_STATE_CLEAN = False
 SENSITIVE_KEY = re.compile(
     r"(?:authorization|cookie|credential|password|secret|storage.?state|token)",
@@ -158,9 +159,12 @@ def run_git(repo: Path, *arguments: str) -> str:
     return result.stdout.strip()
 
 
-def source_state(repo: Path) -> tuple[str, bool]:
-    global _SOURCE_STATE_KEY, _SOURCE_STATE_CLEAN
-    output = run_git(repo, "status", "--porcelain=v2", "--branch", "--untracked-files=all")
+def source_state(repo: Path, paths: set[str] | None = None) -> tuple[str, bool]:
+    global _SOURCE_STATE_KEY, _SOURCE_STATE_PATHS, _SOURCE_STATE_CLEAN
+    arguments = ["status", "--porcelain=v2", "--branch", "--untracked-files=all"]
+    if paths is not None:
+        arguments.extend(["--ignored=matching", "--", *sorted(paths)])
+    output = run_git(repo, *arguments)
     commit = None
     clean = True
     for line in output.splitlines():
@@ -173,12 +177,13 @@ def source_state(repo: Path) -> tuple[str, bool]:
     if not HEX_COMMIT.fullmatch(commit):
         raise CorpusError("source repository did not return a full commit hash")
     _SOURCE_STATE_KEY = (repo.resolve().as_posix(), commit)
+    _SOURCE_STATE_PATHS = frozenset(paths) if paths is not None else None
     _SOURCE_STATE_CLEAN = clean
     return commit, clean
 
 
-def source_commit(repo: Path) -> str:
-    return source_state(repo)[0]
+def source_commit(repo: Path, paths: set[str] | None = None) -> str:
+    return source_state(repo, paths)[0]
 
 
 def metadata_cache_key(repo: Path, cache: dict[str, Any]) -> tuple[str, str] | None:
@@ -250,12 +255,24 @@ def source_paths_are_cacheable(
     if any((repo / relative).is_symlink() for relative in paths):
         return False
     try:
-        state_is_clean = (
+        same_commit = (
             commit is not None
             and _SOURCE_STATE_KEY == (repo.resolve().as_posix(), commit)
-            and _SOURCE_STATE_CLEAN
         )
-        if not state_is_clean and run_git(repo, "status", "--porcelain=v1", "--untracked-files=all"):
+        if same_commit:
+            if _SOURCE_STATE_PATHS == frozenset(paths) and _SOURCE_STATE_CLEAN:
+                return True
+            output = run_git(
+                repo,
+                "status",
+                "--porcelain=v2",
+                "--untracked-files=all",
+                "--ignored=matching",
+                "--",
+                *sorted(paths),
+            )
+            return not any(line and not line.startswith("#") for line in output.splitlines())
+        if run_git(repo, "status", "--porcelain=v1", "--untracked-files=all"):
             return False
         if known_tracked:
             return True
@@ -281,10 +298,12 @@ def source_manifest(
     policy: dict[str, Any],
     source_texts: dict[str, bytes] | None = None,
     commit: str | None = None,
+    paths: set[str] | None = None,
 ) -> str:
     global _SOURCE_MANIFEST_CACHE_KEY, _SOURCE_MANIFEST_CACHE_PATHS
     global _SOURCE_MANIFEST_CACHE_VALUE, _SOURCE_MANIFEST_CACHE_TEXTS
-    paths = source_manifest_paths(repo, policy)
+    if paths is None:
+        paths = source_manifest_paths(repo, policy)
     policy_hash = sha256_json(policy)
     cache_key = (repo.resolve().as_posix(), commit or "", policy_hash)
     cache_identity_matches = (
@@ -806,12 +825,17 @@ def build_discovery(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
     """
     global _DISCOVERY_CACHE_KEY, _DISCOVERY_CACHE_VALUE
     validate_policy(policy)
-    commit = source_commit(repo)
+    paths = source_manifest_paths(repo, policy)
+    commit = source_commit(repo, paths)
     policy_hash = sha256_json(policy)
     source_texts: dict[str, bytes] = {}
-    manifest_hash = source_manifest(repo, policy, source_texts, commit)
+    manifest_hash = source_manifest(repo, policy, source_texts, commit, paths)
     cache_key = (repo.resolve().as_posix(), commit, policy_hash, manifest_hash)
-    if _DISCOVERY_CACHE_KEY == cache_key and _DISCOVERY_CACHE_VALUE is not None:
+    if (
+        _DISCOVERY_CACHE_KEY == cache_key
+        and _DISCOVERY_CACHE_VALUE is not None
+        and source_paths_are_cacheable(repo, paths, known_tracked=True, commit=commit)
+    ):
         return copy.deepcopy(_DISCOVERY_CACHE_VALUE)
     cache: dict[str, Any] = {SOURCE_TEXTS_KEY: source_texts, SOURCE_COMMIT_KEY: commit}
     prime_file_metadata_cache(repo, cache)
@@ -1024,9 +1048,9 @@ def operation_evidence(
     if source_texts is None and _SOURCE_MANIFEST_CACHE_KEY is not None and _SOURCE_MANIFEST_CACHE_TEXTS is not None:
         cached_repo, cached_commit, cached_policy = _SOURCE_MANIFEST_CACHE_KEY
         if cached_repo == repo.resolve().as_posix() and cached_policy == sha256_json(policy):
-            current_commit = source_commit(repo)
-            cache[SOURCE_COMMIT_KEY] = current_commit
             current_paths = source_manifest_paths(repo, policy)
+            current_commit = source_commit(repo, current_paths)
+            cache[SOURCE_COMMIT_KEY] = current_commit
             if (
                 current_commit == cached_commit
                 and _SOURCE_MANIFEST_CACHE_PATHS == frozenset(current_paths)
@@ -1291,12 +1315,17 @@ def summarize_cards(cards: list[dict[str, Any]]) -> dict[str, Any]:
 def build_index(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
     global _INDEX_CACHE_KEY, _INDEX_CACHE_VALUE
     validate_policy(policy)
-    commit = source_commit(repo)
+    paths = source_manifest_paths(repo, policy)
+    commit = source_commit(repo, paths)
     policy_hash = sha256_json(policy)
     source_texts: dict[str, bytes] = {}
-    manifest_hash = source_manifest(repo, policy, source_texts, commit)
+    manifest_hash = source_manifest(repo, policy, source_texts, commit, paths)
     cache_key = (repo.resolve().as_posix(), commit, policy_hash, manifest_hash)
-    if _INDEX_CACHE_KEY == cache_key and _INDEX_CACHE_VALUE is not None:
+    if (
+        _INDEX_CACHE_KEY == cache_key
+        and _INDEX_CACHE_VALUE is not None
+        and source_paths_are_cacheable(repo, paths, known_tracked=True, commit=commit)
+    ):
         return copy.deepcopy(_INDEX_CACHE_VALUE)
     cache: dict[str, Any] = {SOURCE_TEXTS_KEY: source_texts, SOURCE_COMMIT_KEY: commit}
     prime_file_metadata_cache(repo, cache)
@@ -1418,13 +1447,16 @@ def validate_index(index: dict[str, Any], repo: Path, policy: dict[str, Any]) ->
         raise CorpusError("corpus index root must be an object")
     if index.get("version") != 1:
         raise CorpusError("unsupported corpus index version")
-    commit = source_commit(repo)
+    paths = source_manifest_paths(repo, policy)
+    commit = source_commit(repo, paths)
+    policy_hash = sha256_json(policy)
     source = index.get("source")
     if not isinstance(source, dict) or source.get("commit") != commit:
         raise CorpusError("corpus index is stale for the current source commit")
-    if index.get("policySha256") != sha256_json(policy):
+    if index.get("policySha256") != policy_hash:
         raise CorpusError("corpus index policy hash is stale")
-    if index.get("sourceManifestSha256") != source_manifest(repo, policy, commit=commit):
+    manifest_hash = source_manifest(repo, policy, commit=commit, paths=paths)
+    if index.get("sourceManifestSha256") != manifest_hash:
         raise CorpusError("corpus index source manifest is stale")
     cards = index.get("cards")
     if not isinstance(cards, list) or not cards:
@@ -1435,13 +1467,26 @@ def validate_index(index: dict[str, Any], repo: Path, policy: dict[str, Any]) ->
         raise CorpusError("corpus index operation set does not match policy")
     for card in cards:
         validate_card(card, policy, commit)
-    expected_cards = {
+    cache_key = (repo.resolve().as_posix(), commit, policy_hash, manifest_hash)
+    cached_cards = None
+    if (
+        _INDEX_CACHE_KEY == cache_key
+        and _INDEX_CACHE_VALUE is not None
+        and source_paths_are_cacheable(repo, paths, known_tracked=True, commit=commit)
+    ):
+        candidate_cards = _INDEX_CACHE_VALUE.get("cards")
+        if isinstance(candidate_cards, list) and all(
+            isinstance(card, dict) and isinstance(card.get("id"), str)
+            for card in candidate_cards
+        ):
+            cached_cards = {card["id"]: card for card in candidate_cards}
+    expected_cards = cached_cards or {
         operation["id"]: build_card(
             repo,
             policy,
             operation,
             commit,
-            index["policySha256"],
+            policy_hash,
             {},
         )
         for operation in policy["operations"]
@@ -1459,12 +1504,15 @@ def validate_discovery(discovery: object, repo: Path, policy: dict[str, Any]) ->
     if not isinstance(discovery, dict) or discovery.get("version") != 2:
         raise CorpusError("unsupported discovery report")
     source = discovery.get("source")
-    commit = source_commit(repo)
+    paths = source_manifest_paths(repo, policy)
+    commit = source_commit(repo, paths)
+    policy_hash = sha256_json(policy)
     if not isinstance(source, dict) or source.get("commit") != commit:
         raise CorpusError("discovery report is stale for the current source commit")
-    if discovery.get("policySha256") != sha256_json(policy):
+    if discovery.get("policySha256") != policy_hash:
         raise CorpusError("discovery report policy hash is stale")
-    if discovery.get("sourceManifestSha256") != source_manifest(repo, policy, commit=commit):
+    manifest_hash = source_manifest(repo, policy, commit=commit, paths=paths)
+    if discovery.get("sourceManifestSha256") != manifest_hash:
         raise CorpusError("discovery report source manifest is stale")
     candidates = discovery.get("candidates")
     if not isinstance(candidates, list):
@@ -1589,7 +1637,20 @@ def validate_discovery(discovery: object, repo: Path, policy: dict[str, Any]) ->
     }
     if coverage != expected_coverage:
         raise CorpusError("discovery report coverage is invalid")
-    expected_discovery = build_discovery(repo, policy)
+    cache_key = (repo.resolve().as_posix(), commit, policy_hash, manifest_hash)
+    if (
+        _DISCOVERY_CACHE_KEY == cache_key
+        and _DISCOVERY_CACHE_VALUE is not None
+        and source_paths_are_cacheable(
+            repo,
+            source_manifest_paths(repo, policy),
+            known_tracked=True,
+            commit=commit,
+        )
+    ):
+        expected_discovery = copy.deepcopy(_DISCOVERY_CACHE_VALUE)
+    else:
+        expected_discovery = build_discovery(repo, policy)
     if canonical_json(discovery) != canonical_json(expected_discovery):
         raise CorpusError("discovery report does not match source compilation")
     assert_safe_payload(discovery, "discovery")
