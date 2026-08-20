@@ -35,6 +35,7 @@ UNSAFE_EVIDENCE_SIGNALS = ("quarantined", "rawWait", "fixtureDependent", "destru
 HEX_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9._-]+$")
 METADATA_BATCH_MARKER = "\x00metadata-batch-loaded"
+SOURCE_TEXTS_KEY = "\x00source-texts"
 _INDEX_CACHE_KEY: tuple[str, str, str, str] | None = None
 _INDEX_CACHE_VALUE: dict[str, Any] | None = None
 _DISCOVERY_CACHE_KEY: tuple[str, str, str, str] | None = None
@@ -155,7 +156,7 @@ def source_commit(repo: Path) -> str:
     return commit
 
 
-def file_git_metadata(repo: Path, relative_path: str, cache: dict[str, dict[str, str]]) -> dict[str, str]:
+def file_git_metadata(repo: Path, relative_path: str, cache: dict[str, Any]) -> dict[str, str]:
     if relative_path in cache:
         return cache[relative_path]
     if METADATA_BATCH_MARKER not in cache:
@@ -179,7 +180,11 @@ def file_git_metadata(repo: Path, relative_path: str, cache: dict[str, dict[str,
     return cache[relative_path]
 
 
-def source_manifest(repo: Path, policy: dict[str, Any]) -> str:
+def source_manifest(
+    repo: Path,
+    policy: dict[str, Any],
+    source_texts: dict[str, bytes] | None = None,
+) -> str:
     paths = {
         ensure_relative(policy["operationSource"], "operationSource"),
         ensure_relative(policy["locatorSource"], "locatorSource"),
@@ -192,8 +197,21 @@ def source_manifest(repo: Path, policy: dict[str, Any]) -> str:
         path = repo / relative
         if not path.is_file():
             raise CorpusError(f"source manifest file is missing: {relative}")
-        entries.append({"path": relative, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+        content = path.read_bytes()
+        if source_texts is not None:
+            source_texts[relative] = content
+        entries.append({"path": relative, "sha256": hashlib.sha256(content).hexdigest()})
     return sha256_json(entries)
+
+
+def read_source_text(
+    repo: Path,
+    relative_path: str,
+    source_texts: dict[str, bytes] | None = None,
+) -> str:
+    if source_texts is not None and relative_path in source_texts:
+        return source_texts[relative_path].decode()
+    return (repo / relative_path).read_text()
 
 
 def ensure_relative(value: object, field: str) -> str:
@@ -606,7 +624,7 @@ def semantic_identity(
 def fragment_record(
     repo: Path,
     fragment: dict[str, Any],
-    cache: dict[str, dict[str, str]],
+    cache: dict[str, Any],
 ) -> dict[str, Any] | None:
     features = fragment_features(fragment["text"])
     if not features["actions"]:
@@ -670,15 +688,16 @@ def build_discovery(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
     validate_policy(policy)
     commit = source_commit(repo)
     policy_hash = sha256_json(policy)
-    manifest_hash = source_manifest(repo, policy)
+    source_texts: dict[str, bytes] = {}
+    manifest_hash = source_manifest(repo, policy, source_texts)
     cache_key = (repo.resolve().as_posix(), commit, policy_hash, manifest_hash)
     if _DISCOVERY_CACHE_KEY == cache_key and _DISCOVERY_CACHE_VALUE is not None:
         return copy.deepcopy(_DISCOVERY_CACHE_VALUE)
-    cache: dict[str, dict[str, str]] = {}
+    cache: dict[str, Any] = {SOURCE_TEXTS_KEY: source_texts}
     records: list[dict[str, Any]] = []
     for path, framework in discover_sources(repo, policy):
         relative_path = path.relative_to(repo).as_posix()
-        text = path.read_text()
+        text = read_source_text(repo, relative_path, source_texts)
         for fragment in structural_fragments(text, relative_path, framework):
             record = fragment_record(repo, fragment, cache)
             if record is not None:
@@ -688,7 +707,11 @@ def build_discovery(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
         helper_path = repo / relative_path
         if not helper_path.is_file():
             raise CorpusError(f"discovery helper source is missing: {relative_path}")
-        for fragment in structural_fragments(helper_path.read_text(), relative_path, "source-helper"):
+        for fragment in structural_fragments(
+            read_source_text(repo, relative_path, source_texts),
+            relative_path,
+            "source-helper",
+        ):
             if fragment["sourceKind"] != "helper":
                 continue
             record = fragment_record(repo, fragment, cache)
@@ -843,7 +866,7 @@ def evidence_record(
     symbol: str,
     text: str,
     offset: int,
-    cache: dict[str, dict[str, str]],
+    cache: dict[str, Any],
     canonical_helper: bool = False,
 ) -> dict[str, Any]:
     start_line = line_for_offset(text, offset)
@@ -870,14 +893,17 @@ def operation_evidence(
     repo: Path,
     policy: dict[str, Any],
     operation: dict[str, Any],
-    cache: dict[str, dict[str, str]],
+    cache: dict[str, Any],
 ) -> list[dict[str, Any]]:
     symbol = operation["symbol"]
     evidence: list[dict[str, Any]] = []
+    source_texts = cache.get(SOURCE_TEXTS_KEY)
+    if not isinstance(source_texts, dict):
+        source_texts = None
     helper_relative = ensure_relative(policy["operationSource"], "operationSource")
     helper_path = repo / helper_relative
     if helper_path.is_file():
-        helper_text = helper_path.read_text()
+        helper_text = read_source_text(repo, helper_relative, source_texts)
         helper_match = re.search(
             rf"(?:export\s+)?(?:async\s+)?function\s+{re.escape(symbol)}\b",
             helper_text,
@@ -904,7 +930,8 @@ def operation_evidence(
     ]
     evidence_pattern_mode = operation.get("evidencePatternMode", "any")
     for path, framework in discover_sources(repo, policy):
-        text = path.read_text()
+        relative_path = path.relative_to(repo).as_posix()
+        text = read_source_text(repo, relative_path, source_texts)
         match = symbol_call.search(text)
         if match is None and evidence_patterns:
             pattern_matches = [pattern.search(text) for pattern in evidence_patterns]
@@ -920,7 +947,7 @@ def operation_evidence(
             evidence.append(
                 evidence_record(
                     repo=repo,
-                    relative_path=path.relative_to(repo).as_posix(),
+                    relative_path=relative_path,
                     framework=framework,
                     source_kind="test",
                     symbol=symbol,
@@ -1018,12 +1045,16 @@ def build_card(
     operation: dict[str, Any],
     commit: str,
     policy_hash: str,
-    cache: dict[str, dict[str, str]],
+    cache: dict[str, Any],
 ) -> dict[str, Any]:
     locator_path = repo / ensure_relative(policy["locatorSource"], "locatorSource")
     if not locator_path.is_file():
         raise CorpusError(f"locator source is missing: {policy['locatorSource']}")
-    locator_text = locator_path.read_text()
+    source_texts = cache.get(SOURCE_TEXTS_KEY)
+    if not isinstance(source_texts, dict):
+        source_texts = None
+    locator_relative = locator_path.relative_to(repo).as_posix()
+    locator_text = read_source_text(repo, locator_relative, source_texts)
     selectors = [locator_selector(locator_text, key) for key in operation["locatorKeys"]]
     all_evidence = operation_evidence(repo, policy, operation, cache)
     positive = [record for record in all_evidence if evidence_is_eligible(record)]
@@ -1126,11 +1157,12 @@ def build_index(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
     validate_policy(policy)
     commit = source_commit(repo)
     policy_hash = sha256_json(policy)
-    manifest_hash = source_manifest(repo, policy)
+    source_texts: dict[str, bytes] = {}
+    manifest_hash = source_manifest(repo, policy, source_texts)
     cache_key = (repo.resolve().as_posix(), commit, policy_hash, manifest_hash)
     if _INDEX_CACHE_KEY == cache_key and _INDEX_CACHE_VALUE is not None:
         return copy.deepcopy(_INDEX_CACHE_VALUE)
-    cache: dict[str, dict[str, str]] = {}
+    cache: dict[str, Any] = {SOURCE_TEXTS_KEY: source_texts}
     cards = [build_card(repo, policy, operation, commit, policy_hash, cache) for operation in policy["operations"]]
     index = {
         "version": 1,
