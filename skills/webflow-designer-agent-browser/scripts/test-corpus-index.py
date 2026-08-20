@@ -433,20 +433,12 @@ def stable_selector_literal(quote: str, value: str) -> bool:
 def fragment_features(fragment_text: str) -> FragmentFeatures:
     """Produce non-sensitive structural facts for one test or helper fragment."""
     masked = masked_source(fragment_text)
-    action_methods = sorted(
-        {
-            match.group(1)
-            for match in re.finditer(r"\.([A-Za-z_$][\w$]*)\s*\(", masked)
-            if match.group(1) in ACTION_METHODS
-        }
-    )
-    selector_methods = sorted(
-        {
-            match.group(1)
-            for match in re.finditer(r"\.([A-Za-z_$][\w$]*)\s*\(", masked)
-            if match.group(1) in SELECTOR_METHODS
-        }
-    )
+    method_names = [
+        match.group(1)
+        for match in re.finditer(r"\.([A-Za-z_$][\w$]*)\s*\(", masked)
+    ]
+    action_methods = sorted({name for name in method_names if name in ACTION_METHODS})
+    selector_methods = sorted({name for name in method_names if name in SELECTOR_METHODS})
     calls = sorted(
         {
             match.group(1)
