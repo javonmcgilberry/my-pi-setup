@@ -191,12 +191,14 @@ def file_git_metadata(repo: Path, relative_path: str, cache: dict[str, Any]) -> 
     return cache[relative_path]
 
 
-def source_paths_are_cacheable(repo: Path, paths: set[str]) -> bool:
+def source_paths_are_cacheable(repo: Path, paths: set[str], known_tracked: bool = False) -> bool:
     if any((repo / relative).is_symlink() for relative in paths):
         return False
     try:
         if run_git(repo, "status", "--porcelain=v1", "--untracked-files=all"):
             return False
+        if known_tracked:
+            return True
         tracked = set(run_git(repo, "ls-files", "--error-unmatch", "--", *sorted(paths)).splitlines())
     except CorpusError:
         return False
@@ -224,12 +226,16 @@ def source_manifest(
     global _SOURCE_MANIFEST_CACHE_VALUE, _SOURCE_MANIFEST_CACHE_TEXTS
     paths = source_manifest_paths(repo, policy)
     policy_hash = sha256_json(policy)
-    cacheable = commit is not None and source_paths_are_cacheable(repo, paths)
     cache_key = (repo.resolve().as_posix(), commit or "", policy_hash)
-    if (
-        cacheable
+    cache_identity_matches = (
+        commit is not None
         and _SOURCE_MANIFEST_CACHE_KEY == cache_key
         and _SOURCE_MANIFEST_CACHE_PATHS == frozenset(paths)
+    )
+    cacheable = commit is not None and source_paths_are_cacheable(repo, paths, cache_identity_matches)
+    if (
+        cacheable
+        and cache_identity_matches
         and _SOURCE_MANIFEST_CACHE_VALUE is not None
         and (source_texts is None or _SOURCE_MANIFEST_CACHE_TEXTS is not None)
     ):
@@ -960,7 +966,7 @@ def operation_evidence(
             if (
                 current_commit == cached_commit
                 and _SOURCE_MANIFEST_CACHE_PATHS == frozenset(current_paths)
-                and source_paths_are_cacheable(repo, current_paths)
+                and source_paths_are_cacheable(repo, current_paths, known_tracked=True)
             ):
                 source_texts = _SOURCE_MANIFEST_CACHE_TEXTS
     helper_relative = ensure_relative(policy["operationSource"], "operationSource")
