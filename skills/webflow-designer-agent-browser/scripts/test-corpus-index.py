@@ -163,15 +163,31 @@ def source_commit(repo: Path) -> str:
     return commit
 
 
+def metadata_cache_key(repo: Path, cache: dict[str, Any]) -> tuple[str, str] | None:
+    commit = cache.get(SOURCE_COMMIT_KEY)
+    if not isinstance(commit, str) or not HEX_COMMIT.fullmatch(commit):
+        return None
+    return (repo.resolve().as_posix(), commit)
+
+
+def prime_file_metadata_cache(repo: Path, cache: dict[str, Any]) -> None:
+    if (
+        METADATA_BATCH_MARKER in cache
+        or _METADATA_BATCH_CACHE_KEY is None
+        or _METADATA_BATCH_CACHE_VALUE is None
+        or metadata_cache_key(repo, cache) != _METADATA_BATCH_CACHE_KEY
+    ):
+        return
+    cache.update(_METADATA_BATCH_CACHE_VALUE)
+    cache[METADATA_BATCH_MARKER] = {}
+
+
 def file_git_metadata(repo: Path, relative_path: str, cache: dict[str, Any]) -> dict[str, str]:
     global _METADATA_BATCH_CACHE_KEY, _METADATA_BATCH_CACHE_VALUE
     if relative_path in cache:
         return cache[relative_path]
     if METADATA_BATCH_MARKER not in cache:
-        commit = cache.get(SOURCE_COMMIT_KEY)
-        metadata_key = (
-            repo.resolve().as_posix(), commit
-        ) if isinstance(commit, str) and HEX_COMMIT.fullmatch(commit) else None
+        metadata_key = metadata_cache_key(repo, cache)
         if metadata_key is not None and _METADATA_BATCH_CACHE_KEY == metadata_key and _METADATA_BATCH_CACHE_VALUE is not None:
             cache.update(_METADATA_BATCH_CACHE_VALUE)
         else:
@@ -768,6 +784,7 @@ def build_discovery(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
     if _DISCOVERY_CACHE_KEY == cache_key and _DISCOVERY_CACHE_VALUE is not None:
         return copy.deepcopy(_DISCOVERY_CACHE_VALUE)
     cache: dict[str, Any] = {SOURCE_TEXTS_KEY: source_texts, SOURCE_COMMIT_KEY: commit}
+    prime_file_metadata_cache(repo, cache)
     records: list[dict[str, Any]] = []
     for path, framework in discover_sources(repo, policy):
         relative_path = path.relative_to(repo).as_posix()
@@ -986,6 +1003,7 @@ def operation_evidence(
                 and source_paths_are_cacheable(repo, current_paths, known_tracked=True)
             ):
                 source_texts = _SOURCE_MANIFEST_CACHE_TEXTS
+    prime_file_metadata_cache(repo, cache)
     helper_relative = ensure_relative(policy["operationSource"], "operationSource")
     helper_path = repo / helper_relative
     if helper_path.is_file():
@@ -1249,6 +1267,7 @@ def build_index(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
     if _INDEX_CACHE_KEY == cache_key and _INDEX_CACHE_VALUE is not None:
         return copy.deepcopy(_INDEX_CACHE_VALUE)
     cache: dict[str, Any] = {SOURCE_TEXTS_KEY: source_texts, SOURCE_COMMIT_KEY: commit}
+    prime_file_metadata_cache(repo, cache)
     cards = [build_card(repo, policy, operation, commit, policy_hash, cache) for operation in policy["operations"]]
     index = {
         "version": 1,
