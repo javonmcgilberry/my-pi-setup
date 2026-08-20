@@ -1469,7 +1469,11 @@ def validate_index(index: dict[str, Any], repo: Path, policy: dict[str, Any]) ->
         validate_card(card, policy, commit)
     cache_key = (repo.resolve().as_posix(), commit, policy_hash, manifest_hash)
     cached_cards = None
-    if _INDEX_CACHE_KEY == cache_key and _INDEX_CACHE_VALUE is not None:
+    if (
+        _INDEX_CACHE_KEY == cache_key
+        and _INDEX_CACHE_VALUE is not None
+        and source_paths_are_cacheable(repo, paths, known_tracked=True, commit=commit)
+    ):
         candidate_cards = _INDEX_CACHE_VALUE.get("cards")
         if isinstance(candidate_cards, list) and all(
             isinstance(card, dict) and isinstance(card.get("id"), str)
