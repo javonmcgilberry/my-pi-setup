@@ -47,6 +47,8 @@ _SOURCE_MANIFEST_CACHE_VALUE: str | None = None
 _SOURCE_MANIFEST_CACHE_TEXTS: dict[str, bytes] | None = None
 _METADATA_BATCH_CACHE_KEY: tuple[str, str] | None = None
 _METADATA_BATCH_CACHE_VALUE: dict[str, dict[str, str]] | None = None
+_SOURCE_STATE_KEY: tuple[str, str] | None = None
+_SOURCE_STATE_CLEAN = False
 SENSITIVE_KEY = re.compile(
     r"(?:authorization|cookie|credential|password|secret|storage.?state|token)",
     re.IGNORECASE,
@@ -156,11 +158,27 @@ def run_git(repo: Path, *arguments: str) -> str:
     return result.stdout.strip()
 
 
-def source_commit(repo: Path) -> str:
-    commit = run_git(repo, "rev-parse", "HEAD")
+def source_state(repo: Path) -> tuple[str, bool]:
+    global _SOURCE_STATE_KEY, _SOURCE_STATE_CLEAN
+    output = run_git(repo, "status", "--porcelain=v2", "--branch", "--untracked-files=all")
+    commit = None
+    clean = True
+    for line in output.splitlines():
+        if line.startswith("# branch.oid "):
+            commit = line.removeprefix("# branch.oid ").strip()
+        elif not line.startswith("#"):
+            clean = False
+    if not isinstance(commit, str):
+        raise CorpusError("source repository did not return a HEAD commit")
     if not HEX_COMMIT.fullmatch(commit):
         raise CorpusError("source repository did not return a full commit hash")
-    return commit
+    _SOURCE_STATE_KEY = (repo.resolve().as_posix(), commit)
+    _SOURCE_STATE_CLEAN = clean
+    return commit, clean
+
+
+def source_commit(repo: Path) -> str:
+    return source_state(repo)[0]
 
 
 def metadata_cache_key(repo: Path, cache: dict[str, Any]) -> tuple[str, str] | None:
@@ -223,11 +241,21 @@ def file_git_metadata(repo: Path, relative_path: str, cache: dict[str, Any]) -> 
     return cache[relative_path]
 
 
-def source_paths_are_cacheable(repo: Path, paths: set[str], known_tracked: bool = False) -> bool:
+def source_paths_are_cacheable(
+    repo: Path,
+    paths: set[str],
+    known_tracked: bool = False,
+    commit: str | None = None,
+) -> bool:
     if any((repo / relative).is_symlink() for relative in paths):
         return False
     try:
-        if run_git(repo, "status", "--porcelain=v1", "--untracked-files=all"):
+        state_is_clean = (
+            commit is not None
+            and _SOURCE_STATE_KEY == (repo.resolve().as_posix(), commit)
+            and _SOURCE_STATE_CLEAN
+        )
+        if not state_is_clean and run_git(repo, "status", "--porcelain=v1", "--untracked-files=all"):
             return False
         if known_tracked:
             return True
@@ -264,7 +292,9 @@ def source_manifest(
         and _SOURCE_MANIFEST_CACHE_KEY == cache_key
         and _SOURCE_MANIFEST_CACHE_PATHS == frozenset(paths)
     )
-    cacheable = commit is not None and source_paths_are_cacheable(repo, paths, cache_identity_matches)
+    cacheable = commit is not None and source_paths_are_cacheable(
+        repo, paths, cache_identity_matches, commit
+    )
     if (
         cacheable
         and cache_identity_matches
@@ -1000,7 +1030,9 @@ def operation_evidence(
             if (
                 current_commit == cached_commit
                 and _SOURCE_MANIFEST_CACHE_PATHS == frozenset(current_paths)
-                and source_paths_are_cacheable(repo, current_paths, known_tracked=True)
+                and source_paths_are_cacheable(
+                    repo, current_paths, known_tracked=True, commit=current_commit
+                )
             ):
                 source_texts = _SOURCE_MANIFEST_CACHE_TEXTS
     prime_file_metadata_cache(repo, cache)
