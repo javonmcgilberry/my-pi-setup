@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "id": "designer.pages-panel.fixture",
+  "mode": "fixture",
+  "sourceCommit": "fixture",
+  "adapter": "webflow-playwright-focused",
+  "specPath": "entrypoints/playwright-tests/designer/panels/pages-panel.spec.ts",
+  "grep": "opens pages panel",
+  "target": {
+    "origin": "local-designer",
+    "pathTemplate": "/design/{siteShortName}",
+    "document": "main"
+  },
+  "setup": {
+    "adapter": "webflow-playwright-focused",
+    "artifact": "sanitized-designer-target"
+  },
+  "expected": {
+    "initialState": ["designer-ready", "no-blocking-modal"],
+    "success": ["pages-panel-visible"]
+  },
+  "allowedOperations": ["designer.panel.pages.open"],
+  "teardown": {
+    "adapter": "webflow-playwright-focused",
+    "artifact": "sanitized-designer-target"
+  }
+}

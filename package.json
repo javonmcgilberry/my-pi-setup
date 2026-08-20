@@ -10,6 +10,7 @@
   "files": [
     "agent-browser-policy.json",
     "extensions/agent-browser-policy.ts",
+    "extensions/webflow-validation-approval.ts",
     "extensions/herdr-agent-state.ts",
     "extensions/pretty-footer.ts",
     "extensions/pretty-footer-view.ts",
@@ -25,12 +26,17 @@
   "pi": {
     "extensions": [
       "./extensions/agent-browser-policy.ts",
+      "./extensions/webflow-validation-approval.ts",
       "./extensions/herdr-agent-state.ts",
       "./extensions/pretty-footer.ts",
       "./packages/context-budget",
       "./extensions/session-spend-dashboard",
       "./extensions/warp-session-title.ts"
     ]
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@earendil-works/pi-tui": "0.84.2"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

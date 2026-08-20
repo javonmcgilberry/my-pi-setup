@@ -176,6 +176,45 @@
       "maturity": "stable",
       "disposition": "keep",
       "loadWhen": "testing a published site that depends on a renderer"
+    },
+    {
+      "id": "test-knowledge.corpus-index",
+      "category": "test-knowledge",
+      "implementation": "scripts/test-corpus-index.py",
+      "owner": "test-corpus-index",
+      "purpose": "Discover bounded candidate interactions, then build, validate, retrieve, and evaluate a commit-bound curated index of evidence-backed Designer operation cards.",
+      "inputs": ["read-only-monorepo-root", "tracked-corpus-policy", "disposable-index-path"],
+      "postconditions": ["fragment-scoped-discovery-report", "lineage-separated-holdouts", "version-aware-corpus-index", "bounded-operation-lookup", "heldout-evaluation-report", "provenance-preserved"],
+      "sensitivity": "normalized-test-provenance",
+      "maturity": "provisional",
+      "disposition": "keep",
+      "loadWhen": "selecting or retrieving evidence-backed Designer operations"
+    },
+    {
+      "id": "test-knowledge.scenario-eval",
+      "category": "test-knowledge",
+      "implementation": "scripts/test-scenario-eval.py",
+      "owner": "test-scenario-eval",
+      "purpose": "Validate a declared scenario contract and emit a plan-only external setup, managed browser, assertion, and teardown handoff.",
+      "inputs": ["tracked-scenario-contract", "validated-operation-card", "tracked-adapter-policy"],
+      "postconditions": ["bounded-scenario-plan", "managed-browser-lifecycle", "required-teardown"],
+      "sensitivity": "sanitized-scenario-metadata",
+      "maturity": "provisional",
+      "disposition": "keep",
+      "loadWhen": "planning final scenario-backed Designer verification"
+    },
+    {
+      "id": "designer.change-validation",
+      "category": "verification",
+      "implementation": "scripts/validate-change.py",
+      "owner": "webflow_designer",
+      "purpose": "Route a bounded Webflow change set to reviewed Designer validation contracts, execute fixed focused adapters, classify bounded failures, and require exact interactive approval before one candidate run.",
+      "inputs": ["webflow-git-change-set", "tracked-validation-policy", "optional-data-only-candidate"],
+      "postconditions": ["zero-model-trusted-route", "approval-bound-candidate", "sanitized-classified-validation-receipt", "no-runtime-promotion"],
+      "sensitivity": "normalized-change-metadata",
+      "maturity": "provisional",
+      "disposition": "keep",
+      "loadWhen": "validating current Webflow Designer changes before completing a feature"
     }
   ]
 }

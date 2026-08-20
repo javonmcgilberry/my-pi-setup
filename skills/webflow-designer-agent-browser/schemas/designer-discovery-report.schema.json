@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/webflow-designer/designer-discovery-report.schema.json",
+  "title": "Designer discovery report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "source", "policySha256", "sourceManifestSha256", "counts", "coverage", "candidates"],
+  "properties": {
+    "version": {"const": 2},
+    "source": {"type": "object"},
+    "policySha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "sourceManifestSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "counts": {"type": "object"},
+    "coverage": {"type": "object"},
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "reviewState", "framework", "subsystem", "signature", "semanticIdentity", "dimensions", "promotionChecks", "evidence", "holdoutEvidence", "excludedEvidence"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^candidate\\.[a-f0-9]{16}$"},
+          "reviewState": {"enum": ["discovered", "quarantined"]},
+          "framework": {"enum": ["playwright", "cypress", "source-helper"]},
+          "subsystem": {"type": "string"},
+          "signature": {"type": "object"},
+          "semanticIdentity": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "bound", "digest"],
+            "properties": {
+              "kind": {"enum": ["selector-target", "helper-call", "unanchored"]},
+              "bound": {"type": "boolean"},
+              "digest": {"type": "string", "pattern": "^[a-f0-9]{16}$"}
+            }
+          },
+          "dimensions": {"type": "object"},
+          "promotionChecks": {"type": "object"},
+          "evidence": {"type": "array", "items": {"type": "object"}},
+          "holdoutEvidence": {"type": "array", "items": {"type": "object"}},
+          "excludedEvidence": {"type": "array", "items": {"type": "object"}}
+        }
+      }
+    }
+  }
+}

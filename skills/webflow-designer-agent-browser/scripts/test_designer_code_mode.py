@@ -283,6 +283,9 @@ class DesignerCodeModeTests(unittest.TestCase):
             [
                 "help",
                 "capabilities",
+                "test_knowledge",
+                "scenario_plan",
+                "validate_change",
                 "status",
                 "reconcile",
                 "prepare",
@@ -293,6 +296,10 @@ class DesignerCodeModeTests(unittest.TestCase):
         self.assertLess(len(str(result)), 2000)
         with self.assertRaisesRegex(designer_code_mode.ProtocolError, "unknown_request_field"):
             designer_code_mode.parse_request('{"version":1,"operation":"help","extra":1}')
+        with self.assertRaisesRegex(designer_code_mode.ProtocolError, "unknown_request_field"):
+            designer_code_mode.parse_request(
+                '{"version":1,"operation":"validate_change","policyPath":"/tmp/unreviewed.json"}'
+            )
         with self.assertRaisesRegex(designer_code_mode.ProtocolError, "invalid_operation"):
             designer_code_mode.parse_request('{"version":1,"operation":[] }')
         with self.assertRaisesRegex(designer_code_mode.ProtocolError, "sensitive_input_rejected"):
@@ -320,6 +327,251 @@ class DesignerCodeModeTests(unittest.TestCase):
             "clean_stopped",
         )
         self.assertIsNotNone(prepared["transactionId"])
+
+    def test_test_knowledge_returns_fresh_exact_operation_lookup(self):
+        index_path = Path(self.temp.name) / "index.json"
+        policy_path = Path(self.temp.name) / "policy.json"
+        index_path.write_text("{}")
+        policy_path.write_text("{}")
+        card = {
+            "id": "designer.panel.pages.open",
+            "capabilities": ["panel-management"],
+        }
+        with (
+            mock.patch.object(
+                designer_code_mode.test_corpus_index,
+                "read_json",
+                side_effect=[{"version": 1}, {"cards": [card]}],
+            ),
+            mock.patch.object(
+                designer_code_mode.test_corpus_index,
+                "validate_index",
+                return_value={"valid": True, "commit": "fixture", "cardCount": 1},
+            ),
+        ):
+            result = self.service().handle(
+                {
+                    "version": 1,
+                    "operation": "test_knowledge",
+                    "indexPath": str(index_path),
+                    "repoPath": self.temp.name,
+                    "policyPath": str(policy_path),
+                    "operationId": "designer.panel.pages.open",
+                }
+            )
+        self.assertEqual(result["freshness"]["valid"], True)
+        self.assertEqual(result["operations"], [card])
+
+    def test_test_knowledge_returns_compact_status_view(self):
+        index_path = Path(self.temp.name) / "index.json"
+        policy_path = Path(self.temp.name) / "policy.json"
+        index_path.write_text("{}")
+        policy_path.write_text("{}")
+        card = {
+            "id": "designer.panel.pages.open",
+            "selectionStatus": "include",
+            "capabilities": ["panel-management"],
+            "scores": {"confidence": 90, "utility": 70, "novelty": 60},
+            "evidence": [],
+            "holdoutEvidence": [],
+            "negativeEvidence": [],
+        }
+        index = {"cards": [card]}
+        with (
+            mock.patch.object(
+                designer_code_mode.test_corpus_index,
+                "read_json",
+                side_effect=[{"version": 1}, index],
+            ),
+            mock.patch.object(
+                designer_code_mode.test_corpus_index,
+                "validate_index",
+                return_value={"valid": True, "commit": "fixture", "cardCount": 1},
+            ),
+        ):
+            result = self.service().handle(
+                {
+                    "version": 1,
+                    "operation": "test_knowledge",
+                    "indexPath": str(index_path),
+                    "repoPath": self.temp.name,
+                    "policyPath": str(policy_path),
+                    "view": "status",
+                }
+            )
+        self.assertEqual(result["view"], "status")
+        self.assertEqual(result["counts"]["cards"], 1)
+        self.assertEqual(result["portfolio"]["uncoveredCapabilities"], [])
+
+    def test_scenario_plan_requires_dry_run_and_returns_plan(self):
+        scenario_path = Path(self.temp.name) / "scenario.json"
+        operation_path = Path(self.temp.name) / "operation.json"
+        policy_path = Path(self.temp.name) / "policy.json"
+        for path in (scenario_path, operation_path, policy_path):
+            path.write_text("{}")
+        with (
+            mock.patch.object(
+                designer_code_mode.test_scenario_eval,
+                "load_json",
+                side_effect=[{"version": 1}, {"id": "scenario"}, {"id": "operation"}],
+            ),
+            mock.patch.object(
+                designer_code_mode.test_scenario_eval,
+                "validate_contract",
+                return_value={"executable": "npx", "argumentPrefix": [], "fixedArguments": []},
+            ),
+            mock.patch.object(
+                designer_code_mode.test_scenario_eval,
+                "build_plan",
+                return_value={"status": "plan_only"},
+            ),
+        ):
+            result = self.service().handle(
+                {
+                    "version": 1,
+                    "operation": "scenario_plan",
+                    "scenarioPath": str(scenario_path),
+                    "operationPath": str(operation_path),
+                    "policyPath": str(policy_path),
+                    "dryRun": True,
+                }
+            )
+        self.assertEqual(result["plan"]["status"], "plan_only")
+
+    def test_validate_change_routes_trusted_work_without_a_model_and_gates_one_candidate(self):
+        repo_path = Path(self.temp.name) / "repo"
+        repo_path.mkdir()
+        change_set = {
+            "sourceCommit": "a" * 40,
+            "digest": "b" * 64,
+            "files": [{"path": "public/js/designer-flux/components/PagesPanel/PagesPanel.tsx"}],
+        }
+        trusted_route = {
+            "status": "trusted",
+            "matches": [{"runnerId": "designer-pages-panel-focused"}],
+            "operations": ["designer.panel.pages.open"],
+        }
+        trusted_receipt = {"status": "ready", "modelProposalCount": 0}
+        policy = {"changeValidation": {"runners": {}}}
+        request = {
+            "version": 1,
+            "operation": "validate_change",
+            "repoPath": str(repo_path),
+        }
+        with (
+            mock.patch.object(designer_code_mode.validate_change, "read_json", return_value={}),
+            mock.patch.object(designer_code_mode.validate_change, "validate_policy", return_value=policy),
+            mock.patch.object(designer_code_mode.validate_change, "validate_change", return_value=(change_set, trusted_route, trusted_receipt)),
+            mock.patch.object(designer_code_mode.validate_change, "execute_runner", return_value={"status": "passed", "modelProposalCount": 0}) as execute,
+        ):
+            routed = self.service().handle(request)
+            self.assertEqual(routed["receipt"]["modelProposalCount"], 0)
+            executed = self.service().handle({**request, "phase": "execute_trusted"})
+        self.assertEqual(executed["receipt"]["status"], "passed")
+        execute.assert_called_once()
+
+        candidate = {
+            "source": {"commit": "a" * 40, "changeSetDigest": "b" * 64},
+            "target": {"fixture": "isolated-designer-test", "document": "main"},
+            "riskClass": "reversible-ui",
+            "actions": [],
+            "oracle": {"kind": "semantic-fact", "fact": "panel-visible", "expected": True},
+            "cleanup": ["adapter-teardown"],
+            "budget": {"timeoutSeconds": 900, "maxRetries": 1, "maxActions": 8},
+            "runnerId": "designer-pages-panel-focused",
+            "evidenceRefs": ["policy:runner:designer-pages-panel-focused"],
+        }
+        context = {
+            "status": "approval_required",
+            "changeSet": {"sourceCommit": "a" * 40, "digest": "b" * 64},
+            "nearbyContracts": [{"runnerId": "designer-pages-panel-focused"}],
+        }
+        unknown_route = {"status": "unknown"}
+        unknown_result = {"receipt": {"status": "approval_required"}, "proposalContext": context}
+        candidate_request = {**request, "phase": "submit_candidate", "candidate": candidate}
+        with (
+            mock.patch.object(designer_code_mode.validate_change, "read_json", return_value={}),
+            mock.patch.object(designer_code_mode.validate_change, "validate_policy", return_value=policy),
+            mock.patch.object(designer_code_mode.validate_change, "validate_change", return_value=(change_set, unknown_route, unknown_result)),
+            mock.patch.object(designer_code_mode.validate_change, "validate_candidate_contract", return_value=candidate),
+            mock.patch.object(designer_code_mode.validate_change, "candidate_digest", return_value="c" * 64),
+            mock.patch.object(designer_code_mode.validate_change, "approval_digest", return_value="d" * 64),
+            mock.patch.object(designer_code_mode.validate_change, "candidate_run_id", return_value="12345678-1234-1234-1234-123456789abc"),
+            mock.patch.object(designer_code_mode.validate_change, "build_receipt", return_value={"status": "approval_required", "modelProposalCount": 1}),
+            mock.patch.object(designer_code_mode.validate_change, "execute_runner", return_value={"status": "passed", "candidate": {"state": "consumed"}}) as candidate_execute,
+        ):
+            service = self.service()
+            routed_unknown = service.handle(request)
+            self.assertEqual(routed_unknown["receipt"]["status"], "approval_required")
+            self.assertEqual(routed_unknown["proposalContext"], context)
+            proposed = service.handle(candidate_request)
+            self.assertEqual(proposed["approval"]["approvalDigest"], "d" * 64)
+            with self.assertRaisesRegex(designer_code_mode.ProtocolError, "user_confirmation_required"):
+                service.handle({**candidate_request, "phase": "execute_candidate", "approvalDigest": "d" * 64})
+            with self.assertRaisesRegex(designer_code_mode.ProtocolError, "approval_digest_mismatch"):
+                service.handle({**candidate_request, "phase": "execute_candidate", "approvalDigest": "e" * 64, "userConfirmed": True})
+            completed = service.handle({**candidate_request, "phase": "execute_candidate", "approvalDigest": "d" * 64, "userConfirmed": True})
+            with self.assertRaisesRegex(designer_code_mode.ProtocolError, "candidate_already_consumed"):
+                service.handle({**candidate_request, "phase": "execute_candidate", "approvalDigest": "d" * 64, "userConfirmed": True})
+        self.assertEqual(completed["receipt"]["status"], "passed")
+        candidate_execute.assert_called_once()
+
+    def test_validate_change_rejects_a_second_candidate_for_the_same_change_set(self):
+        service = self.service()
+        first = {
+            "source": {"commit": "a" * 40, "changeSetDigest": "b" * 64},
+            "id": "first",
+        }
+        second = {
+            "source": {"commit": "a" * 40, "changeSetDigest": "b" * 64},
+            "id": "second",
+        }
+        with (
+            mock.patch.object(
+                designer_code_mode.validate_change,
+                "candidate_digest",
+                side_effect=lambda candidate: "c" * 64 if candidate["id"] == "first" else "d" * 64,
+            ),
+            mock.patch.object(designer_code_mode.validate_change, "approval_digest", return_value="e" * 64),
+        ):
+            service._record_candidate(first)
+            with self.assertRaisesRegex(designer_code_mode.ProtocolError, "proposal_limit_reached"):
+                service._record_candidate(second)
+
+    def test_standalone_candidate_state_is_compatible_with_code_mode(self):
+        service = self.service()
+        candidate = {
+            "source": {"commit": "a" * 40, "changeSetDigest": "b" * 64},
+            "target": {"fixture": "isolated-designer-test", "document": "main"},
+            "riskClass": "reversible-ui",
+            "actions": [
+                {
+                    "id": "open-panel",
+                    "op": "invoke_operation",
+                    "dependsOn": [],
+                    "operationId": "designer.panel.pages.open",
+                }
+            ],
+            "oracle": {
+                "kind": "semantic-fact",
+                "fact": "panel-visible",
+                "expected": True,
+            },
+            "cleanup": ["adapter-teardown"],
+            "budget": {"timeoutSeconds": 900, "maxRetries": 1, "maxActions": 8},
+        }
+        state_path = service._validation_state_path()
+        designer_code_mode.validate_change.record_candidate_proposal(
+            candidate, state_path
+        )
+        state = service._load_validation_state()
+        self.assertIsNotNone(state)
+        self.assertEqual(state["state"], "proposed")
+        service._claim_candidate_execution(
+            candidate, designer_code_mode.validate_change.approval_digest(candidate)
+        )
+        service._consume_candidate_execution()
+        self.assertEqual(service._load_validation_state()["state"], "consumed")
 
     def test_status_preserves_direct_owner_and_reconciles_dead_lease(self):
         service = self.service()
@@ -371,6 +623,20 @@ class DesignerCodeModeTests(unittest.TestCase):
         self.assertIsNone(self.runtime.consumer)
         self.assertIsNone(service.store.load())
 
+    def test_prepare_reports_cleanup_failure_instead_of_hiding_it(self):
+        service = self.service()
+        failure = designer_code_mode.ProtocolError(
+            "transaction_state_write_failed", "transaction", True
+        )
+        self.runtime.fail_release_once = True
+        with mock.patch.object(service.store, "write", side_effect=failure):
+            with self.assertRaisesRegex(
+                designer_code_mode.ProtocolError, "prepare_cleanup_failed"
+            ):
+                service.handle(self.prepare_request())
+        self.assertTrue(self.runtime.owned)
+        self.assertEqual(self.runtime.consumer, "agent_browser")
+
     def test_capability_lookup_is_lazy_and_supports_continuation(self):
         service = self.service()
         page = service.handle(
@@ -404,6 +670,25 @@ class DesignerCodeModeTests(unittest.TestCase):
         self.assertEqual(self.runtime.start_timeout, 30.0)
         self.assertFalse(prepared["qaLaunchAllowed"])
         self.assertEqual(prepared["actions"][0]["tool"], "agent_browser")
+        self.assertEqual(prepared["actions"][0]["args"], ["connect", "9333"])
+        self.assertEqual(prepared["actions"][1]["args"], ["open", TARGET])
+        self.assertEqual(
+            prepared["cleanup"]["order"],
+            ["finish", "retire_browser_session"],
+        )
+        self.assertEqual(
+            prepared["cleanup"]["finish"],
+            {
+                "version": 1,
+                "operation": "finish",
+                "transactionId": prepared["transactionId"],
+                "transport": "native",
+            },
+        )
+        self.assertNotIn("close", prepared["cleanup"])
+        self.assertEqual(
+            prepared["cleanup"]["retireAfterFinish"]["args"], ["close"]
+        )
         self.assertEqual(self.runtime.consumer, "agent_browser")
         self.assertEqual(self.runtime.lease_owner, "code_mode")
         self.assertEqual(self.runtime.lease_owner_id, prepared["transactionId"])
@@ -499,7 +784,8 @@ class DesignerCodeModeTests(unittest.TestCase):
         prepared = service.handle(self.prepare_request())
         result = service.handle(
             self.verify_request(
-                prepared["transactionId"], title="Webflow - Synthetic Site"
+                prepared["transactionId"],
+                title="Dev: Webflow - Synthetic Site",
             )
         )
         self.assertTrue(result["qaLaunchAllowed"])
@@ -730,6 +1016,13 @@ class DesignerCodeModeTests(unittest.TestCase):
         prepared = service.handle(self.prepare_request(transport="cli"))
         self.assertEqual(prepared["actions"][0]["command"], "agent-browser")
         self.assertEqual(prepared["actions"][0]["args"][1], "synthetic")
+        self.assertEqual(
+            prepared["actions"][0]["args"][2:], ["connect", "9333"]
+        )
+        self.assertEqual(
+            prepared["cleanup"]["retireAfterFinish"]["args"],
+            ["--session", "synthetic", "close"],
+        )
         service.handle(
             {
                 "version": 1,

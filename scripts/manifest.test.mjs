@@ -100,6 +100,7 @@ describe("managed install manifest", () => {
     assert.equal(packageJson.keywords.includes("pi-package"), true);
     assert.deepEqual(packageJson.pi.extensions, [
       "./extensions/agent-browser-policy.ts",
+      "./extensions/webflow-validation-approval.ts",
       "./extensions/herdr-agent-state.ts",
       "./extensions/pretty-footer.ts",
       "./packages/context-budget",

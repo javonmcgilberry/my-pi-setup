@@ -1,0 +1,222 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "framework": "playwright",
+      "roots": ["entrypoints/playwright-tests"],
+      "patterns": ["*.spec.ts", "*.spec.tsx", "*.spec.js", "*.spec.jsx"]
+    },
+    {
+      "framework": "cypress",
+      "roots": ["entrypoints/designer/client-ui-tests"],
+      "patterns": ["*.spec.ts", "*.spec.js", "*.cy.ts", "*.cy.js"]
+    }
+  ],
+  "operationSource": "entrypoints/playwright-tests/utils/designerUtils/index.ts",
+  "locatorSource": "entrypoints/playwright-tests/utils/designerUtils/testIds.ts",
+  "selection": {
+    "minimumConfidence": 55,
+    "maximumEvidencePerOperation": 5,
+    "holdoutEvidencePerOperation": 1
+  },
+  "evaluation": {
+    "minimumHoldoutEvidence": 1,
+    "requireSemanticAssertion": true
+  },
+  "discovery": {
+    "helperSources": [
+      "entrypoints/playwright-tests/utils/designerUtils/index.ts"
+    ]
+  },
+  "operations": [
+    {
+      "id": "designer.panel.pages.open",
+      "symbol": "openPagesPanel",
+      "intent": "Open the Pages panel when it is not already visible.",
+      "capabilities": ["panel-management", "page-navigation"],
+      "contexts": ["designer-ready", "main-document"],
+      "parameters": [],
+      "locatorKeys": ["Sidebar.PAGES_BUTTON", "Panels.PAGES"],
+      "actions": [
+        {"verb": "click-if-hidden", "target": "Sidebar.PAGES_BUTTON"},
+        {"verb": "wait-visible", "target": "Panels.PAGES"}
+      ],
+      "postconditions": ["Panels.PAGES is visible"],
+      "guardrails": ["Do not click the panel button when the panel is already visible."]
+    },
+    {
+      "id": "designer.panel.components.open",
+      "symbol": "openComponentsPanel",
+      "intent": "Open the Components panel when it is not already visible.",
+      "capabilities": ["panel-management", "components"],
+      "contexts": ["designer-ready", "main-document"],
+      "parameters": [],
+      "locatorKeys": ["Sidebar.SYMBOLS_BUTTON", "Panels.COMPONENTS_LIST_WRAPPER"],
+      "actions": [
+        {"verb": "click-if-hidden", "target": "Sidebar.SYMBOLS_BUTTON"},
+        {"verb": "wait-visible", "target": "Panels.COMPONENTS_LIST_WRAPPER"}
+      ],
+      "postconditions": ["Panels.COMPONENTS_LIST_WRAPPER is visible"],
+      "guardrails": ["Confirm the Components panel content rather than relying on button state alone."]
+    },
+    {
+      "id": "designer.panel.add.open",
+      "symbol": "openAddPanel",
+      "intent": "Open the Add Elements panel when it is not already visible.",
+      "evidencePatternMode": "all",
+      "evidencePatterns": [
+        "keyboard\\.press\\(\\s*['\"]a['\"]",
+        "add-tab-elements-container",
+        "toBeVisible"
+      ],
+      "capabilities": ["panel-management", "element-insertion"],
+      "contexts": ["designer-ready", "main-document"],
+      "parameters": [],
+      "locatorKeys": ["Sidebar.ADD_BUTTON", "Panels.ADD"],
+      "actions": [
+        {"verb": "click-if-hidden", "target": "Sidebar.ADD_BUTTON"},
+        {"verb": "wait-visible", "target": "Panels.ADD"}
+      ],
+      "postconditions": ["Panels.ADD is visible"],
+      "guardrails": ["Opening the panel does not authorize adding an element to the canvas."]
+    },
+    {
+      "id": "designer.panels.dismiss",
+      "symbol": "escapeAllPanels",
+      "intent": "Dismiss transient Designer panels with bounded Escape key presses.",
+      "evidencePatternMode": "all",
+      "evidencePatterns": [
+        "keyboard\\.press\\(\\s*['\"]Escape['\"]",
+        "add-tab-elements-container",
+        "not\\.toBeVisible"
+      ],
+      "capabilities": ["panel-management", "keyboard"],
+      "contexts": ["designer-ready", "main-document"],
+      "parameters": [],
+      "locatorKeys": [],
+      "actions": [{"verb": "press", "key": "Escape", "repeat": 5}],
+      "postconditions": [],
+      "guardrails": ["Treat this as a candidate until the caller supplies a panel-specific closed-state assertion."]
+    },
+    {
+      "id": "designer.page.switch",
+      "symbol": "switchToPage",
+      "intent": "Switch to a named page and wait for the Designer canvas transition to finish.",
+      "capabilities": ["page-navigation", "canvas-readiness"],
+      "contexts": ["designer-ready", "main-document"],
+      "parameters": ["pageName"],
+      "locatorKeys": [
+        "Sidebar.PAGES_BUTTON",
+        "Panels.PAGES",
+        "Pages.LIST_ROW_WRAPPER",
+        "Canvas.LOADING_OVERLAY",
+        "Canvas.TOP_BAR_PAGE_NAME"
+      ],
+      "actions": [
+        {"verb": "invoke", "operation": "designer.panel.pages.open"},
+        {"verb": "click-matching-text", "target": "Pages.LIST_ROW_WRAPPER", "parameter": "pageName"},
+        {"verb": "wait-detached", "target": "Canvas.LOADING_OVERLAY"},
+        {"verb": "assert-contains-text", "target": "Canvas.TOP_BAR_PAGE_NAME", "parameter": "pageName"}
+      ],
+      "postconditions": ["Canvas.TOP_BAR_PAGE_NAME contains pageName"],
+      "guardrails": ["Do not treat the page-row click alone as completion; wait for the loading overlay and page-name assertion."]
+    }
+  ],
+  "scenarioAdapters": {
+    "webflow-playwright-focused": {
+      "executable": "npx",
+      "argumentPrefix": ["playwright", "test"],
+      "allowedSpecRoots": ["entrypoints/playwright-tests/designer"],
+      "fixedArguments": ["--reporter=line", "--workers=1"]
+    }
+  },
+  "changeValidation": {
+    "version": 1,
+    "ignoredPathGlobs": [
+      "package-lock.json",
+      "**/package-lock.json",
+      "yarn.lock",
+      "**/yarn.lock",
+      "pnpm-lock.yaml",
+      "**/pnpm-lock.yaml",
+      "bun.lock",
+      "**/bun.lock",
+      "bun.lockb",
+      "**/bun.lockb",
+      "tsconfig.json",
+      "**/tsconfig.json",
+      "tsconfig.*.json",
+      "**/tsconfig.*.json",
+      ".eslintrc",
+      "**/.eslintrc",
+      ".eslintrc.*",
+      "**/.eslintrc.*",
+      "eslint.config.*",
+      "**/eslint.config.*"
+    ],
+    "limits": {
+      "maximumChangedFiles": 200,
+      "maximumFileBytes": 2097152,
+      "maximumTotalBytes": 10485760,
+      "maximumProposalEvidence": 5
+    },
+    "mappings": [
+      {
+        "id": "designer-pages-panel",
+        "pathGlobs": [
+          "public/js/designer-flux/components/PagesPanel/**",
+          "entrypoints/playwright-tests/designer/panels-system/left-sidebar-panel-focus-management.spec.ts"
+        ],
+        "operationIds": ["designer.panel.pages.open"],
+        "runnerId": "designer-pages-panel-focused"
+      },
+      {
+        "id": "designer-add-panel",
+        "pathGlobs": [
+          "public/js/designer-flux/components/AddTab*.tsx",
+          "entrypoints/playwright-tests/designer/shortcuts/add-elements-panel-shortcut.spec.ts"
+        ],
+        "operationIds": ["designer.panel.add.open"],
+        "runnerId": "designer-add-panel-focused"
+      }
+    ],
+    "runners": {
+      "designer-pages-panel-focused": {
+        "adapter": "webflow-playwright-focused",
+        "specPath": "entrypoints/playwright-tests/designer/panels-system/left-sidebar-panel-focus-management.spec.ts",
+        "grep": "manages sending focus to and from the panel when opened and closed using the global keyboard shortcut",
+        "operationIds": ["designer.panel.pages.open"],
+        "evidenceTerms": ["page", "pages", "panel", "sidebar"],
+        "requiresAws": true,
+        "timeoutSeconds": 900
+      },
+      "designer-add-panel-focused": {
+        "adapter": "webflow-playwright-focused",
+        "specPath": "entrypoints/playwright-tests/designer/shortcuts/add-elements-panel-shortcut.spec.ts",
+        "grep": "pressing \"a\" opens Add Elements panel",
+        "operationIds": ["designer.panel.add.open"],
+        "evidenceTerms": ["add", "element", "elements", "panel"],
+        "requiresAws": true,
+        "timeoutSeconds": 900
+      }
+    },
+    "candidate": {
+      "allowedActions": ["invoke_operation", "assert", "compensate"],
+      "allowedRiskClasses": ["read-only", "reversible-ui"],
+      "maximumActions": 8,
+      "maximumRetries": 1,
+      "maximumTimeoutSeconds": 900,
+      "allowedSelectorKeys": [
+        "Sidebar.PAGES_BUTTON",
+        "Panels.PAGES",
+        "Sidebar.SYMBOLS_BUTTON",
+        "Panels.COMPONENTS_LIST_WRAPPER",
+        "Sidebar.ADD_BUTTON",
+        "Panels.ADD",
+        "Pages.LIST_ROW_WRAPPER",
+        "Canvas.LOADING_OVERLAY",
+        "Canvas.TOP_BAR_PAGE_NAME"
+      ]
+    }
+  }
+}

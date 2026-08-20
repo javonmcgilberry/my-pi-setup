@@ -1,41 +1,78 @@
-# Connected App Workflows
+# Connected-app workflows
 
-Load this reference only for Campaign, Marketo, HubSpot, or another Designer extension that reads or mutates connected-app state.
+Read this reference only when a Designer extension reads or changes connected
+application state, provider configuration, component definitions, or site
+authorization.
 
-## Environment and iframe checks
+## Confirm the running app
 
-- Confirm both the extension client and app server ports. A visible iframe can still be on a sign-in route because its API server is absent.
-- Confirm the iframe URL is the extension client rather than an adjacent CDN or package server.
-- For local Marketo, the expected client is commonly `http://localhost:1337`; a fallback to `1338` can break origin-sensitive auth. The API may run on a separate port such as `3002`, and a CDN development server may use `127.0.0.1:5173`.
-- Inspect frame URLs and the extension-owned readiness selector before diagnosing the application.
-- Do not print or place provider credentials, OAuth tokens, Designer session tokens, or local bootstrap tokens in commands, snapshots, reports, URLs, or screenshots.
+- Identify the extension client origin and API origin from the current
+  environment. Do not assume a port or substitute a nearby development server.
+- Confirm that the iframe URL belongs to the extension client rather than a CDN
+  or package server.
+- Inspect frame URLs and an extension-owned readiness selector before debugging
+  application behavior.
+- Treat an iframe on a sign-in route, a missing API server, and a failed provider
+  request as separate findings.
+- Keep provider credentials, OAuth tokens, Designer session tokens, and local
+  bootstrap tokens out of commands, URLs, snapshots, reports, and screenshots.
 
-## Model and canvas state
+## Keep state sources separate
 
-- Keep the rendered canvas DOM, extension list, and Designer API model as separate evidence sources.
-- Match current-page component instances through `ComponentInstance.getComponent().id`. Do not infer the definition ID from the shape of an element instance ID.
-- For slot-sensitive insertion, capture the selected element, selected slot, slot IDs, display names, and child counts before and after the action.
-- `selectedSlotId` can be the slot definition ID string while `getSlots()` returns structured IDs. Compare it with the structured slot's `slot` field.
-- A canvas DOM probe can miss provider markers while the Designer API and visible canvas remain correct. Pair a bounded API snapshot with the Designer viewport.
+Use the rendered canvas, extension UI, and Designer API model as separate
+evidence sources. For component and slot work, record only the values needed to
+identify the current state:
 
-Use `eval` only inside the confirmed extension iframe and return filtered values. Never dump the complete Designer model when a small set of IDs, types, names, and counts answers the question.
+- selected element type
+- component definition ID
+- selected slot ID and slot name
+- child count
+- provider or layout name without customer data
 
-## Stateful actions
+Match a component instance through its component definition rather than
+guessing a definition ID from an element instance ID. A canvas DOM probe can
+miss provider markers while the API model and visible canvas remain correct.
 
-- Treat insertion, provider configuration, layout replacement, app connections, undo, redo, reload, and publish as separate mutations unless the product explicitly provides a transaction.
-- Capture a small baseline and an unrelated-content signature before mutation. Stop immediately if unrelated state changes.
-- Bound undo and redo by the mutation count from the scenario. Never continue until Undo becomes disabled because that can cross into unrelated site history.
-- After a connected-app action, verify the extension result and canvas or model result separately. For published behavior, also prove the expected runtime script request after publish or local routing.
-- Do not use the Designer development refresh button as the only persistence proof; it reloads the iframe and can reset in-memory provider authentication.
+## Handle mutations
 
-## Exact-site authorization
+Treat insertion, provider configuration, layout replacement, app connections,
+undo, redo, reload, and publish as separate mutations unless the product
+provides a transaction.
 
-- Select a Webflow site by its expected site ID, never by display name or result position.
-- Capture each visible authorization page as a sanitized file-backed surface. Run `scripts/guarded-site-authorization.py` without mutation flags to verify pagination and one exact match.
-- Use the selected browser transport for the actual pagination and checkbox actions. Add `--allow-selection` only after the baseline is captured, then provide the post-selection surface so the helper can verify that one checkbox is selected and the authorization action is enabled.
-- Add `--allow-authorization` only when the final action is authorized. Provide parsed callback state containing only `site_id`; never provide a complete callback URL or authorization code.
+1. Capture a small baseline and an unrelated-content signature.
+2. Perform only the authorized mutation.
+3. Stop if unrelated state changes.
+4. Verify the extension result and the canvas or model result separately.
+5. For published behavior, prove the expected runtime request as well.
 
-The initial surface shape is:
+Bound undo and redo by the scenario's mutation count. Do not continue until an
+unrelated history entry is reached. A development refresh can reset in-memory
+provider authentication, so it is not persistence proof by itself.
+
+Provider discovery, component registration, and Designer insertion can fail at
+different layers. Classify the failing layer before changing application code.
+Prefer normal app interaction or in-app history navigation over deep navigation
+inside an extension iframe when the app uses a client-side router.
+
+## Authorize one exact site
+
+Select a site by its expected site ID, never by display name or result position.
+Capture each visible authorization page as a sanitized file-backed surface,
+then run:
+
+```sh
+python3 scripts/guarded-site-authorization.py \
+  /tmp/sanitized-authorization-surface.json \
+  --expected-site-id synthetic-site-id
+```
+
+Use the helper without mutation flags to check pagination and identify one
+exact match. Add `--allow-selection` only after the baseline is captured and
+provide the post-selection surface. Add `--allow-authorization` only for the
+final authorized action and provide callback state containing `site_id` only.
+Never pass a complete callback URL or authorization code.
+
+The minimum sanitized shape is:
 
 ```json
 {
@@ -52,24 +89,23 @@ The initial surface shape is:
 }
 ```
 
-## Marketo and HubSpot cautions
-
-- Marketo provider discovery can fail because a selected provider form itself does not render. Separate provider-data failure from component registration or Designer insertion failure.
-- Marketo TanStack Router base paths can break after direct frame navigation. Prefer normal app interaction or in-app history navigation over navigating the iframe to a deep path.
-- Duplicate provider form names require scoping to the intended list, row, component definition, and current frame.
-- HubSpot or Marketo OAuth can be valid for a cloud site while a local clone has a different site ID. Do not rewrite signed identity data or weaken product checks to force authorization.
-- Shared authenticated provider sessions are sensitive. Do not export, persist, or route their tokens unless the user explicitly authorizes the exact bounded workflow.
+OAuth can be valid for a cloud site while a local clone has a different site
+ID. Keep signed identity checks intact and never rewrite auth data to force a
+local authorization through.
 
 ## Evidence
 
-Record only sanitized, scenario-relevant values:
+Record only scenario-relevant, sanitized values:
 
-- extension frame origin and route
-- selected element type, component definition ID, slot ID, and child count
-- provider form or layout name without credentials or customer data
-- before and after component or state IDs
+- extension origin and route
+- selected element and component definition IDs
+- slot ID and child count
+- provider or layout name without credentials or customer data
+- before and after state IDs
 - filtered request paths and statuses
 - bounded undo and redo transitions
 - inspected screenshots at user-visible checkpoints
 
-If attached and isolated sessions disagree, report the state-drift finding. The agent-owned dedicated profile is the normal attached surface. An explicitly authorized user-owned live tab is authoritative only for its unsaved collaborative state while the user has paused interaction; release it immediately afterward. The isolated run remains the repeatability check.
+If attached and isolated runs disagree, report state drift. An authorized live
+tab is authoritative only for its unsaved collaborative state while the user
+has paused interaction; the isolated run remains the repeatability check.

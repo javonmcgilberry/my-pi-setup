@@ -1,296 +1,308 @@
 ---
 name: webflow-designer-agent-browser
-description: Use agent-browser and Chrome DevTools Protocol to inspect, debug, and verify authenticated Webflow Designer sessions with compact snapshots, targeted evidence, and a self-compounding automation loop. Trigger for Designer URLs on design.webflow.com, design.wfdev.io, or wfdev.io; authenticated local Designer QA; extension iframes; canvas or visual debugging; agent-browser; CDP attachment; checks that must observe the user's current unsaved or collaborative Designer tab; and repeated browser work that should become a deterministic reusable helper.
+description: Validate current Webflow Designer changes or inspect authenticated Designer sessions, local Designer apps, extension iframes, and canvas state. Use for end-of-work change validation, Designer URLs, unsaved or collaborative tabs, iframe and canvas debugging, visual QA, CDP, and agent-browser workflows. Prefer Pi's native agent_browser integration; use the standalone CLI when Pi is unavailable or the user chooses another host.
 ---
 
-# Webflow Designer Agent Browser
+# Webflow Designer browser workflow
 
-Use the best available agent-browser transport for token-efficient Designer exploration while preserving the exact browser state under test. Prefer native `agent_browser` when available; use the CLI fallback only when native is unavailable. This skill owns the repeatable Chrome-for-Testing lifecycle and the deterministic evidence loop; it does not attach to the user's normal Chrome profile.
+Designer can show a login page, an error document, an empty shell, or the
+wrong iframe while a browser command succeeds. Local extensions also depend on
+their exact origin and running services. A live tab may contain unsaved or
+collaborative state that an isolated browser cannot reproduce. This workflow
+checks the target before interaction, keeps browser ownership clear, limits
+captured data, and proves cleanup.
 
-## Deterministic transaction gate before Designer QA
+## Use the workflow
 
-For normal local or authenticated Designer QA, use the deferred Code Mode
-`webflow_designer` command instead of spawning a separate model-driven setup
-owner. Its bounded transaction is:
+1. Choose [attached or isolated mode](#choose-a-mode).
+2. Select one [browser transport](#select-a-transport) before starting.
+3. Obtain the exact Designer URL. Ask for it when it is missing; never infer a
+   target from a default host or an unrelated open tab.
+4. Complete the [authentication gate](#authenticate-the-dedicated-profile)
+   before the first isolated run.
+5. Prepare the runtime and declare the target and service checks.
+6. Open or connect to the exact Designer URL, then inspect a narrow surface.
+7. Verify the Designer document and all readiness checks.
+8. Perform only the authorized interaction.
+9. Finish the owned runtime, prove that it stopped, then retire the automation
+   session.
 
-```text
-prepare -> selected agent-browser interaction -> verify -> authorized work -> finish in finally
-```
-
-`prepare` receives the exact target, selected `native` or explicit `cli`
-transport, attached or isolated mode, scoped selectors, and the three declared
-service probes. It batches those probes, ensures the dedicated Chrome for
-Testing runtime, claims the exclusive `agent_browser` lease, and returns the
-transport-specific browser actions. It never invokes arbitrary native Pi tools.
-The model still performs page interaction with native `agent_browser` when
-available; the CLI is selected explicitly and cannot be substituted later.
-
-The native `agent_browser` tool is a host capability, not the managed Chrome
-runtime. Before calling `prepare` with `native`, confirm that the native tool is
-actually registered and callable in the current session; activating or probing
-the host capability is a precondition, not an optional recovery step. If it is
-unavailable, stop with `browser_transport_unavailable` before claiming a
-runtime. Do not start Chrome manually to compensate. `prepare` reserves the
-managed runtime for the native handoff, but its lease is not evidence that the
-host wrapper has connected yet; execute the returned native `connect` action
-immediately after preparation.
-
-`status` is a read-only bounded lifecycle classifier for interrupted or
-partially cleaned runs. It reports whether the state is clean, an active
-transaction, a valid direct/native owner, a stale receipt/lease that can be
-reconciled, an environment-independent ownership conflict, or an unverified
-listener. `reconcile` only converges the classifier's explicitly safe stale
-states; it never steals a live direct/native owner or terminates an unverified
-listener.
-
-`verify` accepts only compact evidence: the exact sanitized URL, Webflow
-Designer title (including the observed `Webflow - <site>` form on a Designer
-origin), document classification, authentication boolean, error-page
-boolean, and the selector observed. It derives the five required readiness
-states and permits authorized work only when every state is `ready` while the
-transaction still holds the lease. It classifies login or expired-auth state as
-`auth_required`, not as a QA result. `finish` belongs in `finally` after the
-selected browser session closes; it releases the lease, stops only the owned
-runtime, proves the stopped state, and is safe to repeat.
-
-The required check names remain `hud`, `designer_service`, `target_http`,
-`browser_profile`, and `designer_surface`. A missing or failed service probe,
-runtime conflict, transport mismatch, authentication-required surface, stale
-lease, or unclean finish is a named blocker. Do not retry by switching
-transport, copying credentials, repairing profiles, or repeatedly reloading.
-The private transaction receipt binds the runtime PID/start generation and
-lease token; a replacement process, nested profile symlink, or unknown listener
-is never treated as the owned browser.
-
-If Code Mode is unavailable, use the existing direct helpers with the same
-check names and cleanup proof; this is an explicit fallback, not a second
-transport hidden inside the custom command. `scripts/readiness-gate.py` remains
-the small fail-closed classifier for standalone checks and held transactions.
-
-## Select the browser transport by capability
-
-Do not branch on a harness name. Select once before opening or claiming a
-session, record the selection, and keep it for the whole task:
-
-1. If the harness exposes the native `agent_browser` tool, select `native`.
-   This is the preferred Pi path because the extension returns compact,
-   structured results without routing CLI output through a shell.
-2. Otherwise, if `command -v agent-browser` and `agent-browser --version`
-   succeed, select `cli` and invoke the same operations with the CLI.
-3. If neither capability exists, stop with `browser_transport_unavailable`.
-
-Do not silently switch transports after a session starts or after an action
-fails. Native and CLI sessions have different ownership state; switching can
-open a second browser or leave the first session unclosed. The operation names
-in this skill (`open`, `connect`, `tab`, `wait`, `snapshot`, `close`) apply to
-both transports. Native actions use `agent_browser`; CLI actions use the
-`agent-browser` executable.
-
-## Preconditions
-
-1. Select and record `native` or `cli` using the capability rules above. For
-   `native`, verify the host tool is registered and callable before `prepare`;
-   if activation cannot make it available, stop with
-   `browser_transport_unavailable`. Run the CLI checks only for `cli`.
-2. Do not install a browser transport, download a browser, or change Chrome configuration without approval.
-3. Obtain the exact Designer URL, including `pageId`, role simulation, and local port. Prefer the URL from the live tab.
-4. For normal managed local/authenticated QA, complete `webflow_designer`
-   `prepare` before browser interaction and `verify` before authorized work. Do
-   not manually start the managed runtime or start a separate readiness/QA
-   subagent. In the direct-helper fallback, run the same five checks before
-   acting.
-5. On `profile_unavailable`, fully quit normal Chrome, then run `scripts/browser-runtime.py bootstrap --confirm-sensitive-copy` once. The default source is the normal Chrome `Default` profile; pass `--source-profile <directory-name>` explicitly for another profile. Bootstrap excludes `Local State`, cookie databases, saved-login databases, and Web Data. Then run `start --headed` for a one-time Webflow login and `release --consumer agent_browser` immediately afterward.
-6. Choose one mode explicitly and record it in the evidence.
-
-## Reusable helpers
-
-- Run `scripts/capability-catalog.py list [--category <name>]` for the compact deferred helper catalog. Read only the selected helper or direct reference; do not load every helper contract up front.
-- Use the deferred Code Mode `webflow_designer` capability for `help`, exact or
-  category-scoped capability lookup, `status`, `reconcile`, `prepare`, `verify`,
-  and `finish`. Pass one
-  JSON string with `JSON.stringify`; use `nextOffset` rather than dumping the
-  catalog. The command owns lifecycle state, not page snapshots or native tool
-  invocation.
-- Run Code Mode `status` before recovering an interrupted transaction. Follow its
-  bounded `action`: start only from `clean_stopped`, defer an active direct/native
-  owner, and call `reconcile` only when it reports a safe stale state. Never
-  infer that a lease without a Code Mode receipt is stale. For lower-level
-  diagnostics, `scripts/browser-runtime.py status` still owns the dedicated
-  profile, Chrome for Testing process, loopback direct-CDP readiness, bounded
-  watchdog, and exclusive consumer lease. `ensure` is the idempotent headless
-  default; use `start --headed` only for login, MFA, or visual debugging.
-  `release` also stops the owned runtime. Use `plan`, `bootstrap`, `ensure`,
-  `transfer-cookies`, `claim`, `release`, or `stop` only for the lifecycle phase
-  each command names.
-- Run `scripts/readiness-gate.py` for a direct-helper or diagnostic handoff when
-  the Code Mode facade is unavailable. A held transaction uses its
-  `--runtime-held` state; a standalone handoff still requires `--runtime-stopped`.
-- The tracked `agent-browser-policy.json` keeps nested upstream `chat` and cookie transfer fail-closed. Ordinary deterministic browser calls are not restricted by the active Pi model or reasoning level. Override the policy only with an explicit `--policy /private/path/policy.json` or `PI_AGENT_BROWSER_POLICY_CONFIG=/private/path/policy.json`; never place cookie values or secrets in that file.
-- Cookie transfer is a separate, two-factor opt-in. Enable `cookieTransfer.enabled` in a private policy override, verify the exact `allowedDomains`, then run `scripts/browser-runtime.py transfer-cookies --confirm-cookie-transfer` against an already-ready dedicated runtime while the `agent_browser` lease is held. Use `--dry-run` first; direct transfers require an exclusive `claim --consumer agent_browser`, then the returned private `leaseId` must be supplied to transfer and to matching release. The helper snapshots only the source Cookies database and sidecars, decrypts matching unexpired macOS Chrome cookies in memory through Keychain-derived material, injects them with loopback CDP `Network.setCookies`, and reports counts only. It never launches the source profile, copies a full profile, writes plaintext cookies, or transfers wildcard domains.
-- Run `scripts/discover-designer-tabs.py` to query an existing CDP endpoint and return only sanitized Designer tab metadata. Use `--ownership-url` and `--current-session` to inspect known agent-browser ownership without claiming or focusing a tab.
-- Run `scripts/discover-designer-tabs.py --attachment-config config/attachment.json --transport <native|cli>` from this skill directory before attaching. The tracked config emits the selected transport's explicit `connect <port>` action for canonical `direct_cdp`. Pass a sanitized surface fixture back with `--surface-fixture`, `--expected-title`, and the required actual `--expected-runtime-mode`; headed verification rejects `HeadlessChrome`, headless verification requires it, and both reject all-`about:blank` managed fallbacks.
-- Run `scripts/designer-session.py <attached|isolated> --transport <native|cli>` to preflight a bounded bootstrap and emit transport-specific actions plus mandatory cleanup. It never launches a browser itself. Supply each required service through `--tcp-service` or `--http-service`; a failed preflight stops plan emission and identifies the unavailable label without exposing its target. Attached fallback plans also require the private `leaseId` returned by `browser-runtime.py claim`, so delayed cleanup cannot release a replacement runtime.
-- Pipe agent-browser JSON or a saved report through `scripts/sanitize-evidence.py` before sharing it. The sanitizer redacts secret-bearing keys, sensitive headers, unsafe query values, long strings, and oversized collections.
-- Run `scripts/automation-evidence.py --report-template <attached|isolated>` to
-  emit the fail-closed report shape, fill it with sanitized evidence, then run
-  `scripts/automation-evidence.py --validate-report <sanitized-report.json>`
-  before the final response. Include the sanitized Code Mode `verify` and
-  `finish` outputs; validation derives the five readiness checks and named
-  blockers, binds both outputs to one transaction, checks the mode-specific
-  scope claim and bounded lists, and proves clean stopped-runtime cleanup. Run
-  `scripts/automation-evidence.py <sanitized-run-shape.json>`
-  only after reconstructing the complete run; it rejects incomplete
-  inventories. Use its private evidence queue only for non-sensitive candidate
-  shapes; reviewed promotion is a separate maintenance pass.
-- Run `scripts/guarded-site-authorization.py <sanitized-surface.json> --expected-site-id <site-id>` to identify one exact authorization checkbox across visible pages. The helper validates the selection and callback postconditions only when their explicit flags are present; agent-browser remains responsible for browser actions.
-- Run `scripts/verify-workspace-build.py --source <source-module> --built <generated-module>` before published runtime QA when a local provider package imports ignored generated workspace output.
-- Run `node scripts/cdp-frame-eval.mjs ... --dry-run` when agent-browser cannot retain context for an out-of-process iframe. It evaluates a file-backed expression in the matching frame without printing target URLs. Use `--visible-replacement-selector <selector>` with a bounded `--observation-ms` to report count-only overlap and blank-gap evidence during one replacement.
-
-These helpers cover deterministic setup and evidence handling only. Use the selected browser transport directly for interaction, diffs, diagnostics, screenshots, traces, and profiles.
-
-## Browser ownership and operating modes
-
-Keep personal browsing and agent automation in separate Chrome profiles:
-
-- **The user's normal Chrome Work profile is user-owned.** The user may open it and browse normally while routine automation runs. Do not attach to it, close its tabs, reuse its profile directory, or terminate its processes during routine work.
-- **The copied Webflow profile is agent-owned.** It lives under `~/.config/webflow-designer-agent-browser/chrome-user-data/` and is the only profile used by `browser-runtime.py`. The user should not browse in this profile while automation is running because shared tabs, focus, navigation, and profile locks make tests nondeterministic.
-- **All managed Webflow automation uses Chrome for Testing.** Never launch `/Applications/Google Chrome.app` from this skill and never point automation at the user's normal profile directory. If Chrome for Testing is unavailable, stop with `chrome_unavailable` rather than falling back.
-- **Headless is the routine default.** Run `scripts/browser-runtime.py ensure` for invisible, repeatable authenticated automation. The dedicated profile remains separate from the user's normal Chrome profile. The default watchdog limit is 1,800 seconds; use a larger bounded `--max-runtime-seconds` only when the task is expected to need it.
-- **Headed is an explicit temporary mode.** Run `scripts/browser-runtime.py start --headed` only for manual login, MFA, user observation, or visual debugging. After that work, close the managed agent-browser session and release the consumer; release stops the runtime.
-- **Never switch modes in place.** Close the managed session and release the current consumer before changing between headless and headed; release stops the owned runtime. A `runtime_mode_conflict` is a safety stop, not a reason to launch another browser against the same profile.
-- **Authentication remains manual by default.** Never collect or fill credentials or manipulate tokens. If Webflow expires the dedicated session, start headed, let the user sign in directly, verify the dashboard, then return to headless mode. Cookie transfer is available only through the explicit policy-and-flag flow above.
-
-The normal concurrency model is therefore: the user browses in normal Chrome while agent-browser controls the dedicated profile headlessly. Running the user and agent against the same profile at the same time is unsupported.
-
-Attaching to a user-owned live tab is an exceptional shared-session mode for unsaved or collaborative state that cannot be reproduced in the dedicated profile. Obtain explicit authorization, ask the user to pause interaction for the duration, preserve every tab, and release control immediately afterward. Do not describe this exceptional mode as concurrent personal browsing.
+The lifecycle can be driven by a host integration or directly from a shell.
+Native `agent_browser` returns compact structured results when available; the
+`agent-browser` CLI remains the fallback. `scripts/designer-code-mode.py`
+provides the same JSON protocol for either path, and the direct helpers remain
+available for diagnostics and CLI plans. A Playwright, Selenium, or other
+transport adapter is not included.
 
 ## Choose a mode
 
-### Attached exploration and debugging
+**Isolated** mode is the default for repeatable checks. Use the dedicated
+managed profile with a dedicated, least-privilege Webflow test user. The profile
+keeps its authentication between runs, so do not ask the user to sign in again
+when an authenticated Designer or dashboard surface is already visible. Do not
+treat the result as proof of another tab's unsaved state.
 
-Use this mode for the agent-owned authenticated runtime, or exceptionally when an explicitly authorized user-owned tab contains unsaved, collaborative, selected, or otherwise live state that the dedicated profile cannot reproduce.
+**Attached** mode is for a selected live state that cannot be reproduced. The
+dedicated managed runtime is the normal attached surface. Attaching to a
+user-owned Chrome tab is exceptional: obtain explicit authorization, preserve
+all tabs, ask the user to pause interaction, and release control immediately
+after the observation.
 
-1. For the normal agent-owned runtime, call `webflow_designer` `prepare` with
-   `mode: "attached"`; require its direct-CDP, `browser_profile`, and lease
-   receipt before connecting. Never use broker auto-connect in the routine
-   workflow.
-2. Execute the returned connect/tab actions through the selected transport. For
-   `native`, use `sessionMode: "fresh"` and let the wrapper own the generated
-   session. For `cli`, use the task-owned session returned by the plan and do
-   not create an unrelated named session. For the exceptional authorized
-   user-owned tab, keep the direct diagnostic path below and do not claim the
-   dedicated runtime on its behalf.
-3. Before claiming a shared tab, run the ownership diagnostic for its exact sanitized URL. For `native`, first use native session/tab observation to create the helper's sanitized `--ownership-fixture`; never shell out to the CLI to infer ownership of native-wrapper sessions. For `cli`, the helper may inspect CLI sessions directly. Reuse the current owning session or hand control back to the orchestrator when another known session owns it.
-4. In headless mode, expect the first tab to be `about:blank` and navigate it to the exact approved Designer URL. In headed or exceptional shared-tab mode, run `tab`, identify the exact Designer tab by URL, and switch to its stable tab ID without navigating or reloading first.
-5. Preserve all pre-existing tabs and browser state. Do not call `close`, clear storage, save/export state, or mutate the canvas without explicit task authorization. In exceptional user-owned attachment mode, require the user to pause browsing until control is released.
+## Authenticate the dedicated profile
 
-CDP exposes the dedicated authenticated browser to local control. Keep it loopback-only. Chrome DevTools MCP remains disabled during routine work and may be used only through an explicit exceptional handoff after agent-browser releases ownership.
+An isolated run never opens a target in a fresh profile with unknown auth state.
+For a new, reset, or expired dedicated profile:
 
-### Isolated verification
+1. Start the dedicated Chrome for Testing runtime in headed mode.
+2. Ask the user to authenticate a dedicated test user. If the proposed account
+   must remain active in another browser, stop and offer attached mode instead.
+   Never fill credentials, copy cookies, or record the account identifier.
+3. Wait for the user's confirmation that authentication is complete.
+4. Verify a Webflow Designer or dashboard surface. A login page, expired-auth
+   page, or blank document remains `auth_required`.
+5. Keep that same managed runtime open for the prepared run. Connect the
+   browser transport to it, then open the approved target.
 
-Use this mode for repeatable checks where live unsaved state is not required.
+Do not use `profileInitialized` as proof of authentication. If the user does
+not confirm the first login checkpoint, stop before opening the requested
+target. On later runs, inspect the existing profile first and continue without a
+login prompt when it is still authenticated. An explicitly authorized attached
+tab uses its existing authenticated state and does not copy that state into the
+dedicated profile. Never sign out, clear cookies, or reset authentication as
+part of cleanup.
 
-1. Call `webflow_designer` `prepare` with `mode: "isolated"`, then open the
-   exact URL using its returned action. For `native`, use `sessionMode: "fresh"`;
-   for `cli`, pass the one task-owned name to every action and cleanup command.
-2. Use a dedicated session or profile. Make authentication setup explicit; never imply the isolated session shares the live tab's canvas state.
-3. For local Designer, use the selected automation browser's native identity and `--ignore-https-errors` when the certificate requires it. Do not spoof the user agent merely because intentional headless Chrome reports `HeadlessChrome`; supply `--user-agent` only when a separately proven environment constraint requires it.
-4. Fix viewport, selectors, setup, and assertions so reruns exercise the same state.
-5. Close only the isolated session that this task owns.
+## Select a transport
 
-Use `scripts/designer-session.py isolated --transport <native|cli> --url '<exact-url>' --surface '<selector>' --dry-run` to inspect the bounded action and cleanup plan before launch.
+Select once and keep the choice through cleanup:
 
-Do not print, export, persist, or commit cookies, tokens, credentials, storage state, or PII. State files are sensitive plaintext unless separately encrypted, so avoid them unless the task explicitly requires controlled persistence. The cookie-transfer helper keeps decrypted values in memory and emits only counts and allowed domain names.
+- Use native `agent_browser` when the host exposes and can call it.
+- Otherwise use the `agent-browser` CLI with a task-owned session name.
+- If neither is available, stop with `browser_transport_unavailable`.
 
-## Always clean up browser ownership
+Do not switch transports after preparation. Native and CLI sessions have
+different ownership records, so switching can leave one session open or create
+a second browser.
 
-Treat cleanup as a required `finally` block, including failed and interrupted browser tasks:
+Before native preparation, confirm that the host tool is registered and
+callable. If it is unavailable, stop before claiming the runtime rather than
+starting another browser. A lease reserves the managed runtime for the handoff;
+it does not prove that the native wrapper connected.
 
-1. Close the selected transport's managed browser session: native `agent_browser close` or CLI `agent-browser close`.
-2. Call `webflow_designer` `finish` with the prepared transaction ID. It
-   releases the exact `agent_browser` lease and stops the owned Chrome for
-   Testing process and watchdog.
-3. Require the command's stopped-state proof: `runtimeOwned: false`,
-   `cdpReady: false`, `consumer: null`, `leasePresent: false`, and
-   `status: stopped`.
-4. If the facade is unavailable or reports a cleanup failure, first use the
-   Code Mode classifier when available and call `reconcile` only for its safe
-   stale classification. The direct helper remains an explicit fallback:
-   `scripts/browser-runtime.py release --consumer agent_browser --lease-id <leaseId>`,
-   then `status`; `stop` is the final bounded fallback and may terminate only
-   PIDs that match the private runtime state and dedicated profile. A direct
-   owner, replacement runtime, or unverified listener remains fail-closed.
+## Prepare the browser
 
-Never leave cleanup for the next browser task. Never kill unverified Chrome, Chromium, or agent-browser PIDs. The watchdog is an abnormal-exit backstop, not a substitute for immediate cleanup.
+For normal local or authenticated QA, use the lifecycle facade or the
+standalone JSON protocol. The operation declares the exact target, surface,
+transport, mode, and the three service probes: `hud`, `designer_service`, and
+`target_http`. It starts or reuses Chrome for Testing, claims the exclusive
+`agent_browser` lease, and returns the browser actions.
 
-## Operate with compact evidence
+The managed profile is separate from the user's normal Chrome profile. Never
+launch normal Chrome, attach to its profile, copy its credentials, or use a
+profile path from another browser task. Manual headed startup is reserved for
+login, MFA, and visual debugging. See [standalone CLI](references/standalone-cli.md)
+for bootstrap and recovery commands.
 
-1. **Observe narrowly.** Start with `snapshot -i -c -s "<surface>"`. Use a stable Designer selector, dialog, panel, or frame-owned surface. Escalate to depth-limited or full snapshots only when the narrow view cannot answer the question.
-2. **Use fresh refs.** Treat `@eN` refs as valid only for the tab, frame, and latest relevant snapshot. Take a fresh snapshot after navigation, frame changes, reloads, or substantial UI updates.
-3. **Batch dependent work.** Use `batch --bail` for a short sequence such as wait, snapshot, action, and targeted observation. Do not batch across an unknown state transition that needs inspection.
-4. **Compare changes.** Capture the scoped baseline, perform one authorized action, then run `diff snapshot --selector "<surface>" --compact`. Prefer semantic state assertions before screenshots.
-5. **Escalate evidence deliberately.** Use `get`, `eval`, console, errors, or network inspection for a specific question. Use screenshots for layout, placement, color, transformed canvas content, or final visual proof.
+When service endpoints are not supplied, probe `https://wfdev.io:8443/` for
+both `hud` and `designer_service`. If either default probe fails, report that
+named blocker instead of guessing another port or endpoint. Always probe
+`target_http` against the exact requested Designer URL.
 
-Native-tool example (use the same `batch` arguments via the CLI when `cli` is selected):
+## Verify readiness
 
-```json
-{
-  "args": ["batch", "--bail"],
-  "stdin": "[[\"wait\",\"[data-automation-id=left-sidebar-add-button]\"],[\"snapshot\",\"-i\",\"-c\",\"-s\",\"[data-automation-id=left-sidebar-add-button]\"]]"
-}
+The five readiness checks are:
+
+- `hud`: the declared HUD service responds.
+- `designer_service`: the required Designer service responds.
+- `target_http`: the exact target responds without a connection or gateway
+  failure.
+- `browser_profile`: the managed Chrome for Testing profile is ready.
+- `designer_surface`: the tab has a Webflow Designer title on an approved
+  Designer origin, shows a non-login document, and is not a Chrome error page.
+
+`auth_required`, `unavailable`, and `error` are blockers, not QA results. A
+fixed sidebar control is not a readiness check because Designer shells vary by
+role. Verify the surface with compact evidence before any authorized work.
+
+## Inspect and act
+
+- Preserve the full approved URL, including `pageId`, `simulateRole`, host, and
+  port. Reject credentials and secret-bearing query parameters.
+- Start with a scoped interactive snapshot. Treat refs as valid only for the
+  latest snapshot of the same tab and frame.
+- Prove semantic state before taking a screenshot. Use screenshots for layout,
+  transformed canvas content, spacing, or color.
+- Treat attached sessions as read-only until the task authorizes navigation,
+  selection changes, canvas edits, undo, redo, publish, or app actions.
+- Before a mutation, capture a small baseline and verify that unrelated state
+  did not change.
+- Keep console, request, trace, and screenshot artifacts temporary and outside
+  the repository. Do not return cookies, storage, tokens, credentials, raw
+  DOM dumps, full Designer models, or customer data.
+
+For iframe, local-service, assertion, and diagnostic details, read
+[Designer workflows](references/designer-workflows.md). For connected-app
+state, read [Connected apps](references/connected-apps.md) before acting.
+
+## Finish every run
+
+The runtime helper owns Chrome. The browser transport only connects to it. Put
+cleanup in a `finally` path and keep this order:
+
+1. Call `webflow_designer finish`, or release the exact standalone lease.
+2. Confirm `runtimeOwned: false`, `cdpReady: false`, `consumer: null`,
+   `leasePresent: false`, and `status: stopped`.
+3. Only after that proof, close the selected native or CLI automation session.
+
+Do not call `agent_browser close` while the managed runtime is still running.
+For a raw CDP connection, `close` can terminate the browser instead of merely
+disconnecting the transport.
+
+After an interruption, use `status`. Run `reconcile` only for the safe stale
+states it identifies. Never infer that a lease is stale from a missing receipt,
+and never terminate an unknown listener or replacement runtime.
+
+## Record evidence
+
+For a recorded result, generate the mode-specific shape with
+`scripts/automation-evidence.py --report-template attached` or
+`--report-template isolated`, fill it with sanitized observations, and validate
+it with `--validate-report <sanitized-report.json>`. Include the exact sanitized URL,
+ownership boundary, target frame, readiness checks, before and after semantic
+observations, authorized actions, relevant diagnostics, blockers, assumptions,
+and the stopped-runtime proof.
+
+Use [the automation maintenance loop](references/compounding-loop.md) only
+during skill maintenance or when reviewing repeated automation opportunities. It is
+not a required step after every browser task.
+
+## Validate current Webflow changes
+
+Use this branch for the normal end-of-work request, "Validate my current
+Webflow changes." Corpus discovery and manual Playwright command assembly are
+maintenance tasks, not prerequisites.
+
+1. Route the change set. Call `webflow_designer` with
+   `operation:"validate_change"`, the read-only Webflow `repoPath`, and
+   `phase:"route"`. Without `changedFiles`, routing includes staged, unstaged,
+   and bounded untracked files after the tracked exclusion list is applied.
+   Every remaining file participates in routing. This step is complete when
+   the response has a receipt and one route status.
+2. Follow that status:
+   - For `ready` with `mode:"trusted"`, call `phase:"execute_trusted"`. The
+     tracked policy supplies every fixed runner and its AWS requirement. This
+     branch is complete when execution returns a terminal receipt.
+   - For `approval_required`, build one data-only contract from the returned
+     `proposalContext`, then call `phase:"submit_candidate"`. Call
+     `phase:"execute_candidate"` with the exact approval digest and omit
+     `userConfirmed`. The host displays the action graph, evidence, target,
+     semantic oracle, cleanup, and budget. This branch is complete when the
+     user declines or the approved run returns a terminal receipt.
+   - For `insufficient_evidence` or `routing_ambiguous`, report the named gap.
+     This branch is complete when the response states that this workflow did
+     not validate the change.
+3. Report the result. Only `passed` is a successful validation. `ready` records
+   routing only. Include the receipt's contracts, tests, cleanup state, and
+   `failureClass` when present. A failed runner never proves cleanup: `proved`
+   appears only after a successful fixed runner, `not_proved` records an
+   interrupted or otherwise incomplete run, and `failed` identifies a teardown
+   failure. Include `ignoredFiles` from the change set so the user can see what
+   routing skipped.
+
+A candidate contains bounded data: reviewed operation references, reviewed
+locator keys, one fixed adapter, a semantic oracle, and adapter teardown. Pi
+collects approval for one exact run. Candidate success produces evidence but
+does not change the tracked policy or corpus.
+
+Pi is the preferred host, not a requirement. Outside Pi, follow the
+[standalone change-validation reference](references/standalone-cli.md#change-validation).
+The standalone command validates the same contract, records the same one-run
+state, displays the bounded plan, and requires the user to type the full
+approval digest in an interactive terminal.
+
+## Use curated test knowledge
+
+The Webflow monorepo's Playwright and Cypress tests are evidence, not an
+unrestricted instruction set. During skill maintenance, build a disposable,
+commit-bound corpus index from the tracked policy:
+
+```sh
+tmp="$(mktemp -d)"
+python3 scripts/test-corpus-index.py discover \
+  --repo /path/to/webflow \
+  --output "$tmp/designer-discovery.json"
+python3 scripts/test-corpus-index.py validate-discovery \
+  --repo /path/to/webflow \
+  --discovery "$tmp/designer-discovery.json"
+python3 scripts/test-corpus-index.py build \
+  --repo /path/to/webflow \
+  --output "$tmp/designer-corpus.json"
+python3 scripts/test-corpus-index.py validate \
+  --repo /path/to/webflow \
+  --index "$tmp/designer-corpus.json"
+python3 scripts/test-corpus-index.py lookup \
+  --repo /path/to/webflow \
+  --index "$tmp/designer-corpus.json" \
+  --operation designer.page.switch
+python3 scripts/test-corpus-index.py evaluate \
+  --repo /path/to/webflow \
+  --index "$tmp/designer-corpus.json"
 ```
 
-Quote commands and selectors according to the current CLI help. Never put secrets in command arguments or output.
+`discover` is the offline compiler's broad inventory pass. It uses a
+brace-aware structural extractor to bound evidence to individual test or
+helper bodies, records only non-sensitive action/selector classes and source
+ranges, and clusters fragments only when a hashed behavior anchor matches.
+Generic actions without an anchor stay isolated and cannot establish
+corroboration or a holdout. Holdouts also require independent helper or
+scenario lineage. It never creates executable cards or promotes a candidate.
+The generated discovery report must be treated as a review input and checked
+with `validate-discovery` before review.
 
-## Inspect frames and diagnostics
+`build` remains the narrower curation pass. It extracts operation-level
+evidence and retains bounded provenance, selectors, context, postconditions,
+confidence, utility, novelty, holdouts, and negative evidence. Quarantined,
+skipped, stale, unsafe, or fixed-duration-wait evidence cannot silently become
+positive executable knowledge. The `evaluate` report checks held-out semantic
+assertions and positive/holdout path separation without promoting a candidate.
+The source commit and a source-file manifest must still match before lookup.
 
-- Run `tab` before acting in an attached browser.
-- Run `eval` to list frame URLs without returning page content or secrets, then use `frame <selector>` and take a new scoped snapshot. Return with `frame main`.
-- Choose one canonical canvas frame for pass or fail decisions; Designer can expose duplicate same-origin canvas frames.
-- Use the exact URL, a Webflow Designer or `Webflow - <site>` title on a
-  Designer origin, and a non-error document for readiness. Use stable
-  `data-automation-id` selectors only for feature-specific assertions after readiness.
-- Use `console`, `errors`, filtered `network requests`, request detail, metadata-only HAR, trace, or profiler only when each artifact answers the current diagnostic question.
-- Keep HAR content disabled by default because request and response bodies can contain credentials or PII.
-- Use screenshots only after inspecting them. Redact or omit sensitive content and store temporary evidence outside repositories.
+Discovery and promotion are offline maintenance work. The runtime can emit a
+sanitized drift or failure receipt, but the maintenance process owns every
+policy, selector, and promotion change.
 
-Read [references/designer-workflows.md](references/designer-workflows.md) for Designer readiness, frames, local environment, TLS, visual checks, and evidence rules. Read [references/connected-apps.md](references/connected-apps.md) only for Campaign, Marketo, HubSpot, or another connected-app flow.
+The same validated index is available through the `webflow_designer` Code Mode
+operation `test_knowledge`: use `view:"status"` for compact freshness and
+portfolio counts, or pass one `operationId` or capability `category` for a
+bounded card lookup.
 
-## Evidence contract
+Scenario contracts are plan-only handoffs between an external test-data
+adapter and the managed browser lifecycle:
 
-Generate the mode-specific JSON shape with
-`scripts/automation-evidence.py --report-template <attached|isolated>`, fill it
-with sanitized evidence, then validate it with
-`scripts/automation-evidence.py --validate-report <sanitized-report.json>`:
+```sh
+python3 scripts/ensure-test-aws.py --repo /path/to/webflow
+python3 scripts/test-scenario-eval.py plan \
+  --scenario /path/to/scenario.json \
+  --operation /path/to/operation-card.json \
+  --dry-run
+```
 
-- mode, exact sanitized URL, observed ownership boundary, and target frame
-- environment and readiness checks
-- narrow before and after semantic observations
-- authorized actions performed
-- console, page-error, and filtered request findings when relevant
-- inspected screenshot, trace, profile, or HAR paths with sensitive data excluded
-- blockers and assumptions that were not validated
-- cleanup proof showing the managed session closed and the owned runtime stopped
+Run `ensure-test-aws.py` before scenario-backed local tests. It validates the
+`dev-publish-only` profile without trusting inherited AWS variables, performs
+`aws sso login --sso-session wf-session` only when required, checks the exact
+temporary credentials held by every running `wf-app`, and restarts only the
+`server` HUD task, which owns `entrypoints/server`, when those credentials are
+missing or stale. If the server is not running, the preflight starts it.
+Because `wf-app` hides its environment when it replaces its visible command
+line, the check follows the process ancestry. The JSON output never includes
+credential values. After a repair, the command stores only the server PID and
+credential expiration in the private runtime directory. Later checks use that
+receipt to avoid restarting a server that already has fresh credentials. Run
+this preflight instead of researching the local AWS setup or starting a second
+server.
 
-Use `attached_state_only` as the scope claim for attached mode and
-`repeatable_isolated_state_only` for isolated mode. The report is complete only
-when the validator returns `evidenceContractValid: true`; readiness may still
-be blocked, but cleanup must prove a clean stopped runtime.
-
-Do not treat an attached exploration as repeatable isolated verification. Do not treat an isolated pass as proof of the user's unsaved live canvas state.
-
-## Compound after every use
-
-Treat each completed run as input to the skill's next version. Read [references/compounding-loop.md](references/compounding-loop.md), reconstruct the complete sanitized run, and perform its automation review before the final response, even when the browser task passed cleanly.
-
-Prefer executable helpers and tests over additional prose. Extend an existing helper before adding another. A browser run may queue a sanitized candidate, but it must not generate, modify, or execute new helper code during that same run. Promotion requires repeated deterministic evidence and a separate reviewed maintenance pass. Never persist site-specific IDs, URLs, credentials, tokens, cookies, PII, raw DOM, or customer content.
-
-When the evidence queue marks a reusable deterministic opportunity for review:
-
-1. Implement or extend the narrow helper in `scripts/`.
-2. Add a focused test that reproduces the observed input and expected sanitized output.
-3. Validate `capabilities.json`, run the helper and focused tests, and update the catalog entry.
-4. Update `SKILL.md` or one direct reference only when routing or a non-obvious invariant changed.
-5. Report the helper created or extended and the browser steps it replaces. Never promote more than one candidate per maintenance pass.
-
-Report `Compounding: no promotable deterministic sequence found` only after every inventoried event is covered by a classified candidate and every candidate is `observe` or `do_not_persist`. Do not add speculative abstractions, fallback branches, or prose for a one-off observation.
+This command does not run Playwright, create accounts, open a browser, or
+execute generated shell text. Existing Webflow Playwright scenario helpers
+own their browser contexts, so a future external adapter must explicitly
+provide a sanitized Designer-target handoff and teardown artifact before a
+managed `prepare -> interaction -> verify -> finish` run can use it. Do not
+use a scenario plan as authorization to mutate a shared or customer surface.

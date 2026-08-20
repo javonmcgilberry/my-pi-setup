@@ -296,6 +296,25 @@ class SessionTests(unittest.TestCase):
             ["--session", "designer-cli-test", "snapshot", "-i", "-c", "-s", "#panel"],
         )
 
+    def test_managed_isolated_plan_connects_before_navigating(self):
+        args = argparse.Namespace(
+            mode="isolated",
+            transport="native",
+            session=None,
+            port=9333,
+            tab=None,
+            url="https://design.webflow.com/",
+            user_agent=None,
+            ready_selector="#ready",
+            surface="#panel",
+            managed_runtime=True,
+        )
+        commands = session.build_commands(args)
+        self.assertEqual(commands[0]["args"], ["connect", "9333"])
+        self.assertEqual(commands[0]["sessionMode"], "fresh")
+        self.assertEqual(commands[1]["args"], ["open", args.url])
+        self.assertNotIn("sessionMode", commands[1])
+
     def test_attached_plan_requires_direct_cdp_port(self):
         args = argparse.Namespace(
             mode="attached",
@@ -347,14 +366,19 @@ class SessionTests(unittest.TestCase):
             )
             plan = json.loads(output.getvalue())
             self.assertEqual(result, 0)
-            self.assertEqual(plan["cleanup"][0]["args"], ["close"])
             self.assertEqual(
-                plan["cleanup"][1]["args"],
+                plan["cleanup"][0]["args"],
                 ["release", "--consumer", "agent_browser", "--lease-id", "a" * 32],
             )
+            self.assertEqual(
+                plan["cleanup"][1]["args"],
+                ["status"],
+            )
         self.assertFalse(
-            plan["cleanup"][2]["require"]["runtimeOwned"]
+            plan["cleanup"][1]["require"]["runtimeOwned"]
         )
+        self.assertEqual(plan["cleanup"][2]["args"], ["close"])
+        self.assertEqual(plan["cleanup"][2]["when"], "runtime-stopped")
 
     def test_attached_cleanup_requires_a_lease_token(self):
         with self.assertRaisesRegex(ValueError, "lease-id"):
@@ -367,6 +391,32 @@ class SessionTests(unittest.TestCase):
                 transport="native",
                 attached=True,
             )
+
+    def test_failed_attached_preflight_releases_runtime_without_browser_close(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            result = session.run(
+                [{"tool": "agent_browser", "args": ["connect", "9222"]}],
+                [
+                    {
+                        "label": "hud",
+                        "kind": "tcp",
+                        "host": "127.0.0.1",
+                        "port": 1,
+                    }
+                ],
+                timeout=0.01,
+                preflight_only=False,
+                dry_run=False,
+                transport="native",
+                attached=True,
+                lease_id="a" * 32,
+            )
+        plan = json.loads(output.getvalue())
+        self.assertEqual(result, 1)
+        self.assertEqual(plan["cleanup"][0]["args"][0], "release")
+        self.assertEqual(plan["cleanup"][1]["args"], ["status"])
+        self.assertNotIn(["close"], [item["args"] for item in plan["cleanup"]])
 
     def test_isolated_plan_rejects_sensitive_url(self):
         args = argparse.Namespace(

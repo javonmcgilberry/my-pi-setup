@@ -1,6 +1,6 @@
-usage = '''await tools.webflow_designer(JSON.stringify({version:1, operation:"help"}))'''
-description = "Deferred deterministic Webflow Designer lifecycle, readiness, capability, and cleanup facade; native agent_browser is preferred and the CLI is an explicit fallback."
-output = "Bounded sanitized JSON. Use prepare, verify, and finish in one transaction; finish is required in finally."
+usage = '''await tools.webflow_designer(JSON.stringify({version:1, operation:"validate_change", repoPath:"/path/to/webflow", phase:"route"}))'''
+description = "Validate current Webflow Designer changes or manage a bounded Designer browser transaction. Use validate_change for end-of-work routing and the lifecycle operations for authenticated QA."
+output = "Bounded sanitized JSON. A trusted route uses fixed runners; a candidate needs interactive approval for one run. Browser transactions use prepare, verify, and finish, with finish called in finally."
 command = "./webflow-designer"
 input = "stdin"
 defer_loading = true
