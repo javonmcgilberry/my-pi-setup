@@ -86,6 +86,12 @@ The discovery report is a review artifact, not an executable one. Its promotion 
 
 The current trusted seed is intentionally small: opening Pages, Components, and Add panels, dismissing panels, and switching pages. Expansion starts with review of one operation family at a time, not a promise to learn any site.
 
+## The hardening oracle stays offline
+
+`scripts/webflow-hardening-benchmark.py --repo . --format verify` is a frozen synthetic oracle for the compiler and runtime boundaries. Its fixtures cover semantic identity, provenance and lineage, artifact tampering, routing and approval, runner classification, lifecycle leases, privacy canaries, and bounded scale. It uses temporary Git repositories and fake state only; it never opens a browser, reads credentials, contacts Webflow, or promotes evidence.
+
+A separate isolated campaign ran exactly 100 bounded experiments: 12 identity/parser trials followed by 88 provenance, artifact, routing, runner, lifecycle, privacy, performance, and simplification trials. Every retained candidate kept all hard safety metrics at zero and deterministic output. No candidate was auto-promoted. After independent review and complete affected-module tests, only bounded method-scan consolidation was adopted; the frozen safety oracle and evidence boundaries were unchanged.
+
 ## Runtime has two paths
 
 `route_trusted_contracts` reads the complete set of non-ignored changed files. It does not quietly validate the paths it recognizes and ignore the rest.

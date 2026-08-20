@@ -311,6 +311,8 @@ else:
       </div>
 
       <p class="quiet">The real read-only discovery run found 4,462 fragments and 3,189 candidates. It reported zero unanchored corroborations.</p>
+
+      <div class="callout"><strong>The hardening oracle stays offline.</strong> <code>webflow-hardening-benchmark.py --repo . --format verify</code> uses temporary Git repositories and synthetic fixtures for identity, provenance, tamper resistance, routing, runner failures, lifecycle leases, privacy canaries, and bounded scale. It never opens a browser, reads credentials, contacts Webflow, or promotes evidence. An isolated campaign ran exactly 100 bounded experiments: 12 identity/parser trials followed by 88 provenance, artifact, routing, runner, lifecycle, privacy, performance, and simplification trials. Every retained candidate kept all hard safety metrics at zero and deterministic output. No candidate was auto-promoted; independent review retained only bounded method-scan consolidation, with the safety oracle unchanged.</div>
     </section>
 
     <section>

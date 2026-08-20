@@ -563,7 +563,17 @@ command extracts commit-bound operation cards with bounded provenance,
 confidence, holdouts, and negative evidence. The identity compiler
 canonicalizes only bounded literal selector forms; dynamic
 or unanchored fragments remain non-corroborating. Neither command copies test
-bodies, accepts runtime learning, or adds a Playwright runtime transport. The companion
+bodies, accepts runtime learning, or adds a Playwright runtime transport. The
+`webflow-hardening-benchmark.py --repo . --format verify` command runs the
+synthetic hardening oracle offline. Its fixtures cover identity, provenance,
+tamper resistance, routing, runner failures, lifecycle leases, privacy
+canaries, and bounded scale; it never uses a browser, credential, customer
+data, or live Webflow session. A separate isolated campaign ran exactly 100
+bounded experiments (12 identity/parser, then 88 hardening, lifecycle,
+privacy, performance, and simplification trials). No candidate was
+auto-promoted; the only research optimization adopted was independently
+retested bounded method-scan consolidation, with the safety oracle unchanged.
+The companion
 `ensure-test-aws.py` command validates the local AWS profile and the temporary
 credentials inherited by `wf-app`, refreshing SSO and restarting only the stale
 `server` HUD task, which owns `entrypoints/server`. It verifies the replacement
