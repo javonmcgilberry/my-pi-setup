@@ -538,6 +538,8 @@ sign in with a dedicated Webflow test user that has only the access needed for
 QA. Its profile keeps the login for later runs. If an account must remain active
 in another browser, the workflow asks to attach to that tab instead.
 `browser-runtime.py` is the only process that starts or stops Chrome. The
+helper gives an owned runtime one second to stop cleanly before forcing it to
+stop, then verifies that its process group and CDP listener are gone. The
 automation client closes its session only after the runtime reports that Chrome
 has stopped. Cleanup never signs out or clears cookies. When service endpoints
 are not supplied, `https://wfdev.io:8443/` is the default probe for both `hud`

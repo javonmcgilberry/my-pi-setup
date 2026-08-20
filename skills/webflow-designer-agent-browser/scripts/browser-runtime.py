@@ -412,7 +412,7 @@ def terminate_owned_runtime(
     pid: int,
     config: RuntimeConfig,
     *,
-    graceful_timeout: float = 5.0,
+    graceful_timeout: float = 1.0,
 ) -> None:
     if not process_matches_runtime(pid, config):
         raise RuntimeFailure("runtime_ownership_unknown", "runtime_stop", False)
