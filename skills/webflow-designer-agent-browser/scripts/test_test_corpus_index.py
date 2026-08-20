@@ -154,6 +154,16 @@ test('opens pages another way', async () => {
         self.assertTrue(signals["quarantined"])
         self.assertEqual(corpus.score_evidence(record), 0)
 
+    def test_all_unsafe_evidence_signals_cannot_score_as_positive(self):
+        for signal in ("rawWait", "fixtureDependent", "destructive"):
+            signals = corpus.classify_signals(
+                "test('legacy', async () => { await openPagesPanel(page); });",
+                "designer/legacy.spec.ts",
+                "playwright",
+            )
+            signals[signal] = True
+            self.assertEqual(corpus.score_evidence({"signals": signals}), 0)
+
     def test_operation_patterns_capture_direct_scenario_without_helper_call(self):
         policy = json.loads(json.dumps(self.policy))
         operation = policy["operations"][0]

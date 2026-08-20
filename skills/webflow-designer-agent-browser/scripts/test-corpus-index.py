@@ -924,6 +924,8 @@ def locator_selector(locator_text: str, key: str) -> dict[str, str]:
 
 
 def score_evidence(record: dict[str, Any]) -> int:
+    if not evidence_is_eligible(record):
+        return 0
     signals = record["signals"]
     score = 40
     score += 15 if signals["stableSelector"] else 0
@@ -936,7 +938,7 @@ def score_evidence(record: dict[str, Any]) -> int:
 
 
 def score_card(operation: dict[str, Any], evidence: list[dict[str, Any]]) -> dict[str, int]:
-    positive = [record for record in evidence if not record["signals"]["quarantined"]]
+    positive = [record for record in evidence if evidence_is_eligible(record)]
     best = max((score_evidence(record) for record in positive), default=0)
     frameworks = {record["framework"] for record in positive}
     confidence = min(100, best + (8 if len(frameworks) > 1 else 0))
@@ -960,7 +962,7 @@ def score_card(operation: dict[str, Any], evidence: list[dict[str, Any]]) -> dic
 
 
 def reason_codes(operation: dict[str, Any], evidence: list[dict[str, Any]]) -> list[str]:
-    positive = [record for record in evidence if not record["signals"]["quarantined"]]
+    positive = [record for record in evidence if evidence_is_eligible(record)]
     codes: set[str] = set()
     if any(record["signals"]["canonicalHelper"] for record in positive):
         codes.add("canonical-helper")
