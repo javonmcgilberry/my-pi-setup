@@ -36,6 +36,8 @@ HEX_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9._-]+$")
 _INDEX_CACHE_KEY: tuple[str, str, str, str] | None = None
 _INDEX_CACHE_VALUE: dict[str, Any] | None = None
+_DISCOVERY_CACHE_KEY: tuple[str, str, str, str] | None = None
+_DISCOVERY_CACHE_VALUE: dict[str, Any] | None = None
 SENSITIVE_KEY = re.compile(
     r"(?:authorization|cookie|credential|password|secret|storage.?state|token)",
     re.IGNORECASE,
@@ -648,7 +650,14 @@ def build_discovery(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
     It is an offline review input whose source ranges are bounded to one
     structurally extracted fragment.
     """
+    global _DISCOVERY_CACHE_KEY, _DISCOVERY_CACHE_VALUE
     validate_policy(policy)
+    commit = source_commit(repo)
+    policy_hash = sha256_json(policy)
+    manifest_hash = source_manifest(repo, policy)
+    cache_key = (repo.resolve().as_posix(), commit, policy_hash, manifest_hash)
+    if _DISCOVERY_CACHE_KEY == cache_key and _DISCOVERY_CACHE_VALUE is not None:
+        return copy.deepcopy(_DISCOVERY_CACHE_VALUE)
     cache: dict[str, dict[str, str]] = {}
     records: list[dict[str, Any]] = []
     for path, framework in discover_sources(repo, policy):
@@ -744,9 +753,9 @@ def build_discovery(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
             gaps["missingHoldout"] += 1
     result = {
         "version": 2,
-        "source": {"name": "webflow-monorepo", "commit": source_commit(repo)},
-        "policySha256": sha256_json(policy),
-        "sourceManifestSha256": source_manifest(repo, policy),
+        "source": {"name": "webflow-monorepo", "commit": commit},
+        "policySha256": policy_hash,
+        "sourceManifestSha256": manifest_hash,
         "counts": {"fragments": len(records), "candidates": len(candidates)},
         "coverage": {
             "bySubsystem": dict(sorted(by_subsystem.items())),
@@ -757,6 +766,8 @@ def build_discovery(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
         "candidates": candidates,
     }
     assert_safe_payload(result, "discovery")
+    _DISCOVERY_CACHE_KEY = cache_key
+    _DISCOVERY_CACHE_VALUE = copy.deepcopy(result)
     return result
 
 
