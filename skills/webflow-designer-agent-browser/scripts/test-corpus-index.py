@@ -203,6 +203,17 @@ def source_paths_are_cacheable(repo: Path, paths: set[str]) -> bool:
     return tracked == paths
 
 
+def source_manifest_paths(repo: Path, policy: dict[str, Any]) -> set[str]:
+    paths = {
+        ensure_relative(policy["operationSource"], "operationSource"),
+        ensure_relative(policy["locatorSource"], "locatorSource"),
+    }
+    paths.update(path.relative_to(repo).as_posix() for path, _ in discover_sources(repo, policy))
+    for helper_source in policy.get("discovery", {}).get("helperSources", []):
+        paths.add(ensure_relative(helper_source, "discovery helper source"))
+    return paths
+
+
 def source_manifest(
     repo: Path,
     policy: dict[str, Any],
@@ -211,13 +222,7 @@ def source_manifest(
 ) -> str:
     global _SOURCE_MANIFEST_CACHE_KEY, _SOURCE_MANIFEST_CACHE_PATHS
     global _SOURCE_MANIFEST_CACHE_VALUE, _SOURCE_MANIFEST_CACHE_TEXTS
-    paths = {
-        ensure_relative(policy["operationSource"], "operationSource"),
-        ensure_relative(policy["locatorSource"], "locatorSource"),
-    }
-    paths.update(path.relative_to(repo).as_posix() for path, _ in discover_sources(repo, policy))
-    for helper_source in policy.get("discovery", {}).get("helperSources", []):
-        paths.add(ensure_relative(helper_source, "discovery helper source"))
+    paths = source_manifest_paths(repo, policy)
     policy_hash = sha256_json(policy)
     cacheable = commit is not None and source_paths_are_cacheable(repo, paths)
     cache_key = (repo.resolve().as_posix(), commit or "", policy_hash)
@@ -947,6 +952,17 @@ def operation_evidence(
     source_texts = cache.get(SOURCE_TEXTS_KEY)
     if not isinstance(source_texts, dict):
         source_texts = None
+    if source_texts is None and _SOURCE_MANIFEST_CACHE_KEY is not None and _SOURCE_MANIFEST_CACHE_TEXTS is not None:
+        cached_repo, cached_commit, cached_policy = _SOURCE_MANIFEST_CACHE_KEY
+        if cached_repo == repo.resolve().as_posix() and cached_policy == sha256_json(policy):
+            current_commit = source_commit(repo)
+            current_paths = source_manifest_paths(repo, policy)
+            if (
+                current_commit == cached_commit
+                and _SOURCE_MANIFEST_CACHE_PATHS == frozenset(current_paths)
+                and source_paths_are_cacheable(repo, current_paths)
+            ):
+                source_texts = _SOURCE_MANIFEST_CACHE_TEXTS
     helper_relative = ensure_relative(policy["operationSource"], "operationSource")
     helper_path = repo / helper_relative
     if helper_path.is_file():
