@@ -864,6 +864,22 @@ class BrowserRuntimeTests(unittest.TestCase):
         self.assertTrue(result["leasePresent"])
         self.assertFalse(browser_runtime.runtime_is_stopped(result))
 
+    def test_known_lease_is_not_masked_as_clean_stopped_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            config = self.config(base / "state", base / "source")
+            browser_runtime.ensure_private_root(config.root)
+            browser_runtime.write_private_json(
+                config.lease_path,
+                {"version": 1, "consumer": "agent_browser"},
+            )
+            with mock.patch.object(browser_runtime, "port_open", return_value=False):
+                result = browser_runtime.inspect_runtime(config)
+        self.assertEqual(result["consumer"], "agent_browser")
+        self.assertTrue(result["leasePresent"])
+        self.assertTrue(result["leaseValid"])
+        self.assertFalse(browser_runtime.runtime_is_stopped(result))
+
     def test_malformed_lease_consumer_fails_closed_without_status_crash(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
@@ -979,6 +995,8 @@ class BrowserRuntimeTests(unittest.TestCase):
                     "runtimeOwned": False,
                     "cdpReady": False,
                     "consumer": None,
+                    "leasePresent": False,
+                    "leaseValid": True,
                 }
                 with self.assertRaisesRegex(
                     browser_runtime.RuntimeFailure, "runtime_start_failed"
@@ -1415,6 +1433,8 @@ class BrowserRuntimeTests(unittest.TestCase):
                     "runtimeOwned": False,
                     "cdpReady": False,
                     "consumer": None,
+                    "leasePresent": False,
+                    "leaseValid": True,
                 },
             ) as stop:
                 result = browser_runtime.release_consumer(
@@ -1717,6 +1737,12 @@ class AutomationReviewTests(unittest.TestCase):
         value = self.evidence_report()
         value["report"]["finish"]["cleanup"]["leasePresent"] = True
         with self.assertRaisesRegex(ValueError, "clean stopped runtime"):
+            automation_evidence.validate_report(value)
+
+    def test_final_evidence_report_rejects_unsanitized_nested_canaries(self):
+        value = self.evidence_report()
+        value["report"]["diagnostics"]["console"] = ["Bearer privacy-canary"]
+        with self.assertRaisesRegex(ValueError, "unsanitized text"):
             automation_evidence.validate_report(value)
 
     def test_final_evidence_report_binds_scope_claim_to_mode(self):

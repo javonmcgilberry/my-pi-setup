@@ -503,8 +503,10 @@ whole change set out of the trusted path. Pi then returns
 `insufficient_evidence`, `routing_ambiguous`, or evidence for one candidate
 proposal. Before a candidate runs, Pi shows its actions, evidence, target,
 semantic oracle, cleanup, and budget. Approval covers that candidate and
-change set once. The run remains untrusted and cannot modify the corpus or
-policy.
+change set once. The host then issues a short-lived one-time confirmation
+token; Code Mode consumes it with the approval digest, so a caller cannot
+authorize execution by setting a boolean in its own request. The run remains
+untrusted and cannot modify the corpus or policy.
 
 Only these changes can run without a proposal today:
 
@@ -543,8 +545,8 @@ and `designer_service`; failed probes stop the run.
 
 For a recorded result, generate and validate a mode-specific report with
 `skills/webflow-designer-agent-browser/scripts/automation-evidence.py`. The
-report includes the five readiness checks, sanitized semantic evidence, the
-ownership boundary, and stopped-runtime proof.
+report includes the five readiness checks, independently checked sanitized
+semantic evidence, the ownership boundary, and stopped-runtime proof.
 
 The skill also has a maintenance-only, evidence-backed test-knowledge path.
 Its [change validation guide](skills/webflow-designer-agent-browser/references/change-validation-guide.md)

@@ -10,7 +10,9 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -163,6 +165,10 @@ class ValidationChangeTests(unittest.TestCase):
         self.assertEqual(route["reason"], "change_set_empty")
 
     def test_known_mapping_is_deterministic_and_zero_model(self):
+        self.write(
+            "public/js/designer-flux/components/PagesPanel/PagesPanel.tsx",
+            "export const pages = changed;\n",
+        )
         changes = self.changes(changed_files=["public/js/designer-flux/components/PagesPanel/PagesPanel.tsx"])
         route = validate_change.route_trusted_contracts(changes, self.policy)
         self.assertEqual(route["status"], "trusted")
@@ -173,6 +179,34 @@ class ValidationChangeTests(unittest.TestCase):
         self.assertEqual(receipt["status"], "ready")
         self.assertEqual(receipt["modelProposalCount"], 0)
         self.assertEqual(receipt["tests"], ["entrypoints/playwright-tests/designer/panels-system/left-sidebar-panel-focus-management.spec.ts"])
+
+    def test_overlapping_same_runner_mappings_union_reviewed_operations(self):
+        policy = json.loads(json.dumps(self.policy))
+        policy["operations"].append({"id": "designer.panel.pages.focus"})
+        runner = policy["changeValidation"]["runners"]["designer-pages-panel-focused"]
+        runner["operationIds"].append("designer.panel.pages.focus")
+        policy["changeValidation"]["mappings"].append({
+            "id": "designer-pages-panel-focus",
+            "pathGlobs": ["public/js/designer-flux/components/PagesPanel/Focus.tsx"],
+            "operationIds": ["designer.panel.pages.focus"],
+            "runnerId": "designer-pages-panel-focused",
+        })
+        policy = validate_change.validate_policy(policy)
+        self.write(
+            "public/js/designer-flux/components/PagesPanel/PagesPanel.tsx",
+            "export const pages = changed;\n",
+        )
+        self.write(
+            "public/js/designer-flux/components/PagesPanel/Focus.tsx",
+            "export const focus = changed;\n",
+        )
+        changes = self.changes()
+        route = validate_change.route_trusted_contracts(changes, policy)
+        self.assertEqual(route["status"], "trusted")
+        self.assertEqual(
+            route["operations"],
+            ["designer.panel.pages.focus", "designer.panel.pages.open"],
+        )
 
     def test_unknown_change_has_bounded_context_or_insufficient_evidence(self):
         _, context = self.candidate_context()
@@ -203,6 +237,22 @@ class ValidationChangeTests(unittest.TestCase):
         changed["actions"][1]["selectorKey"] = "body > script"
         with self.assertRaisesRegex(validate_change.ValidationError, "not reviewed"):
             validate_change.validate_candidate_contract(changed, context, self.policy)
+
+    def test_candidate_expected_values_and_recovery_are_schema_typed(self):
+        _, context = self.candidate_context()
+        candidate = self.candidate(context)
+        for path, value in (
+            (("actions", 1, "expected"), {"value": True}),
+            (("oracle", "expected"), [True]),
+            (("recovery",), [{"step": "not-a-string"}]),
+        ):
+            changed = json.loads(json.dumps(candidate))
+            target = changed
+            for key in path[:-1]:
+                target = target[key]
+            target[path[-1]] = value
+            with self.assertRaisesRegex(validate_change.ValidationError, "typed|bounded string list|non-empty string"):
+                validate_change.validate_candidate_contract(changed, context, self.policy)
 
     def test_candidate_enforces_graph_budget_oracle_cleanup_and_runner_allowlist(self):
         _, context = self.candidate_context()
@@ -252,6 +302,10 @@ class ValidationChangeTests(unittest.TestCase):
         self.assertNotEqual(digest, validate_change.approval_digest(changed))
 
     def test_fixed_runner_classifies_preflight_semantic_and_cleanup_failures(self):
+        self.write(
+            "public/js/designer-flux/components/PagesPanel/PagesPanel.tsx",
+            "export const pages = changed;\n",
+        )
         changes = self.changes(changed_files=["public/js/designer-flux/components/PagesPanel/PagesPanel.tsx"])
         runner_id = "designer-pages-panel-focused"
         calls = []
@@ -282,6 +336,7 @@ class ValidationChangeTests(unittest.TestCase):
         self.assertEqual(receipt["status"], "failed")
         self.assertEqual(receipt["failureClass"], "semantic_assertion_failure")
         self.assertEqual(receipt["cleanup"], "not_proved")
+
         calls.clear()
 
         def adapter_timeout(_command, _cwd, _timeout):
@@ -292,7 +347,21 @@ class ValidationChangeTests(unittest.TestCase):
         self.assertEqual(receipt["status"], "failed")
         self.assertEqual(receipt["cleanup"], "not_proved")
 
+    def test_empty_runner_selection_cannot_pass(self):
+        self.write(
+            "public/js/designer-flux/components/PagesPanel/PagesPanel.tsx",
+            "export const pages = changed;\n",
+        )
+        changes = self.changes(changed_files=["public/js/designer-flux/components/PagesPanel/PagesPanel.tsx"])
+        receipt = validate_change.execute_runner(self.repo, self.policy, [], changes)
+        self.assertEqual(receipt["status"], "insufficient_evidence")
+        self.assertEqual(receipt["failureClass"], "empty_runner_selection")
+
     def test_runner_receipts_classify_bounded_markers_without_leaking_output(self):
+        self.write(
+            "public/js/designer-flux/components/PagesPanel/PagesPanel.tsx",
+            "export const pages = changed;\n",
+        )
         changes = self.changes(changed_files=["public/js/designer-flux/components/PagesPanel/PagesPanel.tsx"])
         runner_id = "designer-pages-panel-focused"
 
@@ -338,6 +407,22 @@ class ValidationChangeTests(unittest.TestCase):
         self.assertEqual(timeout["failureClass"], "adapter_timeout")
         self.assertEqual(timeout["cleanup"], "not_proved")
 
+        def zero_marker_runner(_command, _cwd, _timeout):
+            if not hasattr(zero_marker_runner, "calls"):
+                zero_marker_runner.calls = 0
+            zero_marker_runner.calls += 1
+            if zero_marker_runner.calls == 1:
+                return validate_change.CommandResult(0)
+            return validate_change.CommandResult(
+                0, failure_markers=("semantic_assertion_failure",)
+            )
+
+        zero_marker = validate_change.execute_runner(
+            self.repo, self.policy, [runner_id], changes, runner=zero_marker_runner
+        )
+        self.assertEqual(zero_marker["status"], "failed")
+        self.assertEqual(zero_marker["failureClass"], "semantic_assertion_failure")
+
     def test_default_runner_discards_diagnostic_text_after_classification(self):
         result = validate_change.default_runner(
             [sys.executable, "-c", "import sys; print('AssertionError token=private-value'); sys.exit(1)"],
@@ -348,6 +433,64 @@ class ValidationChangeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.failure_markers, ("semantic_assertion_failure",))
         self.assertNotIn("private-value", repr(result))
+
+    def test_default_runner_terminates_process_group_on_timeout(self):
+        started = time.monotonic()
+        result = validate_change.default_runner(
+            [
+                sys.executable,
+                "-c",
+                "import subprocess,sys,time; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)']); time.sleep(30)",
+            ],
+            self.repo,
+            1,
+        )
+        self.assertTrue(result.timed_out)
+        self.assertLess(time.monotonic() - started, 6)
+
+    def test_default_runner_terminates_descendant_that_keeps_pipe_open(self):
+        with tempfile.TemporaryDirectory() as directory:
+            pid_path = Path(directory) / "child.pid"
+            child = (
+                "import os,pathlib,sys,time; "
+                "pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(30)"
+            )
+            parent = (
+                "import os,subprocess,sys,time; "
+                "subprocess.Popen([sys.executable, '-c', sys.argv[1], sys.argv[2]]); "
+                "[time.sleep(.01) for _ in range(100) if not os.path.exists(sys.argv[2])]"
+            )
+            result = validate_change.default_runner(
+                [sys.executable, "-c", parent, child, str(pid_path)],
+                self.repo,
+                10,
+            )
+            self.assertEqual(result.returncode, 0)
+            child_pid = int(pid_path.read_text())
+            for _ in range(100):
+                try:
+                    os.kill(child_pid, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.01)
+            else:
+                self.fail("runner descendant survived pipe drain")
+
+    def test_host_confirmation_is_bound_to_approval_and_single_use(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            token = "a" * 64
+            approval = "b" * 64
+            (root / f"{token}.json").write_text(
+                json.dumps({"version": 1, "approvalDigest": approval, "expiresAt": int(time.time()) + 60})
+            )
+            with mock.patch.dict(
+                os.environ,
+                {validate_change.HOST_CONFIRMATION_ENV: str(root)},
+            ):
+                validate_change.consume_host_confirmation(token, approval)
+                with self.assertRaisesRegex(validate_change.ValidationError, "host confirmation"):
+                    validate_change.consume_host_confirmation(token, approval)
 
     def test_candidate_execution_receipt_does_not_promote_policy_or_leak_paths(self):
         changes, context = self.candidate_context()

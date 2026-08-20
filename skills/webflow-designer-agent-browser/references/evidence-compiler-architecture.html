@@ -298,7 +298,7 @@ else:
         </article>
         <article>
           <h3>Group conservatively</h3>
-          <p><code>build_discovery</code> groups only matching candidate identities. Quarantined, destructive, and raw-wait evidence cannot become positive training evidence.</p>
+          <p><code>build_discovery</code> groups only matching candidate identities. Quarantined, fixture-dependent, destructive, and raw-wait evidence cannot become positive training evidence.</p>
         </article>
         <article>
           <h3>Reserve an independent holdout</h3>
@@ -324,7 +324,7 @@ else:
         </article>
         <article class="card">
           <h3>D1: bounded candidate</h3>
-          <p>If a path is unknown, the validator exposes a small proposal context. At most one data-only contract can be proposed. It still needs an exact digest approval and can run only once.</p>
+          <p>If a path is unknown, the validator exposes a small proposal context. At most one data-only contract can be proposed. It still needs an exact digest approval and a one-time host confirmation token issued after interactive approval, and can run only once.</p>
         </article>
       </div>
 
@@ -356,7 +356,7 @@ else:
   "budget": {"timeoutSeconds": 900, "maxRetries": 1, "maxActions": 8}
 }</code></pre>
 
-      <p>The validator checks source binding, evidence references, selected runner, allowed risk, target fixture, fact types, action dependency order, selector allowlist, retry count, oracle, teardown, and exact tracked budget. Candidate approval binds every material field to a digest.</p>
+      <p>The validator checks source binding, evidence references, selected runner, allowed risk, target fixture, fact types, action dependency order, selector allowlist, retry count, oracle, teardown, and exact tracked budget. Candidate approval binds every material field to a digest; the Pi host issues a one-time confirmation token only after the user approves the displayed details.</p>
     </section>
 
     <section>

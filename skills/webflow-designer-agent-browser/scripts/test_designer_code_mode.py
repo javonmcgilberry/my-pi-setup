@@ -302,6 +302,18 @@ class DesignerCodeModeTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(designer_code_mode.ProtocolError, "invalid_operation"):
             designer_code_mode.parse_request('{"version":1,"operation":[] }')
+        with self.assertRaisesRegex(designer_code_mode.ProtocolError, "invalid_json"):
+            designer_code_mode.parse_request(
+                '{"version":1,"operation":"help","operation":"status"}'
+            )
+        with self.assertRaisesRegex(designer_code_mode.ProtocolError, "invalid_json"):
+            designer_code_mode.parse_request(
+                '{"version":1,"operation":"help","limit":NaN}'
+            )
+        with self.assertRaisesRegex(designer_code_mode.ProtocolError, "invalid_request"):
+            designer_code_mode.parse_request(
+                '{"version":1,"operation":"help","id":"bad\\u0000value"}'
+            )
         with self.assertRaisesRegex(designer_code_mode.ProtocolError, "sensitive_input_rejected"):
             designer_code_mode.parse_request(
                 '{"version":1,"operation":"finish","token":"nope"}'
@@ -498,6 +510,7 @@ class DesignerCodeModeTests(unittest.TestCase):
             mock.patch.object(designer_code_mode.validate_change, "approval_digest", return_value="d" * 64),
             mock.patch.object(designer_code_mode.validate_change, "candidate_run_id", return_value="12345678-1234-1234-1234-123456789abc"),
             mock.patch.object(designer_code_mode.validate_change, "build_receipt", return_value={"status": "approval_required", "modelProposalCount": 1}),
+            mock.patch.object(designer_code_mode.validate_change, "consume_host_confirmation"),
             mock.patch.object(designer_code_mode.validate_change, "execute_runner", return_value={"status": "passed", "candidate": {"state": "consumed"}}) as candidate_execute,
         ):
             service = self.service()
@@ -506,13 +519,13 @@ class DesignerCodeModeTests(unittest.TestCase):
             self.assertEqual(routed_unknown["proposalContext"], context)
             proposed = service.handle(candidate_request)
             self.assertEqual(proposed["approval"]["approvalDigest"], "d" * 64)
-            with self.assertRaisesRegex(designer_code_mode.ProtocolError, "user_confirmation_required"):
+            with self.assertRaisesRegex(designer_code_mode.ProtocolError, "host_confirmation_required"):
                 service.handle({**candidate_request, "phase": "execute_candidate", "approvalDigest": "d" * 64})
             with self.assertRaisesRegex(designer_code_mode.ProtocolError, "approval_digest_mismatch"):
-                service.handle({**candidate_request, "phase": "execute_candidate", "approvalDigest": "e" * 64, "userConfirmed": True})
-            completed = service.handle({**candidate_request, "phase": "execute_candidate", "approvalDigest": "d" * 64, "userConfirmed": True})
+                service.handle({**candidate_request, "phase": "execute_candidate", "approvalDigest": "e" * 64, "hostConfirmation": "a" * 64})
+            completed = service.handle({**candidate_request, "phase": "execute_candidate", "approvalDigest": "d" * 64, "hostConfirmation": "a" * 64})
             with self.assertRaisesRegex(designer_code_mode.ProtocolError, "candidate_already_consumed"):
-                service.handle({**candidate_request, "phase": "execute_candidate", "approvalDigest": "d" * 64, "userConfirmed": True})
+                service.handle({**candidate_request, "phase": "execute_candidate", "approvalDigest": "d" * 64, "hostConfirmation": "a" * 64})
         self.assertEqual(completed["receipt"]["status"], "passed")
         candidate_execute.assert_called_once()
 

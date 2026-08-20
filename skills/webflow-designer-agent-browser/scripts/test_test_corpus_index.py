@@ -60,6 +60,7 @@ test('opens pages', async () => {
             "entrypoints/playwright-tests/designer/panels/pages-b.spec.ts",
             """
 test('opens pages another way', async () => {
+  await inspectDesigner(page);
   await openPagesPanel(page);
   await expect(page.getByTestId('pages')).toBeVisible();
 });
@@ -204,6 +205,31 @@ test('opens pages another way', async () => {
         invalid_evidence["cards"][0]["negativeEvidence"] = {}
         with self.assertRaisesRegex(corpus.CorpusError, "negativeEvidence is invalid"):
             corpus.validate_index(invalid_evidence, self.repo, self.policy)
+
+    def test_validation_recomputes_source_derived_card_fields(self):
+        index = corpus.build_index(self.repo, self.policy)
+        index["cards"][0]["intent"] = "forged source-derived intent"
+        with self.assertRaisesRegex(corpus.CorpusError, "source compilation"):
+            corpus.validate_index(index, self.repo, self.policy)
+
+    def test_unsafe_operation_evidence_is_negative_only(self):
+        unsafe_path = "entrypoints/playwright-tests/designer/panels/unsafe.spec.ts"
+        self._write(
+            unsafe_path,
+            "test('unsafe', async () => {\n"
+            "  await openPagesPanel(page);\n"
+            "  await page.getByTestId('pages').click();\n"
+            "  // fixture mock waitForTimeout(500) and deleteFixture()\n"
+            "  await expect(page.getByTestId('pages')).toBeVisible();\n"
+            "});\n",
+        )
+        card = corpus.build_index(self.repo, self.policy)["cards"][0]
+        positive_paths = {
+            item["path"] for item in [*card["evidence"], *card["holdoutEvidence"]]
+        }
+        negative_paths = {item["path"] for item in card["negativeEvidence"]}
+        self.assertNotIn(unsafe_path, positive_paths)
+        self.assertIn(unsafe_path, negative_paths)
 
     def test_heldout_evaluation_does_not_use_positive_evidence(self):
         with mock.patch.object(corpus, "score_card", wraps=corpus.score_card) as score_card:

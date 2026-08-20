@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { after, describe, it } from "node:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import webflowValidationApprovalExtension, {
   gateWebflowValidationExecution,
   inspectWebflowValidationExecution,
 } from "./webflow-validation-approval.ts";
+
+const approvalRoot = mkdtempSync(join(tmpdir(), "webflow-approval-"));
+process.env.WEBFLOW_VALIDATION_APPROVAL_ROOT = approvalRoot;
+after(() => rmSync(approvalRoot, { recursive: true, force: true }));
 
 function request(overrides = {}) {
   return {
@@ -67,7 +74,7 @@ describe("Webflow validation approval", () => {
     assert.equal(result, undefined);
     assert.match(prompt, /one isolated candidate validation run only/);
     assert.match(prompt, /designer.panel.pages.open/);
-    assert.equal(JSON.parse(input.input).userConfirmed, true);
+    assert.match(JSON.parse(input.input).hostConfirmation, /^[0-9a-f]{64}$/);
   });
 
   it("does not inject confirmation when the user declines", async () => {
@@ -77,7 +84,7 @@ describe("Webflow validation approval", () => {
       { hasUI: true, ui: { confirm: async () => false } },
     );
     assert.match(result.reason, /cancelled by user/);
-    assert.equal(JSON.parse(input.input).userConfirmed, undefined);
+    assert.equal(JSON.parse(input.input).hostConfirmation, undefined);
   });
 
   it("registers a single tool-call gate", () => {

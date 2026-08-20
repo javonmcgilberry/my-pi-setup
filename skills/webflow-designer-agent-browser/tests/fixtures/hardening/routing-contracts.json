@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "mappedPath": "public/js/designer-flux/components/PagesPanel/PagesPanel.tsx",
+  "unknownPath": "experiments/pages-change.ts",
+  "invalidCandidateMutations": [
+    {"id": "assert-expected-object", "path": ["actions", 1, "expected"], "value": {"kind": "not-a-scalar"}},
+    {"id": "oracle-expected-array", "path": ["oracle", "expected"], "value": [true]},
+    {"id": "recovery-object", "path": ["recovery"], "value": [{"step": "not-a-string"}]}
+  ]
+}

@@ -30,6 +30,7 @@ SELECTION_STATUSES = {
     "holdout",
     "exclude",
 }
+UNSAFE_EVIDENCE_SIGNALS = ("quarantined", "rawWait", "fixtureDependent", "destructive")
 HEX_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9._-]+$")
 SENSITIVE_KEY = re.compile(
@@ -543,6 +544,23 @@ def discovery_dimensions(features: FragmentFeatures, source_kind: str) -> dict[s
     }
 
 
+def lineage_for_features(features: FragmentFeatures, relative_path: str, framework: str) -> str:
+    helper_calls = [call for call in features["helperCalls"] if call not in features["actions"]]
+    lineage_seed = (
+        f"helpers:{','.join(helper_calls)}"
+        if helper_calls
+        else f"family:{framework}:{Path(relative_path).parent.as_posix()}"
+    )
+    return hashlib.sha256(lineage_seed.encode("utf-8")).hexdigest()[:16]
+
+
+def evidence_is_eligible(record: dict[str, Any]) -> bool:
+    signals = record.get("signals")
+    return isinstance(signals, dict) and not any(
+        signals.get(key) is True for key in UNSAFE_EVIDENCE_SIGNALS
+    )
+
+
 def semantic_identity(
     features: FragmentFeatures,
     *,
@@ -583,12 +601,6 @@ def fragment_record(
     features = fragment_features(fragment["text"])
     if not features["actions"]:
         return None
-    helper_calls = [call for call in features["helperCalls"] if call not in features["actions"]]
-    lineage_seed = (
-        f"helpers:{','.join(helper_calls)}"
-        if helper_calls
-        else f"family:{fragment['framework']}:{Path(fragment['path']).parent.as_posix()}"
-    )
     signature = {
         "actions": features["actions"],
         "selectors": features["selectors"],
@@ -611,7 +623,7 @@ def fragment_record(
         "subsystem": subsystem_for_path(fragment["path"]),
         "signature": signature,
         "semanticIdentity": identity,
-        "lineage": hashlib.sha256(lineage_seed.encode("utf-8")).hexdigest()[:16],
+        "lineage": lineage_for_features(features, fragment["path"], fragment["framework"]),
         "dimensions": discovery_dimensions(features, fragment["sourceKind"]),
         "signals": {
             key: features[key]
@@ -669,10 +681,7 @@ def build_discovery(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
     for identifier, evidence in sorted(grouped.items()):
         evidence = sorted(evidence, key=lambda item: (item["path"], item["lineStart"], item["sourceKind"]))
         lineages = sorted({item["lineage"] for item in evidence})
-        eligible = [
-            item for item in evidence
-            if not any(item["signals"][key] for key in ("quarantined", "rawWait", "destructive"))
-        ]
+        eligible = [item for item in evidence if evidence_is_eligible(item)]
         holdout = next(
             (
                 item
@@ -816,6 +825,7 @@ def evidence_record(
     canonical_helper: bool = False,
 ) -> dict[str, Any]:
     start_line = line_for_offset(text, offset)
+    features = fragment_features(text)
     signals = classify_signals(text, relative_path, framework)
     signals["canonicalHelper"] = canonical_helper
     return {
@@ -825,6 +835,7 @@ def evidence_record(
         "framework": framework,
         "sourceKind": source_kind,
         "symbol": symbol,
+        "lineage": lineage_for_features(features, relative_path, framework),
         "signals": signals,
         **file_git_metadata(repo, relative_path, cache),
     }
@@ -988,13 +999,24 @@ def build_card(
     locator_text = locator_path.read_text()
     selectors = [locator_selector(locator_text, key) for key in operation["locatorKeys"]]
     all_evidence = operation_evidence(repo, policy, operation, cache)
-    positive = [record for record in all_evidence if not record["signals"]["quarantined"]]
-    negative = [record for record in all_evidence if record["signals"]["quarantined"]]
+    positive = [record for record in all_evidence if evidence_is_eligible(record)]
+    negative = [record for record in all_evidence if not evidence_is_eligible(record)]
     holdout_limit = int(policy["selection"].get("holdoutEvidencePerOperation", 1))
     holdout_candidates = [record for record in positive if record["sourceKind"] == "test"]
-    holdout = holdout_candidates[-holdout_limit:] if holdout_limit else []
-    holdout_paths = {record["path"] for record in holdout}
-    training = [record for record in positive if record["path"] not in holdout_paths]
+    lineage_counts = {
+        lineage: sum(record["lineage"] == lineage for record in holdout_candidates)
+        for lineage in {record["lineage"] for record in holdout_candidates}
+    }
+    holdout = []
+    if holdout_limit:
+        holdout = [
+            record
+            for record in reversed(holdout_candidates)
+            if lineage_counts[record["lineage"]] == 1
+            and any(other["lineage"] != record["lineage"] for other in holdout_candidates)
+        ][:holdout_limit]
+    holdout_ids = {id(record) for record in holdout}
+    training = [record for record in positive if id(record) not in holdout_ids]
     evidence_limit = int(policy["selection"].get("maximumEvidencePerOperation", 5))
     usable = sorted(
         training,
@@ -1159,10 +1181,23 @@ def validate_card(card: object, policy: dict[str, Any], commit: str) -> None:
             raise CorpusError(f"evidence line range is reversed: {path}")
         if not isinstance(record.get("signals"), dict):
             raise CorpusError(f"evidence signals are invalid: {path}")
+        if not isinstance(record.get("lineage"), str) or not re.fullmatch(r"[0-9a-f]{16}", record["lineage"]):
+            raise CorpusError(f"evidence lineage is invalid: {path}")
     evidence_paths = {record["path"] for record in card["evidence"]}
     holdout_paths = {record["path"] for record in card["holdoutEvidence"]}
     if evidence_paths & holdout_paths:
         raise CorpusError(f"holdout evidence leaked into positive evidence: {card['id']}")
+    training_lineages = {record["lineage"] for record in card["evidence"]}
+    holdout_lineages = {record["lineage"] for record in card["holdoutEvidence"]}
+    if training_lineages & holdout_lineages:
+        raise CorpusError(f"holdout lineage leaked into positive evidence: {card['id']}")
+    if len(card["holdoutEvidence"]) > 1:
+        raise CorpusError(f"operation card has multiple holdouts: {card['id']}")
+    if holdout_lineages and (
+        len(holdout_lineages) != 1
+        or sum(record["lineage"] in holdout_lineages for record in [*card["evidence"], *card["holdoutEvidence"]]) != 1
+    ):
+        raise CorpusError(f"operation card holdout lineage is not independent: {card['id']}")
     allowed_locator_keys = {
         key
         for operation in policy["operations"]
@@ -1198,6 +1233,20 @@ def validate_index(index: dict[str, Any], repo: Path, policy: dict[str, Any]) ->
         raise CorpusError("corpus index operation set does not match policy")
     for card in cards:
         validate_card(card, policy, commit)
+    expected_cards = {
+        operation["id"]: build_card(
+            repo,
+            policy,
+            operation,
+            commit,
+            index["policySha256"],
+            {},
+        )
+        for operation in policy["operations"]
+    }
+    for card in cards:
+        if canonical_json(card) != canonical_json(expected_cards[card["id"]]):
+            raise CorpusError(f"operation card does not match source compilation: {card['id']}")
     assert_safe_payload(index)
     return {"valid": True, "commit": commit, "cardCount": len(cards)}
 
@@ -1338,6 +1387,9 @@ def validate_discovery(discovery: object, repo: Path, policy: dict[str, Any]) ->
     }
     if coverage != expected_coverage:
         raise CorpusError("discovery report coverage is invalid")
+    expected_discovery = build_discovery(repo, policy)
+    if canonical_json(discovery) != canonical_json(expected_discovery):
+        raise CorpusError("discovery report does not match source compilation")
     assert_safe_payload(discovery, "discovery")
     return {"valid": True, "commit": commit, "candidateCount": len(candidates)}
 

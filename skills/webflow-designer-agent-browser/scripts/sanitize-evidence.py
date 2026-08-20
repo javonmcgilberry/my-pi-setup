@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -23,6 +24,13 @@ SAFE_QUERY_KEYS = {"pageId", "simulateRole"}
 MAX_STRING = 2000
 MAX_ITEMS = 100
 MAX_DEPTH = 12
+UNSAFE_TEXT = re.compile(
+    r"(?:\bbearer\b|\bauthorization\b|\bcookie\b|\bcredential\b|"
+    r"\bpassword\b|\bsecret\b|\btoken\b|"
+    r"(?:^|[\s=])/(?:Users|home|private)(?:[/\s]|$)|"
+    r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b)",
+    re.IGNORECASE,
+)
 
 
 def sanitize_url(value: str) -> str:
@@ -39,6 +47,40 @@ def sanitize_url(value: str) -> str:
 def sensitive_key(value: str) -> bool:
     lowered = value.lower()
     return any(part in lowered for part in SENSITIVE_KEY_PARTS)
+
+
+def is_safe_evidence_text(value: str) -> bool:
+    """Return whether a durable report string is already sanitized."""
+    if any(ord(character) < 32 and character not in "\t\n\r" for character in value):
+        return False
+    parts = urlsplit(value)
+    if parts.scheme in {"http", "https", "ws", "wss"}:
+        if parts.username or parts.password or parts.fragment:
+            return False
+        if UNSAFE_TEXT.search(parts.netloc) or UNSAFE_TEXT.search(parts.path):
+            return False
+        for key, item in parse_qsl(parts.query, keep_blank_values=True):
+            if key not in SAFE_QUERY_KEYS and item != REDACTED:
+                return False
+            if item != REDACTED and UNSAFE_TEXT.search(item):
+                return False
+        return True
+    if UNSAFE_TEXT.search(value):
+        return False
+    return True
+
+
+def assert_safe_evidence(value: object, field: str = "evidence") -> None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str) or not is_safe_evidence_text(key):
+                raise ValueError(f"{field} contains an unsafe key")
+            assert_safe_evidence(item, f"{field}.{key}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            assert_safe_evidence(item, f"{field}[{index}]")
+    elif isinstance(value, str) and not is_safe_evidence_text(value):
+        raise ValueError(f"{field} contains unsanitized text")
 
 
 def sanitize(value: object, depth: int = 0) -> object:

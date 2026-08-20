@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import hashlib
+import importlib.util
 import json
 import os
 import sys
@@ -83,6 +84,15 @@ QUEUE_CANDIDATE_FIELDS = {
 }
 QUEUE_VERSION = 1
 
+_SANITIZE_SPEC = importlib.util.spec_from_file_location(
+    "webflow_automation_sanitize_evidence",
+    Path(__file__).with_name("sanitize-evidence.py"),
+)
+if _SANITIZE_SPEC is None or _SANITIZE_SPEC.loader is None:  # pragma: no cover
+    raise RuntimeError("unable to load evidence sanitizer")
+sanitize_evidence = importlib.util.module_from_spec(_SANITIZE_SPEC)
+_SANITIZE_SPEC.loader.exec_module(sanitize_evidence)
+
 
 def validate_text(value: object, field: str) -> str:
     return validate_bounded_text(value, field, maximum=240)
@@ -105,6 +115,7 @@ def validate_text_list(value: object, field: str) -> list[str]:
 def validate_report(value: object) -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) != {"report"}:
         raise ValueError("input must be an object containing only report")
+    sanitize_evidence.assert_safe_evidence(value)
     report = value["report"]
     if not isinstance(report, dict) or set(report) != REPORT_FIELDS:
         raise ValueError(f"report must contain exactly {sorted(REPORT_FIELDS)}")

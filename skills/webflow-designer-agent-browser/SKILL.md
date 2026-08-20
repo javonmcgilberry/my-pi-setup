@@ -198,10 +198,12 @@ rationale, read [evidence compiler architecture](references/evidence-compiler-ar
      branch is complete when execution returns a terminal receipt.
    - For `approval_required`, build one data-only contract from the returned
      `proposalContext`, then call `phase:"submit_candidate"`. Call
-     `phase:"execute_candidate"` with the exact approval digest and omit
-     `userConfirmed`. The host displays the action graph, evidence, target,
-     semantic oracle, cleanup, and budget. This branch is complete when the
-     user declines or the approved run returns a terminal receipt.
+      `phase:"execute_candidate"` with the exact approval digest and omit
+      confirmation fields. The host displays the action graph, evidence,
+      target, semantic oracle, cleanup, and budget, then issues a one-time
+      host confirmation token only after the user approves. Code Mode consumes
+      that token before the run. This branch is complete when the user
+      declines or the approved run returns a terminal receipt.
    - For `insufficient_evidence` or `routing_ambiguous`, report the named gap.
      This branch is complete when the response states that this workflow did
      not validate the change.

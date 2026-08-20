@@ -35,7 +35,7 @@ Known routes normally use no model call. This is the cheapest path and the one t
 
 An unknown change may produce one candidate contract. It is data, not an arbitrary script. It can use only reviewed operations and selector keys, one fixed adapter, a typed check of the visible end state, and adapter teardown. It has a small action limit, one retry at most, and the selected runner's fixed timeout.
 
-Before it can run, Pi shows the evidence, target, actions, expected end state, cleanup, and budget. The user must approve the exact 64-character digest. The approval cannot be reused after the run.
+Before it can run, Pi shows the evidence, target, actions, expected end state, cleanup, and budget. The user must approve the exact 64-character digest. After approval, the Pi host issues a short-lived one-time confirmation token; Code Mode consumes that token with the digest, and the approval cannot be reused after the run.
 
 Declining is a valid result. So is stopping because the evidence is not strong enough.
 

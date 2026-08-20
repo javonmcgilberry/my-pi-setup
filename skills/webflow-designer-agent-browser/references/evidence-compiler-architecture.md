@@ -37,7 +37,7 @@ The blocked feedback path matters. A receipt can tell a reviewer that something 
 
 ## Why the system compiles evidence first
 
-Webflow tests contain useful knowledge about what a panel, page switch, or shortcut should do. They also contain things that are unsafe to treat as proof: old selectors, shared helpers, fixture assumptions, raw waits, quarantined tests, and assertions that only show a click happened.
+Webflow tests contain useful knowledge about what a panel, page switch, or shortcut should do. They also contain things that are unsafe to treat as proof: old selectors, shared helpers, fixture assumptions, raw waits, destructive actions, quarantined tests, and assertions that only show a click happened.
 
 A simple count of similar tests would be misleading. Two tests that call the same helper may share one wrong assumption. Two different buttons may both look like "click and wait" in source code. A test that happens often is not automatically a reliable specification.
 
@@ -71,7 +71,7 @@ This is a deliberate bias. Missing a possible grouping costs review effort. Merg
 
 `structural_fragments` and `fragment_features` extract behavior-sized pieces from allowed Playwright and Cypress sources. `fragment_record` records each piece's framework, subsystem, line range, source kind, semantic signals, and hashed lineage. `candidate_id` then combines framework, subsystem, structural signature, and semantic identity.
 
-`build_discovery` groups only those conservative candidate IDs. It excludes quarantined, destructive, and raw-wait evidence from positive evidence. It also sets aside a holdout only when that holdout has independent lineage. Two tests that call the same helper do not count as independent just because they are in different files.
+`build_discovery` groups only those conservative candidate IDs. It excludes quarantined, fixture-dependent, destructive, and raw-wait evidence from positive evidence. It also sets aside a holdout only when that holdout has independent lineage. Two tests that call the same helper do not count as independent just because they are in different files.
 
 The discovery report is a review artifact, not an executable one. Its promotion checks require all of the following:
 
@@ -149,7 +149,7 @@ There is no field for JavaScript, shell commands, arbitrary browser commands, or
 
 `DesignerCodeMode._validate_change` exposes five phases: route, execute a trusted route, request proposal context, submit a candidate, and execute a candidate.
 
-When a candidate is submitted, the system returns a digest-bound summary of its evidence, target, risk class, actions, oracle, cleanup, and budget. To run it, the caller must provide `userConfirmed: true` and the full approval digest. `DesignerCodeMode._claim_candidate_execution` rejects a changed digest, missing proposal state, a binding mismatch, or a candidate that already ran.
+When a candidate is submitted, the system returns a digest-bound summary of its evidence, target, risk class, actions, oracle, cleanup, and budget. To run it, the caller provides only the full approval digest; the Pi host issues a short-lived one-time confirmation token after interactive approval, and Code Mode consumes that token together with the digest. `DesignerCodeMode._claim_candidate_execution` rejects a changed digest, missing proposal state, a binding mismatch, or a candidate that already ran.
 
 The candidate becomes consumed in a `finally` block. It cannot be retried under the same approval after a failure. That makes approval specific and sends a failed candidate back to review instead of an uncontrolled retry loop.
 

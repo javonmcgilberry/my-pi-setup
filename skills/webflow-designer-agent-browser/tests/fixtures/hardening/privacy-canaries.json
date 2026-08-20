@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "canaries": [
+    {"id": "email", "value": "privacy-canary@example.invalid"},
+    {"id": "path", "value": "/Users/private/privacy-canary"},
+    {"id": "query", "value": "https://example.invalid/designer?token=privacy-canary-token"},
+    {"id": "credential", "value": "Bearer privacy-canary-credential"}
+  ]
+}

@@ -1,10 +1,15 @@
 import type { ExtensionAPI, ToolCallEvent } from "@earendil-works/pi-coding-agent";
+import { randomBytes } from "node:crypto";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 const TOOL_NAME = "webflow_designer";
 const OPERATION = "validate_change";
 const PHASE = "execute_candidate";
 const MAX_DISPLAY_ITEMS = 8;
 const MAX_DISPLAY_STRING = 160;
+const APPROVAL_ROOT_ENV = "WEBFLOW_VALIDATION_APPROVAL_ROOT";
 
 type RequestCarrier = {
   request: Record<string, unknown>;
@@ -34,6 +39,27 @@ function boundedNumber(value: unknown): string {
     throw new Error("candidate approval details are malformed");
   }
   return String(value);
+}
+
+function approvalRoot(): string {
+  return (
+    process.env[APPROVAL_ROOT_ENV] ??
+    join(homedir(), ".config", "webflow-designer-agent-browser", "host-confirmations")
+  );
+}
+
+function issueHostConfirmation(approvalDigest: string): string {
+  const token = randomBytes(32).toString("hex");
+  const root = approvalRoot();
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  const path = join(root, `${token}.json`);
+  writeFileSync(
+    path,
+    JSON.stringify({ version: 1, approvalDigest, expiresAt: Math.floor(Date.now() / 1000) + 60 }),
+    { encoding: "utf8", mode: 0o600, flag: "wx" },
+  );
+  chmodSync(path, 0o600);
+  return token;
 }
 
 function carrier(input: Record<string, unknown>): RequestCarrier | undefined {
@@ -124,7 +150,10 @@ export function inspectWebflowValidationExecution(input: unknown): {
   ) {
     return {};
   }
-  if (selected.request.userConfirmed === true) {
+  if (
+    selected.request.userConfirmed === true ||
+    typeof selected.request.hostConfirmation === "string"
+  ) {
     return { error: "candidate execution requires interactive host confirmation" };
   }
   try {
@@ -159,7 +188,13 @@ export async function gateWebflowValidationExecution(
     inspection.message as string,
   );
   if (!confirmed) return { block: true, reason: "candidate validation cancelled by user" };
-  selected.request.userConfirmed = true;
+  let hostConfirmation: string;
+  try {
+    hostConfirmation = issueHostConfirmation(bounded(selected.request.approvalDigest));
+  } catch {
+    return { block: true, reason: "host confirmation could not be issued" };
+  }
+  selected.request.hostConfirmation = hostConfirmation;
   selected.replace(selected.request);
   return undefined;
 }

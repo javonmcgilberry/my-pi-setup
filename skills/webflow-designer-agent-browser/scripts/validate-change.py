@@ -18,6 +18,7 @@ import json
 import os
 import re
 import selectors
+import signal
 import subprocess
 import sys
 import tempfile
@@ -39,6 +40,7 @@ SKILL_DIR = SCRIPT_DIR.parent
 DEFAULT_POLICY = SKILL_DIR / "test-corpus-policy.json"
 DEFAULT_PREFLIGHT = SCRIPT_DIR / "ensure-test-aws.py"
 DEFAULT_STATE_ROOT = Path.home() / ".config" / "webflow-designer-agent-browser"
+HOST_CONFIRMATION_ENV = "WEBFLOW_VALIDATION_APPROVAL_ROOT"
 VALIDATION_STATE_FILENAME = "code-mode-validation-proposal.json"
 VALIDATION_LOCK_FILENAME = ".code-mode.lock"
 VERSION = 1
@@ -54,6 +56,7 @@ STATUS_VALUES = {
 IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9._-]{2,119}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+HOST_CONFIRMATION = re.compile(r"^[0-9a-f]{64}$")
 SAFE_BASE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._~^/:-]{0,119}$")
 SENSITIVE_KEY = re.compile(r"authorization|cookie|credential|password|secret|token", re.I)
 FORBIDDEN_TEXT = re.compile(
@@ -62,6 +65,8 @@ FORBIDDEN_TEXT = re.compile(
     re.I,
 )
 MAX_RUNNER_OUTPUT_BYTES = 8192
+RUNNER_TERMINATION_GRACE_SECONDS = 2.0
+RUNNER_PIPE_DRAIN_GRACE_SECONDS = 1.0
 FAILURE_MARKER_PATTERNS = (
     ("teardown_failure", re.compile(r"\b(?:teardown|afterEach|afterAll)\b.{0,120}\b(?:fail(?:ed|ure)?|error)\b", re.I)),
     ("scenario_setup_failure", re.compile(r"(?:/api/wf_test/scenario|scenario[ _-]?setup|ScenarioSpecBuilder)", re.I)),
@@ -149,6 +154,43 @@ def bounded_string_list(
     if len(set(result)) != len(result):
         fail(f"{field} must not contain duplicates")
     return result
+
+
+def host_confirmation_root() -> Path:
+    configured = os.environ.get(HOST_CONFIRMATION_ENV)
+    return Path(configured) if configured else DEFAULT_STATE_ROOT / "host-confirmations"
+
+
+def consume_host_confirmation(token: object, approval_digest: object) -> None:
+    if (
+        not isinstance(token, str)
+        or not HOST_CONFIRMATION.fullmatch(token)
+        or not isinstance(approval_digest, str)
+        or not SHA256.fullmatch(approval_digest)
+    ):
+        fail("host confirmation is invalid")
+    root = host_confirmation_root()
+    if root.is_symlink() or not root.is_dir():
+        fail("host confirmation is invalid")
+    path = root / f"{token}.json"
+    if path.is_symlink() or not path.is_file():
+        fail("host confirmation is invalid")
+    try:
+        with path.open(encoding="utf-8") as handle:
+            value = json.load(handle)
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValidationError("host confirmation is invalid") from error
+    finally:
+        path.unlink(missing_ok=True)
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"version", "approvalDigest", "expiresAt"}
+        or value.get("version") != VERSION
+        or value.get("approvalDigest") != approval_digest
+        or type(value.get("expiresAt")) is not int
+        or value["expiresAt"] < int(time.time())
+    ):
+        fail("host confirmation is invalid")
 
 
 def run_git(repo: Path, *arguments: str) -> bytes:
@@ -274,8 +316,45 @@ def collect_change_set(
     explicit = list(changed_files)
     records: list[dict[str, str]] = []
     if explicit:
-        for path in explicit:
-            records.append({"path": ensure_relative(path, "changed file"), "status": "explicit", "source": "explicit"})
+        requested = {
+            ensure_relative(path, "changed file")
+            for path in explicit
+        }
+        observed: list[dict[str, str]] = []
+        observed.extend(
+            parse_name_status(
+                run_git(repo, "diff", "--name-status", "-z", "--find-renames", "--"),
+                "unstaged",
+            )
+        )
+        observed.extend(
+            parse_name_status(
+                run_git(repo, "diff", "--cached", "--name-status", "-z", "--find-renames", "--"),
+                "staged",
+            )
+        )
+        for raw_path in run_git(repo, "ls-files", "--others", "--exclude-standard", "-z").split(b"\0"):
+            if raw_path:
+                observed.append({
+                    "path": ensure_relative(raw_path.decode("utf-8", "surrogateescape"), "untracked path"),
+                    "status": "untracked",
+                    "source": "untracked",
+                })
+        records = [
+            record
+            for record in observed
+            if record["path"] in requested
+            or record.get("previousPath") in requested
+        ]
+        observed_paths = {
+            path
+            for record in records
+            for path in (record["path"], record.get("previousPath"))
+            if path
+        }
+        missing = sorted(requested - observed_paths)
+        if missing:
+            fail("explicit changed files are not Git-proven: " + ", ".join(missing))
     elif base is not None:
         if not SAFE_BASE.fullmatch(base):
             fail("base must be a bounded Git revision")
@@ -443,17 +522,34 @@ def route_trusted_contracts(change_set: dict[str, Any], policy: dict[str, Any]) 
     selected = []
     unmatched = []
     for file in files:
-        matches = [mapping for mapping in mappings if path_matches(file["path"], mapping["pathGlobs"])]
-        runner_ids = {mapping["runnerId"] for mapping in matches}
-        if len(runner_ids) > 1:
-            return {"status": "routing_ambiguous", "reason": "multiple_runner_mappings", "matches": [], "unmatched": [file["path"]]}
-        if not matches:
-            unmatched.append(file["path"])
-            continue
-        selected.append(matches[0])
+        paths = [file["path"]]
+        previous_path = file.get("previousPath")
+        if previous_path and previous_path not in paths:
+            paths.append(previous_path)
+        for path in paths:
+            matches = [mapping for mapping in mappings if path_matches(path, mapping["pathGlobs"])]
+            runner_ids = {mapping["runnerId"] for mapping in matches}
+            if len(runner_ids) > 1:
+                return {"status": "routing_ambiguous", "reason": "multiple_runner_mappings", "matches": [], "unmatched": [path]}
+            if not matches:
+                unmatched.append(path)
+                continue
+            selected.extend(matches)
     if unmatched:
         return {"status": "unknown", "reason": "unmapped_changed_paths", "matches": selected, "unmatched": unmatched}
-    by_runner = {mapping["runnerId"]: mapping for mapping in selected}
+    by_runner: dict[str, dict[str, Any]] = {}
+    for mapping in selected:
+        runner_id = mapping["runnerId"]
+        aggregate = by_runner.setdefault(
+            runner_id,
+            {**mapping, "pathGlobs": [], "operationIds": []},
+        )
+        aggregate["pathGlobs"] = sorted(
+            set(aggregate["pathGlobs"]) | set(mapping["pathGlobs"])
+        )
+        aggregate["operationIds"] = sorted(
+            set(aggregate["operationIds"]) | set(mapping["operationIds"])
+        )
     operations = sorted({identifier for mapping in by_runner.values() for identifier in mapping["operationIds"]})
     return {"status": "trusted", "reason": "reviewed_path_mapping", "matches": [by_runner[key] for key in sorted(by_runner)], "unmatched": [], "operations": operations}
 
@@ -556,6 +652,7 @@ def validate_candidate_contract(candidate: object, context: dict[str, Any], poli
     if not isinstance(facts, list) or not 1 <= len(facts) <= 12:
         fail("candidate.facts is invalid")
     fact_ids: set[str] = set()
+    fact_types: dict[str, str] = {}
     for fact in facts:
         item = require_keys(fact, {"id", "type", "source"}, {"id", "type", "source"}, "candidate fact")
         fact_id = bounded_string(item["id"], "candidate fact id", 80)
@@ -564,6 +661,20 @@ def validate_candidate_contract(candidate: object, context: dict[str, Any], poli
         if item["type"] not in {"boolean", "string", "count"} or item["source"] not in {"trusted-operation", "playwright-assertion"}:
             fail("candidate fact is invalid")
         fact_ids.add(fact_id)
+        fact_types[fact_id] = item["type"]
+
+    def validate_expected(value: object, fact_id: str, field: str) -> None:
+        fact_type = fact_types[fact_id]
+        valid = (
+            type(value) is bool
+            if fact_type == "boolean"
+            else isinstance(value, str)
+            if fact_type == "string"
+            else type(value) is int and value >= 0
+        )
+        if not valid:
+            fail(f"{field} must match the typed fact")
+
     candidate_policy = policy["changeValidation"]["candidate"]
     actions = contract["actions"]
     if not isinstance(actions, list) or not 2 <= len(actions) <= candidate_policy["maximumActions"]:
@@ -587,8 +698,10 @@ def validate_candidate_contract(candidate: object, context: dict[str, Any], poli
                 fail("candidate action may invoke only a selected reviewed operation")
         elif opcode == "assert":
             allowed_action_fields.update({"fact", "expected", "selectorKey"})
-            if item.get("fact") not in fact_ids or "expected" not in item:
+            fact_id = item.get("fact")
+            if not isinstance(fact_id, str) or fact_id not in fact_ids or "expected" not in item:
                 fail("candidate assertion must use a typed fact and expected value")
+            validate_expected(item["expected"], fact_id, "candidate assertion expected")
             selector_key = item.get("selectorKey")
             if selector_key is not None and selector_key not in candidate_policy["allowedSelectorKeys"]:
                 fail("candidate assertion selector key is not reviewed")
@@ -599,10 +712,13 @@ def validate_candidate_contract(candidate: object, context: dict[str, Any], poli
             fail("candidate maximumAttempts exceeds retry bound")
         action_ids.add(action_id)
     oracle = require_keys(contract["oracle"], {"kind", "fact", "expected"}, {"kind", "fact", "expected"}, "candidate.oracle")
-    if oracle.get("kind") != "semantic-fact" or oracle.get("fact") not in fact_ids:
+    oracle_fact = oracle.get("fact")
+    if oracle.get("kind") != "semantic-fact" or not isinstance(oracle_fact, str) or oracle_fact not in fact_ids:
         fail("candidate requires a typed semantic oracle")
+    validate_expected(oracle["expected"], oracle_fact, "candidate oracle expected")
     if not isinstance(contract["recovery"], list) or len(contract["recovery"]) > 4:
         fail("candidate.recovery is invalid")
+    bounded_string_list(contract["recovery"], "candidate.recovery", maximum=4)
     cleanup = bounded_string_list(contract["cleanup"], "candidate.cleanup", minimum=1, maximum=4)
     if "adapter-teardown" not in cleanup:
         fail("candidate cleanup must require adapter-teardown")
@@ -853,20 +969,53 @@ def default_runner(command: list[str], cwd: Path, timeout: int) -> CommandResult
         cwd=cwd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
+        start_new_session=True,
     )
     if process.stdout is None:  # pragma: no cover - Popen contract with stdout=PIPE.
         fail("runner output pipe is unavailable")
     captured = bytearray()
     timed_out = False
     deadline = time.monotonic() + timeout
+    termination_deadline: float | None = None
+    drain_deadline: float | None = None
+
+    def signal_group(signum: int) -> None:
+        try:
+            if hasattr(os, "killpg"):
+                os.killpg(process.pid, signum)
+            else:  # pragma: no cover - supported platforms provide killpg.
+                process.send_signal(signum)
+        except ProcessLookupError:
+            pass
+
     with selectors.DefaultSelector() as selector:
         selector.register(process.stdout, selectors.EVENT_READ)
         while selector.get_map():
-            remaining = deadline - time.monotonic()
-            if process.poll() is None and remaining <= 0:
+            now = time.monotonic()
+            if process.poll() is None and not timed_out and now >= deadline:
                 timed_out = True
-                process.kill()
-            events = selector.select(max(0.0, min(remaining, 0.1)))
+                termination_deadline = now + RUNNER_TERMINATION_GRACE_SECONDS
+                signal_group(signal.SIGTERM)
+            if process.poll() is not None and drain_deadline is None:
+                signal_group(signal.SIGTERM)
+                drain_deadline = now + RUNNER_PIPE_DRAIN_GRACE_SECONDS
+            if timed_out and termination_deadline is not None and now >= termination_deadline:
+                signal_group(signal.SIGKILL)
+                if process.poll() is None:
+                    process.wait(timeout=RUNNER_TERMINATION_GRACE_SECONDS)
+                selector.unregister(process.stdout)
+                process.stdout.close()
+                break
+            if drain_deadline is not None and now >= drain_deadline:
+                selector.unregister(process.stdout)
+                process.stdout.close()
+                break
+            deadlines = [deadline]
+            if termination_deadline is not None:
+                deadlines.append(termination_deadline)
+            if drain_deadline is not None:
+                deadlines.append(drain_deadline)
+            events = selector.select(max(0.0, min(min(deadlines) - now, 0.1)))
             for key, _ in events:
                 chunk = os.read(key.fd, 65536)
                 if not chunk:
@@ -875,8 +1024,14 @@ def default_runner(command: list[str], cwd: Path, timeout: int) -> CommandResult
                 remaining_bytes = MAX_RUNNER_OUTPUT_BYTES - len(captured)
                 if remaining_bytes > 0:
                     captured.extend(chunk[:remaining_bytes])
-        returncode = process.wait()
-    process.stdout.close()
+        try:
+            returncode = process.wait(timeout=RUNNER_TERMINATION_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            signal_group(signal.SIGKILL)
+            returncode = process.wait(timeout=RUNNER_TERMINATION_GRACE_SECONDS)
+    if process.stdout is not None and not process.stdout.closed:
+        process.stdout.close()
     return CommandResult(
         returncode=124 if timed_out else returncode,
         timed_out=timed_out,
@@ -934,6 +1089,15 @@ def execute_runner(
     runner: Runner = default_runner,
 ) -> dict[str, Any]:
     selected = sorted(set(runner_ids))
+    if not selected:
+        return build_receipt(
+            status="insufficient_evidence",
+            phase="route",
+            mode="candidate" if candidate else "trusted",
+            change_set=change_set,
+            failure_class="empty_runner_selection",
+            candidate=candidate,
+        )
     contracts = sorted({identifier for runner_id in selected for identifier in policy["changeValidation"]["runners"][runner_id]["operationIds"]})
     tests = [policy["changeValidation"]["runners"][runner_id]["specPath"] for runner_id in selected]
     preflight_needed = any(policy["changeValidation"]["runners"][runner_id]["requiresAws"] for runner_id in selected)
@@ -941,12 +1105,12 @@ def execute_runner(
         result = runner([sys.executable, str(DEFAULT_PREFLIGHT), "--repo", str(repo)], repo, 180)
         if result.timed_out:
             return build_receipt(status="infrastructure_failed", phase="preflight", mode="candidate" if candidate else "trusted", change_set=change_set, contracts=contracts, tests=tests, model_proposal_count=1 if candidate else 0, preflight="failed", cleanup="not_run", failure_class="preflight_timeout", candidate=candidate, candidate_state="approved" if candidate else None)
-        if result.returncode != 0:
+        if result.returncode != 0 or result.failure_markers:
             return build_receipt(status="infrastructure_failed", phase="preflight", mode="candidate" if candidate else "trusted", change_set=change_set, contracts=contracts, tests=tests, model_proposal_count=1 if candidate else 0, preflight="failed", failure_class="preflight_failed", candidate=candidate, candidate_state="approved" if candidate else None)
     for runner_id in selected:
         config = policy["changeValidation"]["runners"][runner_id]
         result = runner(build_command(policy, runner_id), repo, config["timeoutSeconds"])
-        if result.returncode != 0:
+        if result.returncode != 0 or result.timed_out or result.failure_markers:
             phase, failure_class, oracle, cleanup = classify_runner_failure(result)
             return build_receipt(status="failed", phase=phase, mode="candidate" if candidate else "trusted", change_set=change_set, contracts=contracts, tests=tests, model_proposal_count=1 if candidate else 0, preflight="passed" if preflight_needed else "not_required", oracle=oracle, cleanup=cleanup, failure_class=failure_class, candidate=candidate, candidate_state="consumed" if candidate else None)
     return build_receipt(status="passed", phase="complete", mode="candidate" if candidate else "trusted", change_set=change_set, contracts=contracts, tests=tests, model_proposal_count=1 if candidate else 0, preflight="passed" if preflight_needed else "not_required", oracle="passed", cleanup="proved", candidate=candidate, candidate_state="consumed" if candidate else None)

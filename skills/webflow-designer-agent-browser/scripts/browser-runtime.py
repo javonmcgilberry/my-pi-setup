@@ -740,12 +740,20 @@ def inspect_runtime(config: RuntimeConfig) -> dict[str, object]:
     }
 
 
-def runtime_is_stopped(status: dict[str, object]) -> bool:
+def runtime_process_is_stopped(status: dict[str, object]) -> bool:
     return (
         status.get("status") == "stopped"
         and status.get("runtimeOwned") is False
         and status.get("cdpReady") is False
-        and status.get("leaseValid") is not False
+        and status.get("leaseValid") is True
+    )
+
+
+def runtime_is_stopped(status: dict[str, object]) -> bool:
+    return (
+        runtime_process_is_stopped(status)
+        and status.get("leasePresent") is False
+        and status.get("consumer") is None
     )
 
 
@@ -821,7 +829,7 @@ def _run_watchdog_locked(
         return
     if process_matches_runtime(expected_pid, config):
         terminate_owned_runtime(expected_pid, config)
-    if runtime_is_stopped(inspect_runtime(config)):
+    if runtime_process_is_stopped(inspect_runtime(config)):
         config.runtime_path.unlink(missing_ok=True)
         config.lease_path.unlink(missing_ok=True)
 
@@ -987,9 +995,10 @@ def _stop_runtime(config: RuntimeConfig) -> dict[str, object]:
         if isinstance(watchdog_pid, int) and not isinstance(watchdog_pid, bool):
             terminate_watchdog(watchdog_pid)
     status = inspect_runtime(config)
-    if runtime_is_stopped(status):
+    if runtime_process_is_stopped(status):
         config.runtime_path.unlink(missing_ok=True)
         config.lease_path.unlink(missing_ok=True)
+        return inspect_runtime(config)
     return status
 
 
@@ -1097,7 +1106,7 @@ def release_consumer(
             current_generation = runtime_generation(config)
             if current_generation is None:
                 status = inspect_runtime(config)
-                if not runtime_is_stopped(status):
+                if not runtime_process_is_stopped(status):
                     raise RuntimeFailure(
                         "runtime_generation_mismatch", "consumer_release", True
                     )

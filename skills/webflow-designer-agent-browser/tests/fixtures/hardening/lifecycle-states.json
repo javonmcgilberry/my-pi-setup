@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "states": [
+    {"id": "clean-stopped", "status": "stopped", "runtimeOwned": false, "cdpReady": false, "leasePresent": false, "leaseValid": true, "consumer": null, "expectStopped": true},
+    {"id": "stopped-known-lease", "status": "stopped", "runtimeOwned": false, "cdpReady": false, "leasePresent": true, "leaseValid": true, "consumer": "designer-code-mode", "expectStopped": false},
+    {"id": "stopped-invalid-lease", "status": "stopped", "runtimeOwned": false, "cdpReady": false, "leasePresent": true, "leaseValid": false, "consumer": null, "expectStopped": false},
+    {"id": "ready", "status": "ready", "runtimeOwned": true, "cdpReady": true, "leasePresent": true, "leaseValid": true, "consumer": "designer-code-mode", "expectStopped": false}
+  ]
+}

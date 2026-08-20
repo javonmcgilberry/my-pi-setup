@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "files": {
+    "entrypoints/playwright-tests/utils/designerUtils/index.ts": "export async function openPagesPanel(page, locators) {\n  await locators.Sidebar.PAGES_BUTTON.click();\n  await expect(locators.Panels.PAGES).toBeVisible();\n}\n",
+    "entrypoints/playwright-tests/utils/designerUtils/testIds.ts": "const locators = {\n  Sidebar: {PAGES_BUTTON: page.getByTestId('fixture-pages-button')},\n  Panels: {PAGES: page.getByTestId('fixture-pages-panel')}\n};\n",
+    "entrypoints/playwright-tests/designer/panels/pages-a.spec.ts": "test('opens pages', async () => {\n  await openPagesPanel(page);\n  await page.getByTestId('fixture-pages-panel').click();\n  await expect(page.getByTestId('fixture-pages-panel')).toBeVisible();\n});\n",
+    "entrypoints/playwright-tests/designer/panels/pages-b.spec.ts": "test('opens pages through the same helper', async () => {\n  await openPagesPanel(page);\n  await page.getByTestId('fixture-pages-panel').click();\n  await expect(page.getByTestId('fixture-pages-panel')).toBeVisible();\n});\n",
+    "entrypoints/playwright-tests/designer/panels/pages-unsafe.spec.ts": "test('unsafe evidence', async () => {\n  await openPagesPanel(page);\n  await page.getByTestId('fixture-pages-panel').click();\n  await expect(page.getByTestId('fixture-pages-panel')).toBeVisible();\n  // waitForTimeout(500) and deleteFixture() are forbidden evidence markers.\n});\n"
+  },
+  "unsafeEvidencePath": "entrypoints/playwright-tests/designer/panels/pages-unsafe.spec.ts",
+  "cardTamperField": "intent",
+  "discoveryTamperField": "semanticDirectness"
+}

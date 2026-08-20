@@ -151,6 +151,32 @@ def _fail(code: str, phase: str = "input", retryable: bool = False) -> NoReturn:
     raise ProtocolError(code, phase, retryable)
 
 
+def _strict_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON object key")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value: str) -> NoReturn:
+    raise ValueError(f"non-finite JSON constant: {value}")
+
+
+def _reject_control_characters(value: object) -> None:
+    if isinstance(value, str):
+        if any(ord(character) < 32 and character not in "\t\n\r" for character in value):
+            _fail("invalid_request")
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            _reject_control_characters(key)
+            _reject_control_characters(item)
+    elif isinstance(value, list):
+        for item in value:
+            _reject_control_characters(item)
+
+
 def _require_object(value: object, code: str = "invalid_request") -> dict[str, Any]:
     if not isinstance(value, dict):
         _fail(code)
@@ -370,11 +396,16 @@ def parse_request(raw: str) -> dict[str, Any]:
     if stripped == "help" or not stripped:
         return {"version": PROTOCOL_VERSION, "operation": "help"}
     try:
-        value = json.loads(stripped)
-    except json.JSONDecodeError as error:
+        value = json.loads(
+            stripped,
+            object_pairs_hook=_strict_json_object,
+            parse_constant=_reject_json_constant,
+        )
+    except (json.JSONDecodeError, ValueError) as error:
         raise ProtocolError("invalid_json") from error
     request = _require_object(value)
     _reject_sensitive_keys(request)
+    _reject_control_characters(request)
     if request.get("version") != PROTOCOL_VERSION:
         _fail("unsupported_version")
     operation = request.get("operation")
@@ -393,7 +424,7 @@ def parse_request(raw: str) -> dict[str, Any]:
         },
         "validate_change": {
             "version", "operation", "repoPath", "phase",
-            "base", "changedFiles", "candidate", "approvalDigest", "userConfirmed",
+            "base", "changedFiles", "candidate", "approvalDigest", "hostConfirmation",
         },
         "status": {"version", "operation"},
         "reconcile": {"version", "operation"},
@@ -1833,13 +1864,13 @@ class DesignerCodeMode:
             "execute_candidate",
         }:
             _fail("invalid_validate_change_phase", "validate_change")
-        candidate_fields = {"candidate", "approvalDigest", "userConfirmed"}
+        candidate_fields = {"candidate", "approvalDigest", "hostConfirmation"}
         if phase in {"route", "execute_trusted", "proposal_context"} and any(
             field in request for field in candidate_fields
         ):
             _fail("unexpected_candidate_field", "validate_change")
         if phase == "submit_candidate" and any(
-            field in request for field in {"approvalDigest", "userConfirmed"}
+            field in request for field in {"approvalDigest", "hostConfirmation"}
         ):
             _fail("unexpected_approval_field", "validate_change")
         repo_path, policy, base, changed_files = self._validate_change_inputs(request)
@@ -1938,12 +1969,16 @@ class DesignerCodeMode:
             }
         if phase != "execute_candidate":
             _fail("invalid_validate_change_phase", "validate_change")
-        user_confirmed = request.get("userConfirmed")
-        if not isinstance(user_confirmed, bool) or not user_confirmed:
-            _fail("user_confirmation_required", "validate_change")
+        host_confirmation = request.get("hostConfirmation")
+        if not isinstance(host_confirmation, str) or not re.fullmatch(r"[0-9a-f]{64}", host_confirmation):
+            _fail("host_confirmation_required", "validate_change")
         approval = request.get("approvalDigest")
         if not isinstance(approval, str) or not re.fullmatch(r"[0-9a-f]{64}", approval):
             _fail("invalid_approval_digest", "validate_change")
+        try:
+            validate_change.consume_host_confirmation(host_confirmation, approval)
+        except Exception:
+            _fail("host_confirmation_invalid", "validate_change")
         self._claim_candidate_execution(validated_candidate, approval)
         try:
             receipt = validate_change.execute_runner(
