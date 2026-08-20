@@ -1419,12 +1419,14 @@ def validate_index(index: dict[str, Any], repo: Path, policy: dict[str, Any]) ->
     if index.get("version") != 1:
         raise CorpusError("unsupported corpus index version")
     commit = source_commit(repo)
+    policy_hash = sha256_json(policy)
     source = index.get("source")
     if not isinstance(source, dict) or source.get("commit") != commit:
         raise CorpusError("corpus index is stale for the current source commit")
-    if index.get("policySha256") != sha256_json(policy):
+    if index.get("policySha256") != policy_hash:
         raise CorpusError("corpus index policy hash is stale")
-    if index.get("sourceManifestSha256") != source_manifest(repo, policy, commit=commit):
+    manifest_hash = source_manifest(repo, policy, commit=commit)
+    if index.get("sourceManifestSha256") != manifest_hash:
         raise CorpusError("corpus index source manifest is stale")
     cards = index.get("cards")
     if not isinstance(cards, list) or not cards:
@@ -1435,13 +1437,22 @@ def validate_index(index: dict[str, Any], repo: Path, policy: dict[str, Any]) ->
         raise CorpusError("corpus index operation set does not match policy")
     for card in cards:
         validate_card(card, policy, commit)
-    expected_cards = {
+    cache_key = (repo.resolve().as_posix(), commit, policy_hash, manifest_hash)
+    cached_cards = None
+    if _INDEX_CACHE_KEY == cache_key and _INDEX_CACHE_VALUE is not None:
+        candidate_cards = _INDEX_CACHE_VALUE.get("cards")
+        if isinstance(candidate_cards, list) and all(
+            isinstance(card, dict) and isinstance(card.get("id"), str)
+            for card in candidate_cards
+        ):
+            cached_cards = {card["id"]: card for card in candidate_cards}
+    expected_cards = cached_cards or {
         operation["id"]: build_card(
             repo,
             policy,
             operation,
             commit,
-            index["policySha256"],
+            policy_hash,
             {},
         )
         for operation in policy["operations"]
