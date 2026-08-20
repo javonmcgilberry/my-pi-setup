@@ -623,6 +623,9 @@ def fragment_record(
         line_start=fragment["lineStart"],
         line_end=fragment["lineEnd"],
     )
+    metadata = cache.get(fragment["path"])
+    if metadata is None:
+        metadata = file_git_metadata(repo, fragment["path"], cache)
     return {
         "path": fragment["path"],
         "lineStart": fragment["lineStart"],
@@ -639,7 +642,7 @@ def fragment_record(
             key: features[key]
             for key in ("quarantined", "rawWait", "fixtureDependent", "destructive", "cleanup")
         },
-        **file_git_metadata(repo, fragment["path"], cache),
+        **metadata,
     }
 
 
@@ -847,6 +850,9 @@ def evidence_record(
     features = fragment_features(text)
     signals = classify_signals(text, relative_path, framework)
     signals["canonicalHelper"] = canonical_helper
+    metadata = cache.get(relative_path)
+    if metadata is None:
+        metadata = file_git_metadata(repo, relative_path, cache)
     return {
         "path": relative_path,
         "lineStart": start_line,
@@ -856,7 +862,7 @@ def evidence_record(
         "symbol": symbol,
         "lineage": lineage_for_features(features, relative_path, framework),
         "signals": signals,
-        **file_git_metadata(repo, relative_path, cache),
+        **metadata,
     }
 
 
