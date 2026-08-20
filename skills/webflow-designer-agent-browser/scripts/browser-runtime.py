@@ -742,7 +742,11 @@ def inspect_runtime(config: RuntimeConfig) -> dict[str, object]:
 
 def runtime_process_is_stopped(status: dict[str, object]) -> bool:
     return (
-        status.get("status") == "stopped"
+        all(key in status for key in ("status", "runtimeOwned", "cdpReady", "leaseValid"))
+        and type(status.get("runtimeOwned")) is bool
+        and type(status.get("cdpReady")) is bool
+        and type(status.get("leaseValid")) is bool
+        and status.get("status") == "stopped"
         and status.get("runtimeOwned") is False
         and status.get("cdpReady") is False
         and status.get("leaseValid") is True
@@ -752,6 +756,9 @@ def runtime_process_is_stopped(status: dict[str, object]) -> bool:
 def runtime_is_stopped(status: dict[str, object]) -> bool:
     return (
         runtime_process_is_stopped(status)
+        and "leasePresent" in status
+        and "consumer" in status
+        and type(status.get("leasePresent")) is bool
         and status.get("leasePresent") is False
         and status.get("consumer") is None
     )

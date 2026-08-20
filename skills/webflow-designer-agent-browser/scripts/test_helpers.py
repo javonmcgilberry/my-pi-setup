@@ -864,6 +864,18 @@ class BrowserRuntimeTests(unittest.TestCase):
         self.assertTrue(result["leasePresent"])
         self.assertFalse(browser_runtime.runtime_is_stopped(result))
 
+    def test_incomplete_stopped_status_is_not_treated_as_clean(self):
+        self.assertFalse(
+            browser_runtime.runtime_is_stopped(
+                {
+                    "status": "stopped",
+                    "runtimeOwned": False,
+                    "cdpReady": False,
+                    "leaseValid": True,
+                }
+            )
+        )
+
     def test_known_lease_is_not_masked_as_clean_stopped_state(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
