@@ -985,7 +985,7 @@ def default_runner(command: list[str], cwd: Path, timeout: int) -> CommandResult
                 os.killpg(process.pid, signum)
             else:  # pragma: no cover - supported platforms provide killpg.
                 process.send_signal(signum)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             pass
 
     with selectors.DefaultSelector() as selector:
