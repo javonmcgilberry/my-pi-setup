@@ -160,7 +160,7 @@ def file_git_metadata(repo: Path, relative_path: str, cache: dict[str, Any]) -> 
     if relative_path in cache:
         return cache[relative_path]
     if METADATA_BATCH_MARKER not in cache:
-        output = run_git(repo, "log", "--name-only", "--format=%H%x00%cI", "--")
+        output = run_git(repo, "log", "-M", "--name-status", "--format=%H%x00%cI", "--")
         current: tuple[str, str] | None = None
         for line in output.splitlines():
             if "\x00" in line:
@@ -168,11 +168,18 @@ def file_git_metadata(repo: Path, relative_path: str, cache: dict[str, Any]) -> 
                 if HEX_COMMIT.fullmatch(commit):
                     current = (commit, changed_at)
                 continue
-            if line and current and line not in cache:
-                cache[line] = {
-                    "lastChangedCommit": current[0],
-                    "lastChangedAt": current[1],
-                }
+            if not line or current is None:
+                continue
+            fields = line.split("\t")
+            if len(fields) < 2:
+                continue
+            paths = fields[1:] if fields[0].startswith(("R", "C")) else fields[1:2]
+            for path in paths:
+                if path and path not in cache:
+                    cache[path] = {
+                        "lastChangedCommit": current[0],
+                        "lastChangedAt": current[1],
+                    }
         cache[METADATA_BATCH_MARKER] = {}
     if relative_path in cache:
         return cache[relative_path]
