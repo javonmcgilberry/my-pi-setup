@@ -547,6 +547,11 @@ report includes the five readiness checks, sanitized semantic evidence, the
 ownership boundary, and stopped-runtime proof.
 
 The skill also has a maintenance-only, evidence-backed test-knowledge path.
+Its [change validation guide](skills/webflow-designer-agent-browser/references/change-validation-guide.md)
+explains the normal end-of-work path and receipt meanings. Its
+[evidence compiler architecture](skills/webflow-designer-agent-browser/references/evidence-compiler-architecture.md)
+explains the offline compiler, typed contract boundary, semantic receipts, and
+PICO-inspired design choices.
 `skills/webflow-designer-agent-browser/test-corpus-policy.json` selects a
 small set of operation sources from the Webflow monorepo. Its disposable
 `test-corpus-index.py discover` command structurally inventories bounded test

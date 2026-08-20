@@ -181,6 +181,11 @@ Use this branch for the normal end-of-work request, "Validate my current
 Webflow changes." Corpus discovery and manual Playwright command assembly are
 maintenance tasks, not prerequisites.
 
+For a short user-facing route and receipt guide, read
+[change validation guide](references/change-validation-guide.md). For the
+offline evidence compiler, contract rules, receipt semantics, and PICO design
+rationale, read [evidence compiler architecture](references/evidence-compiler-architecture.md).
+
 1. Route the change set. Call `webflow_designer` with
    `operation:"validate_change"`, the read-only Webflow `repoPath`, and
    `phase:"route"`. Without `changedFiles`, routing includes staged, unstaged,

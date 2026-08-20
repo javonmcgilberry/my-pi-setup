@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>How evidence-compiled change validation works</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --page: #f4f1ea;
+      --ink: #17211d;
+      --muted: #53615a;
+      --panel: #fffdf8;
+      --line: #c9d0c8;
+      --accent: #176b57;
+      --accent-soft: #dceee7;
+      --warn: #8a4d14;
+      --warn-soft: #f6e7d4;
+      --code: #13251f;
+      --code-ink: #e6f3ed;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.62;
+    }
+
+    main, footer {
+      width: min(1120px, calc(100% - 32px));
+      margin-inline: auto;
+    }
+
+    header {
+      padding: 72px 0 42px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1, h2, h3 { line-height: 1.12; letter-spacing: -0.025em; }
+    h1 { max-width: 820px; margin: 0 0 18px; font-size: clamp(2.6rem, 7vw, 5.8rem); }
+    h2 { margin: 0 0 20px; font-size: clamp(1.8rem, 4vw, 3rem); }
+    h3 { margin: 0 0 10px; font-size: 1.2rem; }
+    p, ul, ol, pre, dl { max-width: 70ch; }
+    p { margin: 0 0 1rem; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+    .deck {
+      max-width: 66ch;
+      color: var(--muted);
+      font-size: clamp(1.1rem, 2vw, 1.35rem);
+    }
+
+    .metadata {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 5px 18px;
+      margin: 28px 0 0;
+      font-size: 0.92rem;
+    }
+
+    .metadata dt { color: var(--muted); font-weight: 700; }
+    .metadata dd { margin: 0; }
+
+    section { padding: 64px 0; border-bottom: 1px solid var(--line); }
+    .lede { font-size: 1.2rem; }
+    .point { color: var(--accent); font-weight: 750; }
+
+    .diagram {
+      width: 100%;
+      margin: 28px 0 24px;
+      padding: 20px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--panel);
+    }
+
+    .diagram svg { display: block; min-width: 880px; width: 100%; height: auto; }
+    .diagram .box { fill: var(--panel); stroke: var(--accent); stroke-width: 2; }
+    .diagram .safe { fill: var(--accent-soft); }
+    .diagram .edge { stroke: var(--accent); stroke-width: 2; fill: none; }
+    .diagram .label { fill: var(--ink); font-size: 15px; font-weight: 700; }
+    .diagram .small { fill: var(--muted); font-size: 12px; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+      margin: 24px 0;
+    }
+
+    .card {
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--panel);
+    }
+
+    .card p:last-child, .card ul:last-child { margin-bottom: 0; }
+
+    .flow { counter-reset: step; display: grid; gap: 14px; margin-top: 26px; }
+    .flow article {
+      position: relative;
+      padding: 22px 24px 22px 74px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--panel);
+    }
+    .flow article::before {
+      counter-increment: step;
+      content: counter(step);
+      position: absolute;
+      left: 22px;
+      top: 22px;
+      display: grid;
+      width: 34px;
+      height: 34px;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--accent);
+      color: white;
+      font-weight: 800;
+    }
+
+    pre {
+      max-width: 100%;
+      margin: 24px 0;
+      padding: 20px;
+      overflow-x: auto;
+      border-radius: 14px;
+      background: var(--code);
+      color: var(--code-ink);
+      line-height: 1.48;
+      font-size: 0.88rem;
+    }
+
+    .callout {
+      max-width: 76ch;
+      margin: 26px 0;
+      padding: 18px 20px;
+      border-left: 5px solid var(--warn);
+      background: var(--warn-soft);
+      color: #4f2d0f;
+    }
+
+    table { width: 100%; border-collapse: collapse; margin: 24px 0; background: var(--panel); }
+    th, td { padding: 14px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: var(--accent); }
+
+    .source-map code { font-size: 0.9rem; }
+    .source-map li { margin-bottom: 10px; }
+    .refs li { margin-bottom: 14px; }
+    .quiet { color: var(--muted); }
+
+    footer { padding: 34px 0 56px; color: var(--muted); font-size: 0.9rem; }
+
+    @media (max-width: 760px) {
+      header { padding-top: 48px; }
+      section { padding: 46px 0; }
+      .grid { grid-template-columns: 1fr; }
+      .flow article { padding-left: 64px; }
+      th, td { padding: 10px; font-size: 0.9rem; }
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --page: #101613;
+        --ink: #e6eee9;
+        --muted: #a6b5ad;
+        --panel: #17201c;
+        --line: #33423b;
+        --accent: #6fd0ae;
+        --accent-soft: #193a30;
+        --warn: #e7a963;
+        --warn-soft: #3b2818;
+      }
+      .callout { color: #f3d2aa; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="point">Evidence-compiled Webflow validation</p>
+      <h1>How evidence-compiled change validation works</h1>
+      <p class="deck">The system turns a large, uneven test corpus into reviewed validation contracts, then runs those contracts through fixed tools. Known changes need no model call. Unknown changes can ask for one bounded proposal, but that proposal cannot execute without an exact human approval.</p>
+      <dl class="metadata">
+        <dt>Date</dt><dd>2026-08-19</dd>
+        <dt>Input shape</dt><dd>architecture reference</dd>
+        <dt>Subject</dt><dd>Webflow Designer evidence compiler, runtime validator, and PICO design rationale</dd>
+      </dl>
+    </header>
+
+    <section>
+      <h2>The idea in one picture</h2>
+      <p class="lede">The system has two stages. Offline work can inspect a large corpus and wait for review. Runtime work stays small, typed, and deterministic.</p>
+
+      <div class="diagram">
+        <svg viewBox="0 0 1040 360" role="img" aria-labelledby="architecture-title architecture-desc">
+          <title id="architecture-title">Offline evidence compilation feeding a deterministic runtime validator</title>
+          <desc id="architecture-desc">Tests and helpers are structurally extracted, grouped conservatively, reviewed into contracts, routed from changed files, executed by fixed runners, and summarized as semantic receipts. Runtime receipts cannot flow backward into trusted contracts.</desc>
+          <defs>
+            <marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+              <path d="M0,0 L9,4.5 L0,9 z" fill="#176b57"></path>
+            </marker>
+          </defs>
+          <text x="40" y="34" class="label">OFFLINE: compile evidence</text>
+          <rect x="40" y="58" width="190" height="78" rx="12" class="box"></rect>
+          <text x="135" y="88" text-anchor="middle" class="label">Tests + helpers</text>
+          <text x="135" y="112" text-anchor="middle" class="small">bounded source fragments</text>
+
+          <path d="M230 97 H270" class="edge" marker-end="url(#arrow)"></path>
+          <rect x="280" y="58" width="210" height="78" rx="12" class="box"></rect>
+          <text x="385" y="88" text-anchor="middle" class="label">Semantic candidates</text>
+          <text x="385" y="112" text-anchor="middle" class="small">hashed targets + lineage</text>
+
+          <path d="M490 97 H530" class="edge" marker-end="url(#arrow)"></path>
+          <rect x="540" y="58" width="220" height="78" rx="12" class="box safe"></rect>
+          <text x="650" y="88" text-anchor="middle" class="label">Human-reviewed contracts</text>
+          <text x="650" y="112" text-anchor="middle" class="small">typed data, fixed limits</text>
+
+          <path d="M650 136 V192" class="edge" marker-end="url(#arrow)"></path>
+          <text x="40" y="214" class="label">RUNTIME: execute proof</text>
+          <rect x="40" y="238" width="190" height="78" rx="12" class="box"></rect>
+          <text x="135" y="268" text-anchor="middle" class="label">Changed files</text>
+          <text x="135" y="292" text-anchor="middle" class="small">complete bounded change set</text>
+
+          <path d="M230 277 H270" class="edge" marker-end="url(#arrow)"></path>
+          <rect x="280" y="238" width="210" height="78" rx="12" class="box"></rect>
+          <text x="385" y="268" text-anchor="middle" class="label">Fixed runner</text>
+          <text x="385" y="292" text-anchor="middle" class="small">allowlisted scenario + budget</text>
+
+          <path d="M490 277 H530" class="edge" marker-end="url(#arrow)"></path>
+          <rect x="540" y="238" width="220" height="78" rx="12" class="box safe"></rect>
+          <text x="650" y="268" text-anchor="middle" class="label">Semantic receipt</text>
+          <text x="650" y="292" text-anchor="middle" class="small">oracle + cleanup evidence</text>
+
+          <path d="M760 277 H820" class="edge" marker-end="url(#arrow)"></path>
+          <rect x="830" y="238" width="170" height="78" rx="12" class="box"></rect>
+          <text x="915" y="268" text-anchor="middle" class="label">Pass or stop</text>
+          <text x="915" y="292" text-anchor="middle" class="small">no auto-promotion</text>
+
+          <path d="M830 250 C790 170, 780 155, 732 145" stroke="#8a4d14" stroke-width="2" stroke-dasharray="7 6" fill="none"></path>
+          <text x="838" y="180" class="small">blocked feedback path</text>
+        </svg>
+      </div>
+
+      <p>The split is the main safety feature. Runtime observations may report drift or failure. They cannot rewrite trusted selectors, operation cards, mappings, or runners. The discovery report records that boundary as <code>notRuntimePromoted: true</code>. Start with the <a href="change-validation-guide.html">change validation guide</a> for the normal user path.</p>
+    </section>
+
+    <section>
+      <h2>Why tests are evidence, not truth</h2>
+      <p>A test suite contains useful behavior knowledge, but it also contains stale selectors, shared helpers, fixture assumptions, retries, quarantined cases, and assertions that prove too little. Counting similar tests would create false confidence.</p>
+      <div class="grid">
+        <article class="card">
+          <h3>The unsafe shortcut</h3>
+          <p>Group every fragment that performs a click, then call repeated clicks corroboration. This can merge unrelated targets and turn duplicated helper usage into fake independent evidence.</p>
+        </article>
+        <article class="card">
+          <h3>The implemented rule</h3>
+          <p>Group only fragments with the same hashed behavior anchor. A fragment without a target or helper anchor remains unique and cannot corroborate anything else.</p>
+        </article>
+      </div>
+
+      <p><code>semantic_identity</code> in <code>test-corpus-index.py:470-499</code> creates the anchor. <code>candidate_id</code> adds framework, subsystem, and structural signature. The report keeps the digest, not the original target literal.</p>
+
+      <pre><code># Real logic, shortened only for presentation
+if features["actionTargets"]:
+    kind, seed, bound = "selector-target", features["actionTargets"], True
+elif features["helperCalls"]:
+    kind, seed, bound = "helper-call", features["helperCalls"], True
+else:
+    kind = "unanchored"
+    seed = {"path": relative_path, "lineStart": line_start, "lineEnd": line_end}
+    bound = False
+
+return {"kind": kind, "bound": bound, "digest": sha256_json(seed)[:16]}</code></pre>
+
+      <p>That choice prefers a missed grouping over a false grouping. For validation, a false corroboration is more dangerous because it can help an unsafe candidate appear mature.</p>
+    </section>
+
+    <section>
+      <h2>How offline compilation works</h2>
+      <div class="flow">
+        <article>
+          <h3>Bound the source</h3>
+          <p><code>test-corpus-policy.json</code> names the allowed Playwright and Cypress roots, helper sources, locator source, operation seed, adapters, fixed runners, selector keys, risk classes, retries, and timeouts.</p>
+        </article>
+        <article>
+          <h3>Extract structural fragments</h3>
+          <p><code>structural_fragments</code> and <code>fragment_features</code> isolate one behavior-sized fragment and record its actions, selectors, semantic assertions, context, cleanup, mutation risk, and warning signals.</p>
+        </article>
+        <article>
+          <h3>Group conservatively</h3>
+          <p><code>build_discovery</code> groups only matching candidate identities. Quarantined, destructive, and raw-wait evidence cannot become positive training evidence.</p>
+        </article>
+        <article>
+          <h3>Reserve an independent holdout</h3>
+          <p>A holdout is valid only when its lineage is unique and another eligible lineage exists. Two tests that call the same helper are not independent simply because they live in different files.</p>
+        </article>
+        <article>
+          <h3>Require review before promotion</h3>
+          <p>Discovery creates review material, not executable knowledge. Promotion requires a semantic assertion, independent corroboration, an independent holdout, safe evidence, and human review.</p>
+        </article>
+      </div>
+
+      <p class="quiet">The real read-only discovery run found 4,462 fragments and 3,189 candidates. It reported zero unanchored corroborations.</p>
+    </section>
+
+    <section>
+      <h2>How runtime validation works</h2>
+      <p class="lede">Every non-ignored changed file takes part in routing. The validator refuses to quietly test the part it recognizes while overlooking an unknown product path.</p>
+
+      <div class="grid">
+        <article class="card">
+          <h3>D0: trusted route</h3>
+          <p>If all changed paths match one reviewed mapping, <code>route_trusted_contracts</code> selects the fixed runner and operation IDs. No model proposal is needed.</p>
+        </article>
+        <article class="card">
+          <h3>D1: bounded candidate</h3>
+          <p>If a path is unknown, the validator exposes a small proposal context. At most one data-only contract can be proposed. It still needs an exact digest approval and can run only once.</p>
+        </article>
+      </div>
+
+      <p>Multiple runner mappings stop as <code>routing_ambiguous</code>. Missing evidence can stop as <code>insufficient_evidence</code>. These are intended outcomes, not degraded passes.</p>
+
+      <div class="callout"><strong>The model, when used, writes data rather than code.</strong> The contract can invoke a reviewed operation, assert a typed fact, or compensate with a reviewed operation. It cannot contain JavaScript, shell commands, arbitrary browser instructions, or an unbounded loop.</div>
+    </section>
+
+    <section>
+      <h2>The contract is a small intermediate language</h2>
+      <p><code>designer-validation-contract.schema.json</code> defines a closed JSON shape. <code>validate_candidate_contract</code> then applies checks that a schema alone cannot express. Its semantic oracle is the typed check that asks whether the required end state is true.</p>
+
+      <pre><code>{
+  "mode": "candidate",
+  "surfaceAdapter": "webflow-designer",
+  "source": {
+    "commit": "exact 40-character source commit",
+    "changeSetDigest": "exact 64-character change digest"
+  },
+  "riskClass": "reversible-ui",
+  "actions": [
+    {"id": "open", "op": "invoke_operation", "dependsOn": [],
+     "operationId": "designer.panel.pages.open"},
+    {"id": "prove", "op": "assert", "dependsOn": ["open"],
+     "fact": "pages.visible", "expected": true}
+  ],
+  "oracle": {"kind": "semantic-fact", "fact": "pages.visible", "expected": true},
+  "cleanup": ["adapter-teardown"],
+  "budget": {"timeoutSeconds": 900, "maxRetries": 1, "maxActions": 8}
+}</code></pre>
+
+      <p>The validator checks source binding, evidence references, selected runner, allowed risk, target fixture, fact types, action dependency order, selector allowlist, retry count, oracle, teardown, and exact tracked budget. Candidate approval binds every material field to a digest.</p>
+    </section>
+
+    <section>
+      <h2>A receipt says only what the run proved</h2>
+      <p><code>default_runner</code> keeps a small private output buffer long enough to classify the failure. The raw text is discarded. Public receipts contain normalized facts only.</p>
+
+      <table>
+        <thead>
+          <tr><th>Runner result</th><th>Oracle</th><th>Cleanup</th><th>Why</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Success</td><td><code>passed</code></td><td><code>proved</code></td><td>The fixed scenario completed its assertion and teardown.</td></tr>
+          <tr><td>Semantic assertion failure</td><td><code>failed</code></td><td><code>not_proved</code></td><td>The end state was wrong, and the failed process did not prove teardown.</td></tr>
+          <tr><td>Timeout, setup, infrastructure, or unknown failure</td><td><code>not_run</code></td><td><code>not_proved</code></td><td>The process failed before it could prove the full contract.</td></tr>
+          <tr><td>Explicit teardown failure</td><td><code>not_run</code></td><td><code>failed</code></td><td>The runner specifically reported a cleanup failure.</td></tr>
+        </tbody>
+      </table>
+
+      <p><code>classify_runner_failure</code> owns these distinctions. <code>execute_runner</code> returns <code>passed</code> only after every selected fixed runner succeeds. This avoids the common overclaim that a failed process somehow proved its cleanup.</p>
+    </section>
+
+    <section>
+      <h2>Browser ownership stays where it already belongs</h2>
+      <p>The validator does not introduce a second browser agent. It selects existing fixed Playwright scenarios and preserves the managed browser and CDP boundaries. <code>test-scenario-eval.py::build_plan</code> can describe setup, browser, assertion, and teardown phases, but it does not execute the adapter.</p>
+      <p><code>DesignerCodeMode._validate_change</code> exposes routing, trusted execution, candidate submission, and one-run candidate execution through compact JSON. Existing Webflow scenario utilities still own their own Playwright contexts.</p>
+    </section>
+
+    <section>
+      <h2>What PICO contributed</h2>
+      <p>PICO is used here as a comparison discipline, not as a clinical-study claim.</p>
+
+      <div class="grid">
+        <article class="card"><h3>Problem / population</h3><p>Webflow Designer changes whose correctness depends on browser-visible application state and uneven test evidence.</p></article>
+        <article class="card"><h3>Intervention</h3><p>Compile evidence offline into reviewed operations and typed contracts, then execute fixed runners with semantic oracles and cleanup proof.</p></article>
+        <article class="card"><h3>Comparison</h3><p>Open-ended browser reasoning, raw trajectory replay, action-similarity scoring, LLM-as-judge verdicts, ad hoc test selection, and runtime self-evolution.</p></article>
+        <article class="card"><h3>Outcomes</h3><p>Fewer model calls, deterministic routing, bounded execution, semantic end-state evidence, honest cleanup, compact receipts, and no automatic promotion.</p></article>
+      </div>
+
+      <p>The architecture existed before the 1K Papers review. The review clarified which ideas to adopt and which to keep out of runtime.</p>
+
+      <table>
+        <thead><tr><th>Paper</th><th>Lesson adopted</th><th>Boundary kept</th></tr></thead>
+        <tbody>
+          <tr><td><em>Recursive Language Models</em><br>arXiv:2512.24601</td><td>Decompose a large corpus offline.</td><td>No recursive model loop for routine runtime validation.</td></tr>
+          <tr><td><em>GameWorld</em><br>arXiv:2604.07429</td><td>Use state-verifiable outcome metrics.</td><td>Do not claim broad benchmark coverage from a five-operation seed.</td></tr>
+          <tr><td><em>MobileGym</em><br>arXiv:2605.26114</td><td>Prefer structured, deterministic state judging to free-text matching.</td><td>No claim of a complete forkable Webflow simulator.</td></tr>
+          <tr><td><em>OpenComputer</em><br>arXiv:2605.19769</td><td>Use application-specific verifiers and auditable receipts.</td><td>No self-evolving verifier may rewrite trusted policy at runtime.</td></tr>
+          <tr><td><em>Program-as-Weights</em><br>arXiv:2607.02512</td><td>Pay the interpretation cost once, then reuse a cheap artifact.</td><td>The artifact is inspectable typed data, not neural weights.</td></tr>
+          <tr><td><em>SkillRL</em><br>arXiv:2602.08234</td><td>Distill noisy trajectories into compact reusable skills.</td><td>Runtime rollouts cannot recursively evolve the skill library.</td></tr>
+          <tr><td><em>DeepSearch-World</em><br>arXiv:2607.07820</td><td>Use deterministic tools, progress checks, and bounded recovery.</td><td>Self-distillation is not a trusted runtime promotion path.</td></tr>
+          <tr><td><em>The Devil Behind Moltbook</em><br>arXiv:2602.09877</td><td>Keep external oversight in any self-improvement path.</td><td>No isolated closed loop that rewrites its own validation policy.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Where the implementation lives</h2>
+      <ul class="source-map">
+        <li><code>scripts/test-corpus-index.py:347-680, 1129-1374</code>: structural extraction, feature analysis, semantic identity, candidate grouping, holdouts, coverage, and validation.</li>
+        <li><code>scripts/validate-change.py:438-952</code>: trusted routing, proposal context, candidate validation, one-run state, output classification, receipts, and runner execution.</li>
+        <li><code>scripts/designer-code-mode.py:1747-1963</code>: candidate recording, digest-bound approval, one-run claiming, and the compact <code>validate_change</code> interface.</li>
+        <li><code>schemas/designer-validation-contract.schema.json</code>: the closed candidate contract.</li>
+        <li><code>schemas/designer-validation-receipt.schema.json</code>: the compact public receipt.</li>
+        <li><code>test-corpus-policy.json</code>: source roots, operation seed, mappings, fixed runners, budgets, and allowlists.</li>
+        <li><code>references/compounding-loop.md</code>: promotion and non-promotion policy.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>What this system does not claim</h2>
+      <ul>
+        <li>It does not validate every possible Webflow change.</li>
+        <li>A pass proves only the declared oracle and teardown for that run.</li>
+        <li>A hash does not prove that a selector is still fresh.</li>
+        <li>A repeated test pattern does not become truth through frequency.</li>
+        <li>A failed process does not prove cleanup.</li>
+        <li>The runtime is normally model-free, not universally model-free.</li>
+        <li>Paper results explain design choices. They do not prove this implementation correct.</li>
+      </ul>
+      <p>Expand one operation family at a time: review independent evidence and a semantic canary, add one fixed adapter, then rerun the complete affected tests.</p>
+    </section>
+
+    <section>
+      <h2>Primary references</h2>
+      <ol class="refs">
+        <li>Alex L. Zhang, Tim Kraska, and Omar Khattab. <em>Recursive Language Models.</em> arXiv:2512.24601.</li>
+        <li>Mingyu Ouyang, Siyuan Hu, Kevin Qinghong Lin, Hwee Tou Ng, and Mike Zheng Shou. <em>GameWorld: Towards Standardized and Verifiable Evaluation of Multimodal Game Agents.</em> arXiv:2604.07429.</li>
+        <li>Dingbang Wu and collaborators. <em>MobileGym: A Verifiable and Highly Parallel Simulation Platform for Mobile GUI Agent Research.</em> arXiv:2605.26114.</li>
+        <li>Jinbiao Wei and collaborators. <em>OpenComputer: Verifiable Software Worlds for Computer-Use Agents.</em> arXiv:2605.19769.</li>
+        <li>Wentao Zhang, Liliana Hotsko, Woojeong Kim, Pengyu Nie, Stuart Shieber, and Yuntian Deng. <em>Program-as-Weights: A Programming Paradigm for Fuzzy Functions.</em> arXiv:2607.02512.</li>
+        <li>Peng Xia and collaborators. <em>SkillRL: Evolving Agents via Recursive Skill-Augmented Reinforcement Learning.</em> arXiv:2602.08234.</li>
+        <li>Xinyu Geng and collaborators. <em>DeepSearch-World: Self-Distillation for Deep Search Agents in a Verifiable Environment.</em> arXiv:2607.07820.</li>
+        <li>Chenxu Wang and collaborators. <em>The Devil Behind Moltbook: Anthropic Safety is Always Vanishing in Self-Evolving AI Societies.</em> arXiv:2602.09877.</li>
+      </ol>
+      <p class="quiet">Paper metadata and abstracts were checked against the arXiv API on 2026-08-20 UTC. Implementation facts come from merged PR #3 and its tests.</p>
+    </section>
+  </main>
+
+  <footer>Webflow Designer evidence compiler architecture</footer>
+</body>
+</html>
