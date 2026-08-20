@@ -11,6 +11,7 @@ executable knowledge.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import re
@@ -33,6 +34,8 @@ SELECTION_STATUSES = {
 UNSAFE_EVIDENCE_SIGNALS = ("quarantined", "rawWait", "fixtureDependent", "destructive")
 HEX_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9._-]+$")
+_INDEX_CACHE_KEY: tuple[str, str, str, str] | None = None
+_INDEX_CACHE_VALUE: dict[str, Any] | None = None
 SENSITIVE_KEY = re.compile(
     r"(?:authorization|cookie|credential|password|secret|storage.?state|token)",
     re.IGNORECASE,
@@ -1089,10 +1092,14 @@ def summarize_cards(cards: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def build_index(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
+    global _INDEX_CACHE_KEY, _INDEX_CACHE_VALUE
     validate_policy(policy)
     commit = source_commit(repo)
     policy_hash = sha256_json(policy)
     manifest_hash = source_manifest(repo, policy)
+    cache_key = (repo.resolve().as_posix(), commit, policy_hash, manifest_hash)
+    if _INDEX_CACHE_KEY == cache_key and _INDEX_CACHE_VALUE is not None:
+        return copy.deepcopy(_INDEX_CACHE_VALUE)
     cache: dict[str, dict[str, str]] = {}
     cards = [build_card(repo, policy, operation, commit, policy_hash, cache) for operation in policy["operations"]]
     index = {
@@ -1113,6 +1120,8 @@ def build_index(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
         "counts": summarize_cards(cards),
     }
     assert_safe_payload(index)
+    _INDEX_CACHE_KEY = cache_key
+    _INDEX_CACHE_VALUE = copy.deepcopy(index)
     return index
 
 
