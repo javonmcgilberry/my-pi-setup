@@ -1471,11 +1471,13 @@ def validate_discovery(discovery: object, repo: Path, policy: dict[str, Any]) ->
         raise CorpusError("unsupported discovery report")
     source = discovery.get("source")
     commit = source_commit(repo)
+    policy_hash = sha256_json(policy)
     if not isinstance(source, dict) or source.get("commit") != commit:
         raise CorpusError("discovery report is stale for the current source commit")
-    if discovery.get("policySha256") != sha256_json(policy):
+    if discovery.get("policySha256") != policy_hash:
         raise CorpusError("discovery report policy hash is stale")
-    if discovery.get("sourceManifestSha256") != source_manifest(repo, policy, commit=commit):
+    manifest_hash = source_manifest(repo, policy, commit=commit)
+    if discovery.get("sourceManifestSha256") != manifest_hash:
         raise CorpusError("discovery report source manifest is stale")
     candidates = discovery.get("candidates")
     if not isinstance(candidates, list):
@@ -1600,7 +1602,20 @@ def validate_discovery(discovery: object, repo: Path, policy: dict[str, Any]) ->
     }
     if coverage != expected_coverage:
         raise CorpusError("discovery report coverage is invalid")
-    expected_discovery = build_discovery(repo, policy)
+    cache_key = (repo.resolve().as_posix(), commit, policy_hash, manifest_hash)
+    if (
+        _DISCOVERY_CACHE_KEY == cache_key
+        and _DISCOVERY_CACHE_VALUE is not None
+        and source_paths_are_cacheable(
+            repo,
+            source_manifest_paths(repo, policy),
+            known_tracked=True,
+            commit=commit,
+        )
+    ):
+        expected_discovery = copy.deepcopy(_DISCOVERY_CACHE_VALUE)
+    else:
+        expected_discovery = build_discovery(repo, policy)
     if canonical_json(discovery) != canonical_json(expected_discovery):
         raise CorpusError("discovery report does not match source compilation")
     assert_safe_payload(discovery, "discovery")
