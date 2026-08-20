@@ -831,7 +831,11 @@ def build_discovery(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
     source_texts: dict[str, bytes] = {}
     manifest_hash = source_manifest(repo, policy, source_texts, commit, paths)
     cache_key = (repo.resolve().as_posix(), commit, policy_hash, manifest_hash)
-    if _DISCOVERY_CACHE_KEY == cache_key and _DISCOVERY_CACHE_VALUE is not None:
+    if (
+        _DISCOVERY_CACHE_KEY == cache_key
+        and _DISCOVERY_CACHE_VALUE is not None
+        and source_paths_are_cacheable(repo, paths, known_tracked=True, commit=commit)
+    ):
         return copy.deepcopy(_DISCOVERY_CACHE_VALUE)
     cache: dict[str, Any] = {SOURCE_TEXTS_KEY: source_texts, SOURCE_COMMIT_KEY: commit}
     prime_file_metadata_cache(repo, cache)
@@ -1317,7 +1321,11 @@ def build_index(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
     source_texts: dict[str, bytes] = {}
     manifest_hash = source_manifest(repo, policy, source_texts, commit, paths)
     cache_key = (repo.resolve().as_posix(), commit, policy_hash, manifest_hash)
-    if _INDEX_CACHE_KEY == cache_key and _INDEX_CACHE_VALUE is not None:
+    if (
+        _INDEX_CACHE_KEY == cache_key
+        and _INDEX_CACHE_VALUE is not None
+        and source_paths_are_cacheable(repo, paths, known_tracked=True, commit=commit)
+    ):
         return copy.deepcopy(_INDEX_CACHE_VALUE)
     cache: dict[str, Any] = {SOURCE_TEXTS_KEY: source_texts, SOURCE_COMMIT_KEY: commit}
     prime_file_metadata_cache(repo, cache)
