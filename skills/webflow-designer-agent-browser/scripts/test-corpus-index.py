@@ -56,9 +56,34 @@ IGNORED_CALLS = {
     *SELECTOR_METHODS,
 }
 ACTION_TARGET = re.compile(
-    r"\.(?:getByLabel|getByPlaceholder|getByRole|getByTestId|getByText|locator)\s*"
-    r"\(\s*(['\"`])([^'\"`\r\n]{1,120})\1\s*\)\s*"
+    r"\.(getByLabel|getByPlaceholder|getByRole|getByTestId|getByText|locator)\s*"
+    r"\(\s*(['\"`])([^'\"`\r\n]{1,120})\2\s*\)\s*"
     r"\.([A-Za-z_$][\w$]*)\s*\("
+)
+CSS_TEST_ID_TARGET = re.compile(
+    r"\.locator\s*\(\s*(['\"])[ \t]*\[\s*data-testid\s*=\s*"
+    r"(['\"])([^'\"\r\n]{1,120})\2\s*\][ \t]*\1\s*\)\s*"
+    r"\.([A-Za-z_$][\w$]*)\s*\("
+)
+ROLE_ACTION_TARGET = re.compile(
+    r"\.getByRole\s*\(\s*(['\"])([^'\"\r\n]{1,80})\1\s*,\s*"
+    r"\{\s*name\s*:\s*(['\"])([^'\"\r\n]{1,120})\3"
+    r"(?:\s*,\s*exact\s*:\s*(?:true|false))?\s*\}\s*\)\s*"
+    r"\.([A-Za-z_$][\w$]*)\s*\("
+)
+ROLE_ACTION_TARGET_SHAPE = re.compile(
+    r"\.getByRole\s*\(\s*,\s*\{\s*name\s*:\s*"
+    r"(?:\s*,\s*exact\s*:\s*(?:true|false))?\s*\}\s*\)\s*"
+    r"\.([A-Za-z_$][\w$]*)\s*\("
+)
+LOCAL_TEST_ID_ALIAS = re.compile(
+    r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*"
+    r"(?:[A-Za-z_$][\w$]*\.)?getByTestId\s*\(\s*(['\"`])"
+    r"([^'\"`\r\n]{1,120})\2\s*\)\s*;"
+)
+LOCAL_TEST_ID_ALIAS_SHAPE = re.compile(
+    r"\b(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*"
+    r"(?:[A-Za-z_$][\w$]*\.)?getByTestId\s*\(\s*\)\s*;"
 )
 ACTION_TARGET_SHAPE = re.compile(
     r"\.(?:getByLabel|getByPlaceholder|getByRole|getByTestId|getByText|locator)\s*"
@@ -393,6 +418,17 @@ def structural_fragments(text: str, relative_path: str, framework: str) -> list[
     return sorted(fragments, key=lambda item: (item["start"], item["end"], item["sourceKind"]))
 
 
+def selector_target_key(selector: str, value: object, action: str) -> str:
+    """Normalize only selector forms that identify the same stable target."""
+    family = "testid" if selector == "getByTestId" else selector
+    return canonical_json({"action": action, "family": family, "value": value}).decode("utf-8")
+
+
+def stable_selector_literal(quote: str, value: str) -> bool:
+    """Reject interpolated template values instead of binding them as literals."""
+    return quote != "`" or "${" not in value
+
+
 def fragment_features(fragment_text: str) -> FragmentFeatures:
     """Produce non-sensitive structural facts for one test or helper fragment."""
     masked = masked_source(fragment_text)
@@ -421,8 +457,48 @@ def fragment_features(fragment_text: str) -> FragmentFeatures:
     for match in ACTION_TARGET.finditer(fragment_text):
         masked_target = masked[match.start():match.end()]
         shape = ACTION_TARGET_SHAPE.fullmatch(masked_target)
+        if (
+            shape is not None
+            and shape.group(1) in ACTION_METHODS
+            and stable_selector_literal(match.group(2), match.group(3))
+        ):
+            action_targets.append(
+                selector_target_key(match.group(1), match.group(3), match.group(4))
+            )
+    for match in CSS_TEST_ID_TARGET.finditer(fragment_text):
+        masked_target = masked[match.start():match.end()]
+        shape = ACTION_TARGET_SHAPE.fullmatch(masked_target)
         if shape is not None and shape.group(1) in ACTION_METHODS:
-            action_targets.append(f"{match.group(3)}:{match.group(2)}")
+            action_targets.append(
+                selector_target_key("getByTestId", match.group(3), match.group(4))
+            )
+    for match in ROLE_ACTION_TARGET.finditer(fragment_text):
+        masked_target = masked[match.start():match.end()]
+        shape = ROLE_ACTION_TARGET_SHAPE.fullmatch(masked_target)
+        if shape is not None and shape.group(1) in ACTION_METHODS:
+            action_targets.append(
+                selector_target_key(
+                    "getByRole",
+                    {"name": match.group(4), "role": match.group(2)},
+                    match.group(5),
+                )
+            )
+    for match in LOCAL_TEST_ID_ALIAS.finditer(fragment_text):
+        masked_alias = masked[match.start():match.end()]
+        if (
+            LOCAL_TEST_ID_ALIAS_SHAPE.fullmatch(masked_alias) is None
+            or not stable_selector_literal(match.group(2), match.group(3))
+        ):
+            continue
+        alias = re.escape(match.group(1))
+        for action_match in re.finditer(
+            rf"\b{alias}\s*\.\s*([A-Za-z_$][\w$]*)\s*\(", masked
+        ):
+            action = action_match.group(1)
+            if action in ACTION_METHODS:
+                action_targets.append(
+                    selector_target_key("getByTestId", match.group(3), action)
+                )
     action_targets = sorted(set(action_targets))
     return {
         "actions": action_methods,

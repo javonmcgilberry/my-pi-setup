@@ -359,6 +359,43 @@ test('opens pages another way', async () => {
         )
         self.assertEqual(report["coverage"]["byIdentity"]["unanchored"], 2)
 
+    def test_fragment_features_recover_equivalent_literal_target_forms(self):
+        def identity(source):
+            return corpus.semantic_identity(
+                corpus.fragment_features(source),
+                relative_path="designer/panels/pages.spec.ts",
+                line_start=1,
+                line_end=1,
+            )
+
+        direct = identity("await page.getByTestId('pages-private-target').click();")
+        css = identity(
+            "await page.locator('[data-testid=\"pages-private-target\"]').click();"
+        )
+        alias = identity(
+            "const target = page.getByTestId('pages-private-target'); "
+            "await target.click();"
+        )
+        self.assertEqual(direct, css)
+        self.assertEqual(direct, alias)
+
+        role = identity(
+            "await page.getByRole('button', { name: 'Pages' }).click();"
+        )
+        exact_role = identity(
+            "await page.getByRole('button', { name: 'Pages', exact: true }).click();"
+        )
+        self.assertEqual(role, exact_role)
+        self.assertNotEqual(direct["digest"], role["digest"])
+
+        dynamic_source = "const id = getPanelId(); await page.getByTestId(id).click();"
+        dynamic_features = corpus.fragment_features(dynamic_source)
+        self.assertEqual(dynamic_features["actionTargets"], [])
+        self.assertEqual(identity(dynamic_source)["kind"], "helper-call")
+
+        unanchored = identity("await page.keyboard.press('Escape');")
+        self.assertFalse(unanchored["bound"])
+
     def test_shared_helper_lineage_is_not_independent_corroboration(self):
         for directory in ("alpha", "beta"):
             self._write(

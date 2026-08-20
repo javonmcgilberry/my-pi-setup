@@ -558,7 +558,9 @@ small set of operation sources from the Webflow monorepo. Its disposable
 and helper fragments, reports subsystem coverage, and separates holdouts by
 helper/scenario lineage; it cannot promote behavior. The narrower `build`
 command extracts commit-bound operation cards with bounded provenance,
-confidence, holdouts, and negative evidence. Neither command copies test
+confidence, holdouts, and negative evidence. The identity compiler
+canonicalizes only bounded literal selector forms; dynamic
+or unanchored fragments remain non-corroborating. Neither command copies test
 bodies, accepts runtime learning, or adds a Playwright runtime transport. The companion
 `ensure-test-aws.py` command validates the local AWS profile and the temporary
 credentials inherited by `wf-app`, refreshing SSO and restarting only the stale

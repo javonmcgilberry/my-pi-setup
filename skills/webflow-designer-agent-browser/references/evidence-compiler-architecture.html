@@ -266,7 +266,7 @@
         </article>
       </div>
 
-      <p><code>semantic_identity</code> in <code>test-corpus-index.py:470-499</code> creates the anchor. <code>candidate_id</code> adds framework, subsystem, and structural signature. The report keeps the digest, not the original target literal.</p>
+      <p><code>semantic_identity</code> in <code>test-corpus-index.py:546-575</code> creates the anchor. <code>candidate_id</code> adds framework, subsystem, and structural signature. The report keeps the digest, not the original target literal.</p>
 
       <pre><code># Real logic, shortened only for presentation
 if features["actionTargets"]:
@@ -278,7 +278,9 @@ else:
     seed = {"path": relative_path, "lineStart": line_start, "lineEnd": line_end}
     bound = False
 
-return {"kind": kind, "bound": bound, "digest": sha256_json(seed)[:16]}</code></pre>
+      return {"kind": kind, "bound": bound, "digest": sha256_json(seed)[:16]}</code></pre>
+
+      <p><code>fragment_features</code> canonicalizes only bounded literal targets: direct selector literals, a single <code>data-testid</code> CSS locator, a literal role/name pair, and a local alias made from a literal <code>getByTestId</code>. Dynamic selector values are not promoted to selector targets; a helper-call anchor still follows the conservative rule.</p>
 
       <p>That choice prefers a missed grouping over a false grouping. For validation, a false corroboration is more dangerous because it can help an unsafe candidate appear mature.</p>
     </section>
@@ -413,7 +415,7 @@ return {"kind": kind, "bound": bound, "digest": sha256_json(seed)[:16]}</code></
     <section>
       <h2>Where the implementation lives</h2>
       <ul class="source-map">
-        <li><code>scripts/test-corpus-index.py:347-680, 1129-1374</code>: structural extraction, feature analysis, semantic identity, candidate grouping, holdouts, coverage, and validation.</li>
+        <li><code>scripts/test-corpus-index.py:372-756, 1205-1382</code>: structural extraction, feature analysis, semantic identity, candidate grouping, holdouts, coverage, and validation.</li>
         <li><code>scripts/validate-change.py:438-952</code>: trusted routing, proposal context, candidate validation, one-run state, output classification, receipts, and runner execution.</li>
         <li><code>scripts/designer-code-mode.py:1747-1963</code>: candidate recording, digest-bound approval, one-run claiming, and the compact <code>validate_change</code> interface.</li>
         <li><code>schemas/designer-validation-contract.schema.json</code>: the closed candidate contract.</li>

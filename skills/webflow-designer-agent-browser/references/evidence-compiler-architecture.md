@@ -44,7 +44,7 @@ A simple count of similar tests would be misleading. Two tests that call the sam
 The compiler avoids that shortcut in `scripts/test-corpus-index.py`.
 
 ```python
-# semantic_identity, test-corpus-index.py:470-499
+# semantic_identity, test-corpus-index.py:546-575
 if features["actionTargets"]:
     kind, seed, bound = "selector-target", features["actionTargets"], True
 elif features["helperCalls"]:
@@ -58,6 +58,12 @@ return {"kind": kind, "bound": bound, "digest": sha256_json(seed)[:16]}
 ```
 
 The compiler hashes an action target when it has one. If it lacks a target, it hashes a helper call. If it has neither, it marks the fragment unanchored and keeps it unique. In particular, an unanchored fragment cannot corroborate another fragment merely because both contain a generic action.
+
+`fragment_features` canonicalizes only bounded literal target forms: direct
+selector literals, a single `data-testid` CSS locator, a literal role/name
+pair, and a local alias created from a literal `getByTestId`. Dynamic selector
+values are not promoted to selector targets; an existing helper-call anchor
+still follows the normal conservative rule.
 
 This is a deliberate bias. Missing a possible grouping costs review effort. Merging evidence for two different targets can create a false pass.
 
@@ -198,7 +204,7 @@ That restraint is the point. The validator is designed to stop when it lacks evi
 
 ## Code map
 
-- `skills/webflow-designer-agent-browser/scripts/test-corpus-index.py:347-680,1129-1374`: extraction, feature analysis, semantic identity, candidate grouping, holdouts, coverage, and discovery validation.
+- `skills/webflow-designer-agent-browser/scripts/test-corpus-index.py:372-756,1205-1382`: extraction, feature analysis, semantic identity, candidate grouping, holdouts, coverage, and discovery validation.
 - `skills/webflow-designer-agent-browser/scripts/validate-change.py:438-952`: routing, proposal context, candidate validation, output classification, receipts, and execution.
 - `skills/webflow-designer-agent-browser/scripts/designer-code-mode.py:1747-1963`: candidate state, digest-bound approval, one-run claiming, and the `validate_change` interface.
 - `skills/webflow-designer-agent-browser/schemas/designer-validation-contract.schema.json`: the closed candidate contract.
