@@ -36,6 +36,7 @@ HEX_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9._-]+$")
 METADATA_BATCH_MARKER = "\x00metadata-batch-loaded"
 SOURCE_TEXTS_KEY = "\x00source-texts"
+SOURCE_COMMIT_KEY = "\x00source-commit"
 _INDEX_CACHE_KEY: tuple[str, str, str, str] | None = None
 _INDEX_CACHE_VALUE: dict[str, Any] | None = None
 _DISCOVERY_CACHE_KEY: tuple[str, str, str, str] | None = None
@@ -44,6 +45,8 @@ _SOURCE_MANIFEST_CACHE_KEY: tuple[str, str, str] | None = None
 _SOURCE_MANIFEST_CACHE_PATHS: frozenset[str] | None = None
 _SOURCE_MANIFEST_CACHE_VALUE: str | None = None
 _SOURCE_MANIFEST_CACHE_TEXTS: dict[str, bytes] | None = None
+_METADATA_BATCH_CACHE_KEY: tuple[str, str] | None = None
+_METADATA_BATCH_CACHE_VALUE: dict[str, dict[str, str]] | None = None
 SENSITIVE_KEY = re.compile(
     r"(?:authorization|cookie|credential|password|secret|storage.?state|token)",
     re.IGNORECASE,
@@ -161,29 +164,42 @@ def source_commit(repo: Path) -> str:
 
 
 def file_git_metadata(repo: Path, relative_path: str, cache: dict[str, Any]) -> dict[str, str]:
+    global _METADATA_BATCH_CACHE_KEY, _METADATA_BATCH_CACHE_VALUE
     if relative_path in cache:
         return cache[relative_path]
     if METADATA_BATCH_MARKER not in cache:
-        output = run_git(repo, "log", "-M", "--name-status", "--format=%H%x00%cI", "--")
-        current: tuple[str, str] | None = None
-        for line in output.splitlines():
-            if "\x00" in line:
-                commit, changed_at = line.split("\x00", 1)
-                if HEX_COMMIT.fullmatch(commit):
-                    current = (commit, changed_at)
-                continue
-            if not line or current is None:
-                continue
-            fields = line.split("\t")
-            if len(fields) < 2:
-                continue
-            paths = fields[1:] if fields[0].startswith(("R", "C")) else fields[1:2]
-            for path in paths:
-                if path and path not in cache:
-                    cache[path] = {
-                        "lastChangedCommit": current[0],
-                        "lastChangedAt": current[1],
-                    }
+        commit = cache.get(SOURCE_COMMIT_KEY)
+        metadata_key = (
+            repo.resolve().as_posix(), commit
+        ) if isinstance(commit, str) and HEX_COMMIT.fullmatch(commit) else None
+        if metadata_key is not None and _METADATA_BATCH_CACHE_KEY == metadata_key and _METADATA_BATCH_CACHE_VALUE is not None:
+            cache.update(_METADATA_BATCH_CACHE_VALUE)
+        else:
+            output = run_git(repo, "log", "-M", "--name-status", "--format=%H%x00%cI", "--")
+            loaded: dict[str, dict[str, str]] = {}
+            current: tuple[str, str] | None = None
+            for line in output.splitlines():
+                if "\x00" in line:
+                    commit, changed_at = line.split("\x00", 1)
+                    if HEX_COMMIT.fullmatch(commit):
+                        current = (commit, changed_at)
+                    continue
+                if not line or current is None:
+                    continue
+                fields = line.split("\t")
+                if len(fields) < 2:
+                    continue
+                paths = fields[1:] if fields[0].startswith(("R", "C")) else fields[1:2]
+                for path in paths:
+                    if path and path not in loaded:
+                        loaded[path] = {
+                            "lastChangedCommit": current[0],
+                            "lastChangedAt": current[1],
+                        }
+            cache.update(loaded)
+            if metadata_key is not None:
+                _METADATA_BATCH_CACHE_KEY = metadata_key
+                _METADATA_BATCH_CACHE_VALUE = loaded
         cache[METADATA_BATCH_MARKER] = {}
     if relative_path in cache:
         return cache[relative_path]
@@ -751,7 +767,7 @@ def build_discovery(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
     cache_key = (repo.resolve().as_posix(), commit, policy_hash, manifest_hash)
     if _DISCOVERY_CACHE_KEY == cache_key and _DISCOVERY_CACHE_VALUE is not None:
         return copy.deepcopy(_DISCOVERY_CACHE_VALUE)
-    cache: dict[str, Any] = {SOURCE_TEXTS_KEY: source_texts}
+    cache: dict[str, Any] = {SOURCE_TEXTS_KEY: source_texts, SOURCE_COMMIT_KEY: commit}
     records: list[dict[str, Any]] = []
     for path, framework in discover_sources(repo, policy):
         relative_path = path.relative_to(repo).as_posix()
@@ -962,6 +978,7 @@ def operation_evidence(
         cached_repo, cached_commit, cached_policy = _SOURCE_MANIFEST_CACHE_KEY
         if cached_repo == repo.resolve().as_posix() and cached_policy == sha256_json(policy):
             current_commit = source_commit(repo)
+            cache[SOURCE_COMMIT_KEY] = current_commit
             current_paths = source_manifest_paths(repo, policy)
             if (
                 current_commit == cached_commit
@@ -1231,7 +1248,7 @@ def build_index(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
     cache_key = (repo.resolve().as_posix(), commit, policy_hash, manifest_hash)
     if _INDEX_CACHE_KEY == cache_key and _INDEX_CACHE_VALUE is not None:
         return copy.deepcopy(_INDEX_CACHE_VALUE)
-    cache: dict[str, Any] = {SOURCE_TEXTS_KEY: source_texts}
+    cache: dict[str, Any] = {SOURCE_TEXTS_KEY: source_texts, SOURCE_COMMIT_KEY: commit}
     cards = [build_card(repo, policy, operation, commit, policy_hash, cache) for operation in policy["operations"]]
     index = {
         "version": 1,
