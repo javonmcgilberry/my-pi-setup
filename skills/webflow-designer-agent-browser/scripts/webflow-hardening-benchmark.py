@@ -13,9 +13,12 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from itertools import combinations
 from pathlib import Path
 from typing import Any
@@ -36,7 +39,21 @@ SAFETY_METRICS = {
     "empty_runner_pass",
     "runner_false_passes",
     "stopped_with_lease_clean",
+    "lifecycle_false_stopped",
+    "lifecycle_missing_stop_proof",
     "privacy_canary_acceptance",
+    "privacy_raw_canary_acceptance",
+    "privacy_bounds_violations",
+    "approval_reuse_accepted",
+    "approval_digest_mismatch_accepted",
+    "approval_expired_accepted",
+    "approval_malformed_accepted",
+    "approval_symlink_accepted",
+    "mixed_trusted_route",
+    "rename_predecessor_ignored",
+    "mutation_survivors",
+    "canonical_mismatches",
+    "scale_private_value_leaks",
 }
 
 
@@ -268,7 +285,11 @@ def validation_candidate(validate_change: Any, context: dict[str, Any]) -> dict[
 
 
 def validation_metrics(validate_change: Any, fixture: dict[str, Any], policy: dict[str, Any]) -> dict[str, int]:
-    files = {fixture["mappedPath"]: "export const pages = true;\n", fixture["unknownPath"]: "export const pages = true;\n"}
+    files = {
+        fixture["mappedPath"]: "export const pages = true;\n",
+        fixture["secondMappedPath"]: "export const add = true;\n",
+        fixture["unknownPath"]: "export const pages = true;\n",
+    }
     holder, repo = make_repo(files)
     try:
         try:
@@ -280,6 +301,7 @@ def validation_metrics(validate_change: Any, fixture: dict[str, Any], policy: di
         else:
             explicit_trusted = int(clean_explicit[1]["status"] == "trusted")
         (repo / fixture["mappedPath"]).write_text("export const pages = changed;\n", encoding="utf-8")
+        (repo / fixture["secondMappedPath"]).write_text("export const add = changed;\n", encoding="utf-8")
         (repo / fixture["unknownPath"]).write_text("export const pages = changed;\n", encoding="utf-8")
         explicit = validate_change.validate_change(repo, policy, changed_files=[fixture["mappedPath"]])
         proposed = validate_change.validate_change(repo, policy, changed_files=[fixture["unknownPath"]])
@@ -301,11 +323,48 @@ def validation_metrics(validate_change: Any, fixture: dict[str, Any], policy: di
 
         change_set = explicit[0]
         empty_receipt = validate_change.execute_runner(repo, policy, [], change_set)
+        mixed_change_set = validate_change.collect_change_set(
+            repo,
+            policy["changeValidation"]["limits"],
+            changed_files=[
+                fixture["mappedPath"],
+                fixture["secondMappedPath"],
+                fixture["unknownPath"],
+            ],
+        )
+        mixed_route = validate_change.route_trusted_contracts(mixed_change_set, policy)
         return {
             "explicit_trusted_route": explicit_trusted,
             "schema_invalid_accepted": accepted,
             "empty_runner_pass": int(empty_receipt["status"] == "passed"),
+            "mixed_trusted_route": int(mixed_route["status"] == "trusted"),
         }
+    finally:
+        holder.cleanup()
+
+
+def rename_routing_metric(validate_change: Any, fixture: dict[str, Any], policy: dict[str, Any]) -> int:
+    holder, repo = make_repo({fixture["mappedPath"]: "export const pages = true;\n"})
+    try:
+        destination = repo / fixture["secondMappedPath"]
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ["git", "mv", fixture["mappedPath"], fixture["secondMappedPath"]],
+            cwd=repo,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        change_set = validate_change.collect_change_set(
+            repo, policy["changeValidation"]["limits"]
+        )
+        route = validate_change.route_trusted_contracts(change_set, policy)
+        return int(
+            not any(
+                item.get("runnerId") == "designer-pages-panel-focused"
+                for item in route.get("matches", [])
+            )
+        )
     finally:
         holder.cleanup()
 
@@ -346,17 +405,26 @@ def runner_metrics(validate_change: Any, fixture: dict[str, Any], policy: dict[s
 
 
 def lifecycle_metrics(runtime: Any, fixture: dict[str, Any]) -> dict[str, int]:
+    observations = [
+        (runtime.runtime_is_stopped(state), state["expectStopped"])
+        for state in fixture["states"]
+    ]
     return {
         "stopped_with_lease_clean": sum(
             runtime.runtime_is_stopped(state)
             for state in fixture["states"]
-            if state["leasePresent"]
-        )
+            if state.get("leasePresent") is True
+        ),
+        "lifecycle_false_stopped": sum(
+            int(observed and not expected) for observed, expected in observations
+        ),
+        "lifecycle_missing_stop_proof": sum(
+            int(not observed and expected) for observed, expected in observations
+        ),
     }
 
 
-def privacy_metrics(automation_evidence: Any, fixture: dict[str, Any]) -> dict[str, int]:
-    canary = " ".join(item["value"] for item in fixture["canaries"])
+def privacy_report(automation_evidence: Any, fixture: dict[str, Any], *, canary: str) -> dict[str, Any]:
     checks = [{"name": name, "state": "ready"} for name in sorted(automation_evidence.READINESS_CHECKS)]
     transaction = "synthetic-privacy-transaction"
     value = {
@@ -390,13 +458,322 @@ def privacy_metrics(automation_evidence: Any, fixture: dict[str, Any]) -> dict[s
             "scope_claim": automation_evidence.SCOPE_CLAIMS["attached"],
         }
     }
+    return value
+
+
+def privacy_metrics(automation_evidence: Any, fixture: dict[str, Any]) -> dict[str, int]:
+    canary = " ".join(item["value"] for item in fixture["canaries"])
+    raw_acceptance = sum(
+        int(automation_evidence.sanitize_evidence.is_safe_evidence_text(item["value"]))
+        for item in fixture["canaries"]
+    )
     try:
-        automation_evidence.validate_report(value)
+        automation_evidence.validate_report(privacy_report(automation_evidence, fixture, canary=canary))
     except ValueError:
         accepted = 0
     else:
         accepted = len(fixture["canaries"])
-    return {"privacy_canary_acceptance": accepted}
+    bounds = fixture["bounds"]
+    oversized = {
+        "deep": "leaf",
+        "items": list(range(bounds["maximumItems"] + 1)),
+        "string": "x" * (bounds["maximumString"] + 1),
+    }
+    sanitized = automation_evidence.sanitize_evidence.sanitize(oversized)
+    bounds_ok = (
+        sanitized["deep"] == "leaf"
+        and len(sanitized["items"]) == bounds["maximumItems"] + 1
+        and len(sanitized["string"]) <= bounds["maximumString"] + len("[TRUNCATED]")
+    )
+    return {
+        "privacy_canary_acceptance": accepted,
+        "privacy_raw_canary_acceptance": raw_acceptance,
+        "privacy_bounds_violations": int(not bounds_ok),
+    }
+
+
+def write_confirmation(root: Path, token: str, digest: str, expires_at: int) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / f"{token}.json").write_text(
+        json.dumps({"version": 1, "approvalDigest": digest, "expiresAt": expires_at}),
+        encoding="utf-8",
+    )
+
+
+def approval_metrics(validate_change: Any, fixture: dict[str, Any]) -> dict[str, int]:
+    digest = "a" * 64
+    token = "b" * 64
+    root_holder = tempfile.TemporaryDirectory()
+    root = Path(root_holder.name)
+    previous = os.environ.get(validate_change.HOST_CONFIRMATION_ENV)
+    os.environ[validate_change.HOST_CONFIRMATION_ENV] = str(root)
+    try:
+        write_confirmation(root, token, digest, int(time.time()) + 60)
+        validate_change.consume_host_confirmation(token, digest)
+        try:
+            validate_change.consume_host_confirmation(token, digest)
+        except validate_change.ValidationError:
+            reuse_accepted = 0
+        else:
+            reuse_accepted = 1
+
+        write_confirmation(root, token, digest, int(time.time()) + 60)
+        try:
+            validate_change.consume_host_confirmation(token, "c" * 64)
+        except validate_change.ValidationError:
+            digest_mismatch_accepted = 0
+        else:
+            digest_mismatch_accepted = 1
+
+        write_confirmation(root, token, digest, int(time.time()) - 1)
+        try:
+            validate_change.consume_host_confirmation(token, digest)
+        except validate_change.ValidationError:
+            expired_accepted = 0
+        else:
+            expired_accepted = 1
+
+        (root / f"{token}.json").write_text("{}", encoding="utf-8")
+        try:
+            validate_change.consume_host_confirmation(token, digest)
+        except validate_change.ValidationError:
+            malformed_accepted = 0
+        else:
+            malformed_accepted = 1
+
+        target = root / "target.json"
+        target.write_text(json.dumps({"version": 1, "approvalDigest": digest, "expiresAt": int(time.time()) + 60}), encoding="utf-8")
+        symlink_token = root / f"{token}.json"
+        symlink_token.symlink_to(target)
+        try:
+            validate_change.consume_host_confirmation(token, digest)
+        except validate_change.ValidationError:
+            symlink_accepted = 0
+        else:
+            symlink_accepted = 1
+        symlink_token.unlink(missing_ok=True)
+
+        root_link = root.with_name(root.name + "-link")
+        root_link.symlink_to(root, target_is_directory=True)
+        os.environ[validate_change.HOST_CONFIRMATION_ENV] = str(root_link)
+        try:
+            validate_change.consume_host_confirmation(token, digest)
+        except validate_change.ValidationError:
+            pass
+        else:
+            symlink_accepted = 1
+        root_link.unlink(missing_ok=True)
+        return {
+            "approval_reuse_accepted": reuse_accepted,
+            "approval_digest_mismatch_accepted": digest_mismatch_accepted,
+            "approval_expired_accepted": expired_accepted,
+            "approval_malformed_accepted": malformed_accepted,
+            "approval_symlink_accepted": symlink_accepted,
+        }
+    finally:
+        if previous is None:
+            os.environ.pop(validate_change.HOST_CONFIRMATION_ENV, None)
+        else:
+            os.environ[validate_change.HOST_CONFIRMATION_ENV] = previous
+        root_holder.cleanup()
+
+
+def scale_metrics(corpus: Any, fixture: dict[str, Any]) -> dict[str, int]:
+    def measure(count: int) -> tuple[int, int, str]:
+        bound = 0
+        digests: list[str] = []
+        source = (
+            "test('scale pages', async () => { await page.getByTestId('fixture-pages-panel').click(); "
+            "await expect(page.getByTestId('fixture-pages-panel')).toBeVisible(); });\n"
+        )
+        for index in range(count):
+            features = corpus.fragment_features(source.replace("scale pages", f"scale pages {index}"))
+            identity = corpus.semantic_identity(
+                features,
+                relative_path=f"scale/{index:05d}.spec.ts",
+                line_start=1,
+                line_end=1,
+            )
+            bound += int(identity["bound"])
+            digests.append(identity["digest"])
+        return count, bound, hashlib.sha256("".join(digests).encode()).hexdigest()
+
+    first = {count: measure(count) for count in fixture["counts"]}
+    second = {count: measure(count) for count in fixture["counts"]}
+    serialized = json.dumps(first, sort_keys=True)
+    return {
+        **{f"scale_{count}_executed": 1 for count in fixture["counts"]},
+        **{f"scale_{count}_fragments": value[0] for count, value in first.items()},
+        **{f"scale_{count}_bound": value[1] for count, value in first.items()},
+        "scale_cases_executed": sum(fixture["counts"]),
+        "canonical_mismatches": int(first != second),
+        "scale_private_value_leaks": int(any(token in serialized for token in ("/Users/", "privacy-canary", "Bearer "))),
+    }
+
+
+def load_mutated_module(target: str, old: str, new: str) -> tuple[tempfile.TemporaryDirectory[str], Any]:
+    holder: tempfile.TemporaryDirectory[str] = tempfile.TemporaryDirectory()
+    scripts = Path(holder.name) / "scripts"
+    scripts.mkdir()
+    for source in SCRIPT_DIR.glob("*.py"):
+        shutil.copyfile(source, scripts / source.name)
+    path = scripts / target
+    source = path.read_text(encoding="utf-8")
+    if source.count(old) != 1:
+        holder.cleanup()
+        raise AssertionError(f"mutation is not unique: {target}")
+    path.write_text(source.replace(old, new), encoding="utf-8")
+    return holder, load_module_from_path(path, f"mutation_{target.replace('-', '_')}_{hash(old)}")
+
+
+def load_module_from_path(path: Path, name: str) -> Any:
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"unable to load {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def mutation_probe(module: Any, mutant: dict[str, Any], fixture: dict[str, Any], policy: dict[str, Any]) -> bool:
+    group = mutant["group"]
+    if group == "corpus":
+        holder, repo = make_repo(corpus_files(fixture["provenance"]))
+        try:
+            module_policy = corpus_policy(module)
+            if mutant["id"] == "unsafe-raw-wait-positive":
+                return module.evidence_is_eligible({
+                    "signals": {
+                        "quarantined": False,
+                        "rawWait": True,
+                        "fixtureDependent": False,
+                        "destructive": False,
+                    }
+                })
+            index = module.build_index(repo, module_policy)
+            discovery = module.build_discovery(repo, module_policy)
+            if mutant["id"] == "card-source-parity-disabled":
+                index["cards"][0]["intent"] = "mutated"
+                try:
+                    module.validate_index(index, repo, module_policy)
+                except module.CorpusError:
+                    return False
+                return True
+            discovery["candidates"][0]["dimensions"][fixture["provenance"]["discoveryTamperField"]] = 0
+            try:
+                module.validate_discovery(discovery, repo, module_policy)
+            except module.CorpusError:
+                return False
+            return True
+        finally:
+            holder.cleanup()
+    if group == "validation":
+        holder, repo = make_repo({fixture["routing"]["mappedPath"]: "export const pages = true;\n"})
+        try:
+            if mutant["id"] == "explicit-git-proof-disabled":
+                try:
+                    validate_change_result = module.validate_change(repo, policy, changed_files=[fixture["routing"]["mappedPath"]])
+                except module.ValidationError:
+                    return False
+                return validate_change_result[0]["files"] == []
+            change_set = {"sourceCommit": "a" * 40, "digest": "b" * 64, "files": []}
+            receipt = module.execute_runner(repo, policy, [], change_set)
+            return receipt["status"] == "passed"
+        finally:
+            holder.cleanup()
+    if group == "runner":
+        holder, repo = make_repo({fixture["routing"]["mappedPath"]: "export const pages = true;\n"})
+        try:
+            path = repo / fixture["routing"]["mappedPath"]
+            path.write_text("export const pages = changed;\n", encoding="utf-8")
+            changes = module.collect_change_set(repo, policy["changeValidation"]["limits"], changed_files=[fixture["routing"]["mappedPath"]])
+            markers = module.output_failure_markers(b"semantic assertion failed")
+            calls = 0
+
+            def runner(_command: list[str], _cwd: Path, _timeout: int) -> Any:
+                nonlocal calls
+                calls += 1
+                return module.CommandResult(0, failure_markers=markers if calls > 1 else ())
+
+            receipt = module.execute_runner(
+                repo,
+                policy,
+                ["designer-pages-panel-focused"],
+                changes,
+                runner=runner,
+            )
+            return receipt["status"] == "passed"
+        finally:
+            holder.cleanup()
+    if group == "approval":
+        root_holder = tempfile.TemporaryDirectory()
+        root = Path(root_holder.name)
+        previous = os.environ.get(module.HOST_CONFIRMATION_ENV)
+        os.environ[module.HOST_CONFIRMATION_ENV] = str(root)
+        try:
+            token = "b" * 64
+            write_confirmation(root, token, "a" * 64, int(time.time()) - 1 if mutant["id"] == "confirmation-expiry-disabled" else int(time.time()) + 60)
+            digest = "c" * 64 if mutant["id"] == "confirmation-digest-disabled" else "a" * 64
+            try:
+                module.consume_host_confirmation(token, digest)
+            except module.ValidationError:
+                return False
+            return True
+        finally:
+            if previous is None:
+                os.environ.pop(module.HOST_CONFIRMATION_ENV, None)
+            else:
+                os.environ[module.HOST_CONFIRMATION_ENV] = previous
+            root_holder.cleanup()
+    if group == "lifecycle":
+        state = {
+            "status": "stopped",
+            "runtimeOwned": False,
+            "cdpReady": False,
+            "leasePresent": True if mutant["id"] == "lease-presence-relaxed" else False,
+            "leaseValid": True,
+            "consumer": "designer-code-mode" if mutant["id"] == "consumer-check-removed" else None,
+        }
+        if mutant["id"] == "lease-validity-relaxed":
+            state["leaseValid"] = None
+        return bool(module.runtime_is_stopped(state))
+    if group == "privacy":
+        if mutant["id"] == "unknown-query-accepted":
+            return bool(module.is_safe_evidence_text("https://example.invalid/?debug=private"))
+        if mutant["id"] == "unsafe-query-value-accepted":
+            return bool(module.is_safe_evidence_text("https://example.invalid/?pageId=Bearer%20private"))
+        try:
+            module.validate_report(privacy_report(
+                module,
+                fixture["privacy"],
+                canary=fixture["privacy"]["canaries"][1]["value"],
+            ))
+        except ValueError:
+            return False
+        return True
+    raise AssertionError(f"unsupported mutation group: {group}")
+
+
+def mutation_metrics(validate_change: Any, corpus: Any, automation_evidence: Any, runtime: Any, fixtures: dict[str, Any], policy: dict[str, Any]) -> dict[str, int | float]:
+    killed = 0
+    survivors = 0
+    for mutant in fixtures["mutants"]:
+        target = mutant["target"]
+        holder, module = load_mutated_module(target, mutant["old"], mutant["new"])
+        try:
+            unsafe_accepted = mutation_probe(module, mutant, {"provenance": fixtures["provenance"], "routing": fixtures["routing"], "lifecycle": fixtures["lifecycle"], "privacy": fixtures["privacy"]}, policy)
+        finally:
+            holder.cleanup()
+        if unsafe_accepted:
+            killed += 1
+        else:
+            survivors += 1
+    total = killed + survivors
+    return {
+        "mutation_survivors": survivors,
+        "mutation_kill_rate": round(killed / total, 6) if total else 0.0,
+    }
 
 
 def run(repo: Path) -> dict[str, int | float]:
@@ -411,14 +788,26 @@ def run(repo: Path) -> dict[str, int | float]:
     lifecycle = read_fixture("lifecycle-states.json")
     privacy = read_fixture("privacy-canaries.json")
     scale = read_fixture("scale-profiles.json")
+    approvals = read_fixture("approval-races.json")
+    mutations = read_fixture("mutation-sentinels.json")
     policy = validate_change.validate_policy(json.loads((SKILL_DIR / "test-corpus-policy.json").read_text()))
     metrics: dict[str, int | float] = {}
     metrics.update(semantic_metrics(corpus, semantic))
     metrics.update(corpus_metrics(corpus, provenance))
     metrics.update(validation_metrics(validate_change, routing, policy))
+    metrics["rename_predecessor_ignored"] = rename_routing_metric(validate_change, routing, policy)
     metrics.update(runner_metrics(validate_change, runners, policy))
     metrics.update(lifecycle_metrics(runtime, lifecycle))
     metrics.update(privacy_metrics(automation_evidence, privacy))
+    metrics.update(approval_metrics(validate_change, approvals))
+    metrics.update(scale_metrics(corpus, scale))
+    metrics.update(mutation_metrics(validate_change, corpus, automation_evidence, runtime, {
+        "provenance": provenance,
+        "routing": routing,
+        "lifecycle": lifecycle,
+        "privacy": privacy,
+        "mutants": mutations["mutants"],
+    }, policy))
     metrics["bounded_scale_cases"] = sum(scale["counts"])
     metrics["deterministic_runs"] = int(metrics == {
         **metrics,
@@ -429,11 +818,19 @@ def run(repo: Path) -> dict[str, int | float]:
 
 
 def verification_failures(metrics: dict[str, int | float]) -> dict[str, int | float]:
-    return {
+    failures = {
         key: metrics[key]
         for key in sorted(SAFETY_METRICS)
         if metrics.get(key) != 0
-    } | ({"deterministic_runs": metrics.get("deterministic_runs", 0)} if metrics.get("deterministic_runs") != 1 else {})
+    }
+    if metrics.get("mutation_kill_rate") != 1.0:
+        failures["mutation_kill_rate"] = metrics.get("mutation_kill_rate", 0)
+    for count in (100, 1000, 10000):
+        if metrics.get(f"scale_{count}_executed") != 1:
+            failures[f"scale_{count}_executed"] = metrics.get(f"scale_{count}_executed", 0)
+    if metrics.get("deterministic_runs") != 1:
+        failures["deterministic_runs"] = metrics.get("deterministic_runs", 0)
+    return failures
 
 
 def verified(metrics: dict[str, int | float]) -> bool:

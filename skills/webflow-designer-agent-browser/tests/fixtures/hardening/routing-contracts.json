@@ -1,6 +1,7 @@
 {
   "version": 1,
   "mappedPath": "public/js/designer-flux/components/PagesPanel/PagesPanel.tsx",
+  "secondMappedPath": "public/js/designer-flux/components/AddTabWaveTwo.tsx",
   "unknownPath": "experiments/pages-change.ts",
   "invalidCandidateMutations": [
     {"id": "assert-expected-object", "path": ["actions", 1, "expected"], "value": {"kind": "not-a-scalar"}},

@@ -4,6 +4,17 @@
     {"id": "email", "value": "privacy-canary@example.invalid"},
     {"id": "path", "value": "/Users/private/privacy-canary"},
     {"id": "query", "value": "https://example.invalid/designer?token=privacy-canary-token"},
-    {"id": "credential", "value": "Bearer privacy-canary-credential"}
-  ]
+    {"id": "credential", "value": "Bearer privacy-canary-credential"},
+    {"id": "unknown-query", "value": "https://example.invalid/designer?debug=private-value"},
+    {"id": "unsafe-safe-key", "value": "https://example.invalid/designer?pageId=Bearer%20private-value"},
+    {"id": "userinfo", "value": "https://fixture-user@example.invalid/designer"},
+    {"id": "fragment", "value": "https://example.invalid/designer#private-fragment"},
+    {"id": "control", "value": "safe-prefix\u0001unsafe-control"}
+  ],
+  "safeTexts": [
+    "https://example.invalid/designer?pageId=fixture-page",
+    "https://example.invalid/designer?debug=%5BREDACTED%5D",
+    "bounded semantic evidence"
+  ],
+  "bounds": {"maximumDepth": 12, "maximumItems": 100, "maximumString": 2000}
 }
