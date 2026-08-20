@@ -34,6 +34,7 @@ SELECTION_STATUSES = {
 UNSAFE_EVIDENCE_SIGNALS = ("quarantined", "rawWait", "fixtureDependent", "destructive")
 HEX_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9._-]+$")
+METADATA_BATCH_MARKER = "\x00metadata-batch-loaded"
 _INDEX_CACHE_KEY: tuple[str, str, str, str] | None = None
 _INDEX_CACHE_VALUE: dict[str, Any] | None = None
 _DISCOVERY_CACHE_KEY: tuple[str, str, str, str] | None = None
@@ -157,13 +158,25 @@ def source_commit(repo: Path) -> str:
 def file_git_metadata(repo: Path, relative_path: str, cache: dict[str, dict[str, str]]) -> dict[str, str]:
     if relative_path in cache:
         return cache[relative_path]
-    output = run_git(repo, "log", "-1", "--format=%H%x00%cI", "--", relative_path)
-    parts = output.split("\x00", 1)
-    metadata = {}
-    if len(parts) == 2 and HEX_COMMIT.fullmatch(parts[0]):
-        metadata = {"lastChangedCommit": parts[0], "lastChangedAt": parts[1]}
-    cache[relative_path] = metadata
-    return metadata
+    if METADATA_BATCH_MARKER not in cache:
+        output = run_git(repo, "log", "--all", "--name-only", "--format=%H%x00%cI", "--")
+        current: tuple[str, str] | None = None
+        for line in output.splitlines():
+            if "\x00" in line:
+                commit, changed_at = line.split("\x00", 1)
+                if HEX_COMMIT.fullmatch(commit):
+                    current = (commit, changed_at)
+                continue
+            if line and current and line not in cache:
+                cache[line] = {
+                    "lastChangedCommit": current[0],
+                    "lastChangedAt": current[1],
+                }
+        cache[METADATA_BATCH_MARKER] = {}
+    if relative_path in cache:
+        return cache[relative_path]
+    cache[relative_path] = {}
+    return cache[relative_path]
 
 
 def source_manifest(repo: Path, policy: dict[str, Any]) -> str:
