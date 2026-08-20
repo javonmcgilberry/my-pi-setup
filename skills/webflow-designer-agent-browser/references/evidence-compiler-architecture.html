@@ -266,7 +266,7 @@
         </article>
       </div>
 
-      <p><code>semantic_identity</code> in <code>test-corpus-index.py:546-575</code> creates the anchor. <code>candidate_id</code> adds framework, subsystem, and structural signature. The report keeps the digest, not the original target literal.</p>
+       <p><code>semantic_identity</code> in <code>test-corpus-index.py:556-583</code> creates the anchor. <code>candidate_id</code> adds framework, subsystem, and structural signature. The report keeps the digest, not the original target literal.</p>
 
       <pre><code># Real logic, shortened only for presentation
 if features["actionTargets"]:
@@ -417,9 +417,9 @@ else:
     <section>
       <h2>Where the implementation lives</h2>
       <ul class="source-map">
-        <li><code>scripts/test-corpus-index.py:372-756, 1205-1382</code>: structural extraction, feature analysis, semantic identity, candidate grouping, holdouts, coverage, and validation.</li>
-        <li><code>scripts/validate-change.py:438-952</code>: trusted routing, proposal context, candidate validation, one-run state, output classification, receipts, and runner execution.</li>
-        <li><code>scripts/designer-code-mode.py:1747-1963</code>: candidate recording, digest-bound approval, one-run claiming, and the compact <code>validate_change</code> interface.</li>
+         <li><code>scripts/test-corpus-index.py:433-756, 1207-1395</code>: structural extraction, feature analysis, semantic identity, candidate grouping, holdouts, coverage, and validation.</li>
+         <li><code>scripts/validate-change.py:306-1204</code>: trusted routing, proposal context, candidate validation, one-run state, output classification, receipts, and runner execution.</li>
+         <li><code>scripts/designer-code-mode.py:1799-2003</code>: candidate recording, digest-bound approval, one-run claiming, and the compact <code>validate_change</code> interface.</li>
         <li><code>schemas/designer-validation-contract.schema.json</code>: the closed candidate contract.</li>
         <li><code>schemas/designer-validation-receipt.schema.json</code>: the compact public receipt.</li>
         <li><code>test-corpus-policy.json</code>: source roots, operation seed, mappings, fixed runners, budgets, and allowlists.</li>

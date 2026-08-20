@@ -44,7 +44,7 @@ A simple count of similar tests would be misleading. Two tests that call the sam
 The compiler avoids that shortcut in `scripts/test-corpus-index.py`.
 
 ```python
-# semantic_identity, test-corpus-index.py:546-575
+# semantic_identity, test-corpus-index.py:556-583
 if features["actionTargets"]:
     kind, seed, bound = "selector-target", features["actionTargets"], True
 elif features["helperCalls"]:
@@ -210,9 +210,9 @@ That restraint is the point. The validator is designed to stop when it lacks evi
 
 ## Code map
 
-- `skills/webflow-designer-agent-browser/scripts/test-corpus-index.py:372-756,1205-1382`: extraction, feature analysis, semantic identity, candidate grouping, holdouts, coverage, and discovery validation.
-- `skills/webflow-designer-agent-browser/scripts/validate-change.py:438-952`: routing, proposal context, candidate validation, output classification, receipts, and execution.
-- `skills/webflow-designer-agent-browser/scripts/designer-code-mode.py:1747-1963`: candidate state, digest-bound approval, one-run claiming, and the `validate_change` interface.
+- `skills/webflow-designer-agent-browser/scripts/test-corpus-index.py:433-756,1207-1395`: extraction, feature analysis, semantic identity, candidate grouping, holdouts, coverage, and discovery validation.
+- `skills/webflow-designer-agent-browser/scripts/validate-change.py:306-1204`: routing, proposal context, candidate validation, output classification, receipts, and execution.
+- `skills/webflow-designer-agent-browser/scripts/designer-code-mode.py:1799-2003`: candidate state, digest-bound approval, one-run claiming, and the `validate_change` interface.
 - `skills/webflow-designer-agent-browser/schemas/designer-validation-contract.schema.json`: the closed candidate contract.
 - `skills/webflow-designer-agent-browser/schemas/designer-validation-receipt.schema.json`: the compact public receipt.
 - `skills/webflow-designer-agent-browser/test-corpus-policy.json`: source roots, operation seed, mappings, runners, budgets, and allowlists.
