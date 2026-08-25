@@ -5,6 +5,7 @@
   "defaultModel": "gpt-5.6-luna",
   "packages": [
     "npm:pi-mcp-adapter",
+    "npm:pi-mono-figma",
     "npm:pi-web-access",
     "npm:context-mode",
     "npm:pi-subagents",
@@ -45,11 +46,25 @@
     "agentOverrides": {
       "worker": {
         "defaultContext": "fork",
-        "acceptanceRole": "writer"
+        "acceptanceRole": "writer",
+        "tools": "inherit"
       },
       "reviewer": {
         "defaultContext": "fresh",
-        "acceptanceRole": "read-only"
+        "acceptanceRole": "read-only",
+        "tools": "inherit"
+      },
+      "delegate": {
+        "tools": "inherit"
+      },
+      "oracle": {
+        "tools": "inherit"
+      },
+      "researcher": {
+        "tools": "inherit"
+      },
+      "scout": {
+        "tools": "inherit"
       }
     },
     "defaultModel": "openai-codex/gpt-5.6-luna:max"
