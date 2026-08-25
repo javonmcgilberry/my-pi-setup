@@ -112,6 +112,23 @@ function normalizePaths(value, label, { allowTrailingSlash = false } = {}) {
   );
 }
 
+function normalizeSettingKeys(value) {
+  if (!Array.isArray(value)) throw new Error("settingsManagedKeys must be an array");
+  const keys = value.map((item, index) => {
+    if (typeof item !== "string" || !/^[A-Za-z][A-Za-z0-9]*$/.test(item)) {
+      throw new Error(`settingsManagedKeys[${index}] must be a top-level JSON key`);
+    }
+    return item;
+  });
+  if (new Set(keys).size !== keys.length) {
+    throw new Error("settingsManagedKeys contains duplicate keys");
+  }
+  if (!keys.includes("packages")) {
+    throw new Error("settingsManagedKeys must include packages");
+  }
+  return keys;
+}
+
 function assertUniqueTargets(entries, label) {
   const seen = new Map();
   for (const entry of entries) {
@@ -155,6 +172,7 @@ export function normalizeManifest(raw, { repoRoot = REPO_ROOT } = {}) {
   const allowedKeys = new Set([
     "version",
     "rendered",
+    "settingsManagedKeys",
     "copied",
     "linked",
     "commands",
@@ -173,6 +191,7 @@ export function normalizeManifest(raw, { repoRoot = REPO_ROOT } = {}) {
 
   const rendered = normalizeMap(raw.rendered, "rendered", "pi", repoRoot, { filesOnly: true });
   if (rendered.length !== 1) throw new Error("rendered must contain exactly one settings entry");
+  const settingsManagedKeys = normalizeSettingKeys(raw.settingsManagedKeys);
   const copied = normalizeCopied(raw.copied, repoRoot);
   const linked = normalizeMap(raw.linked, "linked", "pi", repoRoot);
   const commands = normalizeMap(raw.commands, "commands", "commands", repoRoot, {
@@ -228,6 +247,7 @@ export function normalizeManifest(raw, { repoRoot = REPO_ROOT } = {}) {
   return {
     version: MANIFEST_VERSION,
     rendered,
+    settingsManagedKeys,
     copied,
     linked,
     commands,
@@ -259,6 +279,9 @@ export function entriesFor(manifest, category, root) {
     return manifest.linked.filter((entry) => entry.root === (root ?? "pi"));
   }
   if (category === "rendered") return manifest.rendered;
+  if (category === "settingsManagedKeys") {
+    return manifest.settingsManagedKeys.map((target) => ({ target }));
+  }
   if (category === "copied") return manifest.copied;
   if (category === "externalLinks") return manifest.externalLinks.map((target) => ({ target }));
   if (category === "localOverrides") return manifest.localOverrides.map((target) => ({ target }));
@@ -284,6 +307,7 @@ function main(argv) {
       `${JSON.stringify({
         valid: true,
         version: manifest.version,
+        settingsManagedKeys: manifest.settingsManagedKeys.length,
         copied: manifest.copied.length,
         linked: manifest.linked.length,
         commands: manifest.commands.length,
@@ -295,7 +319,7 @@ function main(argv) {
     return;
   }
   if (command === "list") {
-    if (["retired", "externalLinks", "localOverrides", "runtimeExclusions"].includes(category)) {
+    if (["retired", "externalLinks", "localOverrides", "runtimeExclusions", "settingsManagedKeys"].includes(category)) {
       printEntries(entriesFor(manifest, category, root), { includeSource: false });
     }
     else printEntries(entriesFor(manifest, category, root));
@@ -311,7 +335,7 @@ function main(argv) {
     if (violations.length) throw new Error(`repository inventory includes runtime exclusions: ${violations.join(", ")}`);
     return;
   }
-  throw new Error("Usage: manifest.mjs validate | check-inventory | list <rendered|copied|linked|commands|shared|macosLaunchAgents|retired|externalLinks|localOverrides|runtimeExclusions> [root]");
+  throw new Error("Usage: manifest.mjs validate | check-inventory | list <rendered|settingsManagedKeys|copied|linked|commands|shared|macosLaunchAgents|retired|externalLinks|localOverrides|runtimeExclusions> [root]");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

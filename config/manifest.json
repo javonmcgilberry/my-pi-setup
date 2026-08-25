@@ -3,6 +3,11 @@
   "rendered": {
     "settings.json": "settings.json"
   },
+  "settingsManagedKeys": [
+    "packages",
+    "subagents",
+    "vstack"
+  ],
   "copied": [
     "AGENTS.md",
     "REALTIME-SYSTEM-PROMPT.md",

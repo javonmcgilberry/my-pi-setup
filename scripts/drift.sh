@@ -79,6 +79,12 @@ while IFS=$'\t' read -r target _backup; do
 done < <(node "$manifest_script" list retired commands)
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/my-pi-drift.XXXXXX")"
 trap 'rm -rf "$tmp_dir"' EXIT
+IFS=$'\t' read -r _rendered_source rendered_target _rendered_backup < <(node "$manifest_script" list rendered)
+actual_settings="${agent_dir}/${rendered_target}"
+if [[ -f "$actual_settings" && ! -L "$actual_settings" ]]; then
+  mkdir -p "$(dirname "$tmp_dir/agent/$rendered_target")"
+  cp -p "$actual_settings" "$tmp_dir/agent/$rendered_target"
+fi
 PI_AGENT_DIR="$tmp_dir/agent" AGENTS_SKILLS_DIR="$tmp_dir/shared-skills" PI_COMMANDS_DIR="$tmp_dir/bin" "$repo_dir/setup.sh" >/dev/null
 manifest() {
   node "$manifest_script" "$@"

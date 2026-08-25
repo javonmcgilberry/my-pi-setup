@@ -33,6 +33,7 @@ function run(script, args, target) {
     cwd: repoRoot,
     env: {
       ...process.env,
+      HOME: target.root,
       PI_AGENT_DIR: target.agentDir,
       PI_CODING_AGENT_DIR: target.agentDir,
       AGENTS_SKILLS_DIR: target.skillsDir,
@@ -62,6 +63,10 @@ describe("setup bootstrap", () => {
     const settings = JSON.parse(await readFile(path.join(target.agentDir, "settings.json"), "utf8"));
     assert.equal(settings.packages.at(-1), repoRoot);
     assert.equal(settings.packages.filter((source) => source === repoRoot).length, 1);
+    assert.equal(
+      settings.packages.includes("git:github.com/javonmcgilberry/pi-prewalk"),
+      true,
+    );
     assert.equal(await exists(path.join(target.agentDir, "extensions/pretty-footer.ts")), false);
     assert.equal(await exists(path.join(target.agentDir, "packages/prewalk")), false);
 
@@ -96,6 +101,71 @@ describe("setup bootstrap", () => {
       },
     });
     assert.equal(JSON.parse(toolHelp.stdout).operation, "help");
+  });
+
+  it("loads Prewalk only from the canonical development checkout when it exists", async () => {
+    const target = await tempTarget();
+    const prewalk = path.join(target.root, "Developer/pi-prewalk");
+    await mkdir(prewalk, { recursive: true });
+    await execFileAsync("git", ["init", "-q", prewalk]);
+
+    await run(setupScript, [], target);
+
+    const settings = JSON.parse(
+      await readFile(path.join(target.agentDir, "settings.json"), "utf8"),
+    );
+    assert.equal(settings.packages.includes(prewalk), true);
+    assert.equal(
+      settings.packages.includes("git:github.com/javonmcgilberry/pi-prewalk"),
+      false,
+    );
+  });
+
+  it("rejects a non-Git canonical Prewalk directory instead of selecting another path", async () => {
+    const target = await tempTarget();
+    await mkdir(path.join(target.root, "Developer/pi-prewalk"), { recursive: true });
+
+    await assert.rejects(
+      run(setupScript, [], target),
+      /Canonical Prewalk checkout is not a Git working tree/,
+    );
+  });
+
+  it("preserves live Pi preferences and repairs only repository-managed settings", async () => {
+    const target = await tempTarget();
+    const settingsFile = path.join(target.agentDir, "settings.json");
+    await mkdir(target.agentDir, { recursive: true });
+    await writeFile(settingsFile, `${JSON.stringify({
+      defaultThinkingLevel: "low",
+      modelThinkingLevels: { "openai/example": "high" },
+      packages: ["npm:stale"],
+      subagents: { defaultModel: "stale" },
+      vstack: { stale: true },
+    })}\n`);
+
+    await run(setupScript, [], target);
+    let settings = JSON.parse(await readFile(settingsFile, "utf8"));
+    assert.equal(settings.defaultThinkingLevel, "low");
+    assert.deepEqual(settings.modelThinkingLevels, { "openai/example": "high" });
+    assert.equal(settings.packages.includes("npm:stale"), false);
+    assert.equal(settings.packages.at(-1), repoRoot);
+    assert.notEqual(settings.subagents.defaultModel, "stale");
+    assert.equal(settings.vstack.stale, undefined);
+
+    settings.defaultThinkingLevel = "high";
+    await writeFile(settingsFile, `${JSON.stringify(settings, null, 2)}\n`);
+    const preferenceDrift = await run(driftScript, [], target);
+    assert.match(preferenceDrift.stdout, /No managed file drift detected\./);
+
+    settings.packages = [];
+    await writeFile(settingsFile, `${JSON.stringify(settings, null, 2)}\n`);
+    await assert.rejects(
+      run(driftScript, [], target),
+      (error) => {
+        assert.match(error.stdout, /different: settings\.json/);
+        return true;
+      },
+    );
   });
 
   it("backs up retired paths and restores them", async () => {

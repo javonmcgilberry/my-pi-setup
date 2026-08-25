@@ -23,13 +23,18 @@ cd ~/Developer/my-pi-setup
 ./setup.sh
 ```
 
-The installer combines the defaults in this repository with the optional, ignored
-`settings.local.json` and writes the result to `${PI_AGENT_DIR:-~/.pi/agent}`. Shared skills are
-linked into `${AGENTS_SKILLS_DIR:-~/.agents/skills}`. Existing files managed by this setup
-are backed up before replacement. Pi installs configured packages in its own
-managed `npm/` and `git/` directories when it starts. The rendered settings load
-this checkout as one local Pi package; setup does not copy its extensions or
-create a second root `node_modules` tree.
+On a clean install, the installer combines this repository's defaults with the
+optional, ignored `settings.local.json`. If Pi already has a `settings.json`,
+setup keeps normal preferences changed through `/settings` and reapplies only
+the managed `packages`, `subagents`, and `vstack` keys. The manifest records
+that ownership split.
+
+Setup writes the result to `${PI_AGENT_DIR:-~/.pi/agent}` and links shared skills
+into `${AGENTS_SKILLS_DIR:-~/.agents/skills}`. Existing managed files are backed
+up before replacement. Pi installs configured packages in its own managed
+`npm/` and `git/` directories when it starts. The rendered settings load this
+checkout as one local Pi package; setup does not copy its extensions or create
+a second root `node_modules` tree.
 
 Someone who only wants the packaged extensions can install a pinned Git commit
 without using my global settings or bootstrap:
@@ -43,7 +48,18 @@ setup. It isolates the Pi directory, shared skills, and session state together.
 
 ## Daily workflow
 
-The main rule is: edit the owning checkout, never the generated live install.
+The source layout is intentionally fixed. There is one editable checkout for
+each component:
+
+| Component | Sole editable checkout | Owns |
+| --- | --- | --- |
+| Pi core | `~/Developer/pi` | Pi runtime and core changes |
+| Prewalk | `~/Developer/pi-prewalk` | Prewalk source, tests, and status text |
+| Pi setup | `~/Developer/my-pi-setup` | Package selection, settings, bootstrap, and Pretty Footer |
+
+Run commands from the checkout that owns the change. Never edit the generated
+install under `~/.pi/agent`, a managed package checkout under
+`~/.pi/agent/git` or `~/.pi/agent/npm`, or a second clone.
 
 For setup-package work, start Pi from this repository and check the repository
 state first:
@@ -154,34 +170,34 @@ That updates Pi itself, moves npm packages to their current registry releases,
 and moves Git packages to their remote default branches. The command then
 verifies the live setup. Restart Pi afterward.
 
-Prewalk follows the same update rule. Your explicit local replacement wins on
-this machine; clean installs follow the current remote default branch. To share
-Prewalk work, commit and push its own repository. No setup edit is required.
+Prewalk follows the same update rule. During local development, setup selects
+the sole canonical checkout at `~/Developer/pi-prewalk` when it is a Git
+working tree. If that checkout is absent, clean installs use the tracked remote
+default branch. To share Prewalk work, commit and push `~/Developer/pi-prewalk`;
+no package replacement or setup edit is required.
 
-Keep machine-only choices in ignored `settings.local.json`:
+Keep machine-only clean-install choices in ignored `settings.local.json`:
 
 ```json
 {
   "settings": {
     "defaultProjectTrust": "always"
-  },
-  "packageReplacements": {}
+  }
 }
 ```
 
-Nested settings objects are combined. Arrays replace the corresponding arrays
-from the tracked defaults. An explicit `packageReplacements` entry always wins
-over the tracked remote locator. Pi does not guess based on nearby checkout
-names, because a stale or retired clone must not silently replace the intended
-package. Add a replacement only for a checkout you are actively developing.
+Nested settings objects are combined, and arrays replace the corresponding
+arrays from the tracked defaults. Once live settings exist, their normal Pi
+preferences take precedence over these clean-install values. Package source
+selection is owned by setup and is not configured through a second local path.
 
 ### Prewalk development and installation
 
-Prewalk is a separate package with its own owning checkout. There are two
-sources, and the local replacement wins when it is present:
+Prewalk is a separate package with one editable source and one clean-install
+fallback:
 
-1. **Your development install:** ignored `settings.local.json` points Pi at the
-   owning local `pi-prewalk` checkout. Edit that checkout and restart Pi to load
+1. **Your development install:** setup selects `~/Developer/pi-prewalk` when it
+   exists as a Git working tree. Edit that checkout and restart Pi to load
    source-only changes.
 2. **A clean or public install:** tracked `settings.json` points Pi at the
    floating remote package:
@@ -190,21 +206,10 @@ sources, and the local replacement wins when it is present:
 git:github.com/javonmcgilberry/pi-prewalk
 ```
 
-If the local replacement is present, Pi does **not** use the managed Git
+When the canonical checkout is present, Pi does **not** use the managed Git
 checkout. If it is absent, Pi installs and updates the remote default branch in
 `~/.pi/agent/git/github.com/javonmcgilberry/pi-prewalk`. That checkout is
-generated package state; do not edit it.
-
-The local replacement looks like this:
-
-```json
-{
-  "packageReplacements": {
-    "git:github.com/javonmcgilberry/pi-prewalk":
-      "/absolute/path/to/pi-prewalk"
-  }
-}
-```
+generated package state; do not edit it or create another local replacement.
 
 For source-only edits in the local checkout, restart Pi. To share those changes,
 commit and push the Prewalk repository. The setup repository needs no matching
@@ -212,7 +217,12 @@ version change.
 
 ## Core Pi settings
 
-The main defaults live in [`settings.json`](settings.json):
+Pi's live `settings.json` is the source of truth for normal preferences. Changes
+made through `/settings`, including the thinking level, survive later setup and
+drift checks. This repository owns only the manifest-declared `packages`,
+`subagents`, and `vstack` keys.
+
+[`settings.json`](settings.json) supplies these clean-install defaults:
 
 - This setup targets Pi `0.84.0`. The regular TUI remains the default.
   Fullscreen mode is optional, and interactive transcripts can render Mermaid
@@ -303,9 +313,9 @@ dependencies so these prompt and tool changes run last.
 ## Installed packages and extensions
 
 The `packages` array in `settings.json` lists the packages Pi loads.
-All remote package sources float. Ignored
-`packageReplacements` can substitute an explicitly chosen local checkout during
-development. The root `package.json` describes this repository's own Pi package,
+All remote package sources float. Setup selects the canonical local Prewalk
+checkout automatically during development. The root `package.json` describes
+this repository's own Pi package,
 and `package-lock.json` covers only dependencies needed by that package itself.
 
 Context Mode now follows upstream's published npm releases. The previous nested
@@ -331,7 +341,7 @@ Mode mutation tracking and does not depend on that patch.
 | [`pi-autoname`](https://github.com/ssdiwu/pi-autoname) | Gives a new session a short name, then checks periodically whether the topic has changed enough to rename it. | [`pi-autoname.json`](pi-autoname.json) uses Luna, waits 10 minutes between checks, and preserves names set with `/name`. |
 | Compound Engineering | Provides planning, implementation, review, debugging, shipping, and learning skills. | Follows the default branch of [EveryInc/compound-engineering-plugin](https://github.com/EveryInc/compound-engineering-plugin). The package owns its skill documentation. |
 | [`pi-ask-user`](https://github.com/edlsh/pi-ask-user) | Adds the interactive `ask_user` decision UI with search, choices, and freeform input. | No tracked config. The linked repository owns the package README. |
-| Prewalk | The chosen planner starts a coding task; later turns go to a configured executor in the same session. | Uses the owning local checkout when `settings.local.json` provides a replacement; clean installs follow the default branch of [`pi-prewalk`](https://github.com/javonmcgilberry/pi-prewalk). [`prewalk.json`](prewalk.json) selects Luna at max reasoning and enables local analytics. |
+| Prewalk | The chosen planner starts a coding task; later turns go to a configured executor in the same session. | Uses `~/Developer/pi-prewalk` when that canonical Git checkout exists; clean installs follow the default branch of [`pi-prewalk`](https://github.com/javonmcgilberry/pi-prewalk). [`prewalk.json`](prewalk.json) selects Luna at max reasoning and enables local analytics. |
 | Context budget | Keeps the full skill catalog and the largest optional tool schemas out of the first request, then loads them when needed. | [`packages/context-budget`](packages/context-budget), loaded as part of this Pi package. Deferred groups are browser, intercom, MCP, and subagents. |
 | [`@vanillagreen/pi-tool-renderer`](https://github.com/vanillagreencom/vstack/tree/main/pi-extensions/pi-tool-renderer) | Replaces noisy tool output with compact, readable renderers. | Renderer modes are under `vstack.extensionManager.config` in `settings.json`. The linked package README has the renderer options. |
 | [`pi-render-cache`](https://github.com/axelbaumlisto/pi-render-cache) | Reduces terminal-interface (TUI) streaming work with bounded render caches. | No tracked config. If a release does not recognize Pi's current renderer hash, it disables that cache and leaves normal uncached rendering available. This is a performance cache, not a conversation backup. The linked repository owns the package README. |
@@ -374,7 +384,7 @@ setup.
 
 | File | Role |
 | --- | --- |
-| `settings.json` | Rendered from tracked defaults plus `settings.local.json`; controls models, packages, compaction, retry, subagents, and shared package settings. |
+| `settings.json` | Combines clean-install defaults, optional local fallbacks, and existing Pi preferences. Setup owns `packages`, `subagents`, and `vstack`; Pi keeps the other live values. |
 | `AGENTS.md` | Gives agents the source-ownership, validation, documentation, and publication rules for this setup. |
 | `REALTIME-SYSTEM-PROMPT.md` | Supplies Pi Codex Conversion's realtime conversational prompt. |
 | `agent-browser-policy.json` | Fail-closed model, nested-chat, and cookie-transfer defaults for the native browser extension. |
@@ -745,11 +755,12 @@ excluded. `setup.sh` does not copy or restore them.
 
 | Part | Source of truth | Live installation or data |
 | --- | --- | --- |
-| Global configuration | This repo plus ignored `settings.local.json` | Generated files under `~/.pi/agent` |
+| Global Pi preferences | Pi `/settings` and other native settings changes | `~/.pi/agent/settings.json`, preserved across setup runs |
+| Managed global settings | This repo plus ignored `settings.local.json` | The `packages`, `subagents`, and `vstack` keys in `~/.pi/agent/settings.json` |
 | Update command | `scripts/pi-update-all` | `~/.local/bin/pi-update-all` |
 | Personal Pi package and extensions | This repo | Loaded from this checkout by the rendered owner settings, or from Pi's managed Git checkout for a public install |
 | Shared agent skills | This repo | `~/.agents/skills/tui-cli-design` and `~/.agents/skills/webflow-designer-agent-browser` |
-| Prewalk | Owning `pi-prewalk` checkout for development; floating GitHub source for clean installs | Local replacement when configured; otherwise `~/.pi/agent/git/github.com/javonmcgilberry/pi-prewalk` |
+| Prewalk | `~/Developer/pi-prewalk` for development; floating GitHub source for clean installs | Canonical checkout when it exists; otherwise `~/.pi/agent/git/github.com/javonmcgilberry/pi-prewalk` |
 | Context budget | This repo | Loaded as part of this Pi package |
 | Context Mode | [`mksglu/context-mode`](https://github.com/mksglu/context-mode), distributed as [`context-mode`](https://www.npmjs.com/package/context-mode) | npm package managed by Pi |
 | pi-subagents | [`nicobailon/pi-subagents`](https://github.com/nicobailon/pi-subagents) | The unchanged release from the upstream npm package |

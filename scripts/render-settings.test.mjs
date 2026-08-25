@@ -37,21 +37,76 @@ describe("settings renderer", () => {
     assert.deepEqual(rendered.packages, ["npm:example@1.2.3", "/work/my-pi-setup"]);
   });
 
-  it("applies package replacements before adding the local setup package", async () => {
-    const source = "git:github.com/example/tool";
-    const { baseFile, localFile } = await fixture(
-      { packages: [source] },
-      { packageReplacements: { [source]: "/work/tool" } },
-    );
+  it("selects the sole canonical local Prewalk source", async () => {
+    const trackedPrewalk = "git:github.com/javonmcgilberry/pi-prewalk";
+    const { baseFile } = await fixture({ packages: [trackedPrewalk] });
     const { stdout } = await execFileAsync(process.execPath, [
       script,
       baseFile,
-      localFile,
+      "--prewalk-source",
+      "/home/example/Developer/pi-prewalk",
       "--package-source",
       "/work/my-pi-setup",
     ]);
     const rendered = JSON.parse(stdout);
-    assert.deepEqual(rendered.packages, ["/work/tool", "/work/my-pi-setup"]);
+    assert.deepEqual(rendered.packages, [
+      "/home/example/Developer/pi-prewalk",
+      "/work/my-pi-setup",
+    ]);
+  });
+
+  it("rejects arbitrary package replacement paths", async () => {
+    const source = "git:github.com/javonmcgilberry/pi-prewalk";
+    const { baseFile, localFile } = await fixture(
+      { packages: [source] },
+      { packageReplacements: { [source]: "/work/second-prewalk" } },
+    );
+    await assert.rejects(
+      execFileAsync(process.execPath, [script, baseFile, localFile]),
+      /Unknown local settings keys: packageReplacements/,
+    );
+  });
+
+  it("preserves live Pi preferences while restoring repository-managed settings", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "render-settings-live-"));
+    tempDirs.push(dir);
+    const baseFile = path.join(dir, "settings.json");
+    const localFile = path.join(dir, "settings.local.json");
+    const existingFile = path.join(dir, "existing.json");
+    await writeFile(baseFile, `${JSON.stringify({
+      defaultThinkingLevel: "max",
+      compaction: { enabled: true, reserveTokens: 1000 },
+      packages: ["npm:managed"],
+      subagents: { defaultModel: "managed" },
+    })}\n`);
+    await writeFile(localFile, `${JSON.stringify({
+      settings: { defaultThinkingLevel: "medium" },
+    })}\n`);
+    await writeFile(existingFile, `${JSON.stringify({
+      defaultThinkingLevel: "low",
+      compaction: { reserveTokens: 2000 },
+      modelThinkingLevels: { "openai/example": "high" },
+      packages: ["npm:stale"],
+      subagents: { defaultModel: "stale" },
+    })}\n`);
+
+    const { stdout } = await execFileAsync(process.execPath, [
+      script,
+      baseFile,
+      localFile,
+      "--existing-settings",
+      existingFile,
+      "--managed-key",
+      "packages",
+      "--managed-key",
+      "subagents",
+    ]);
+    const rendered = JSON.parse(stdout);
+    assert.equal(rendered.defaultThinkingLevel, "low");
+    assert.deepEqual(rendered.compaction, { enabled: true, reserveTokens: 2000 });
+    assert.deepEqual(rendered.modelThinkingLevels, { "openai/example": "high" });
+    assert.deepEqual(rendered.packages, ["npm:managed"]);
+    assert.deepEqual(rendered.subagents, { defaultModel: "managed" });
   });
 
   it("rejects a missing package-source value", async () => {

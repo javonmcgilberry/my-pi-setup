@@ -122,6 +122,7 @@ if ((${#rendered_entries[@]} != 1)); then
   exit 1
 fi
 IFS=$'\t' read -r rendered_source rendered_target <<< "${rendered_entries[0]}"
+settings_target="${agent_dir}/${rendered_target}"
 
 while IFS=$'\t' read -r source _target _backup; do
   [[ -f "${repo_dir}/${source}" ]] || {
@@ -203,11 +204,30 @@ fi
 if ((${#local_override_entries[@]} == 1)) && [[ -f "${repo_dir}/${local_override_entries[0]}" ]]; then
   settings_override+=("${repo_dir}/${local_override_entries[0]}")
 fi
+render_settings_args=(
+  node
+  "${repo_dir}/scripts/render-settings.mjs"
+  "${repo_dir}/${rendered_source}"
+)
 if ((${#settings_override[@]})); then
-  rendered_settings="$(node "${repo_dir}/scripts/render-settings.mjs" "${repo_dir}/${rendered_source}" "${settings_override[0]}" --package-source "$repo_real_dir")"
-else
-  rendered_settings="$(node "${repo_dir}/scripts/render-settings.mjs" "${repo_dir}/${rendered_source}" --package-source "$repo_real_dir")"
+  render_settings_args+=("${settings_override[0]}")
 fi
+prewalk_checkout="${HOME}/Developer/pi-prewalk"
+if [[ -e "$prewalk_checkout" ]]; then
+  if ! git -C "$prewalk_checkout" rev-parse --show-toplevel >/dev/null 2>&1; then
+    echo "Canonical Prewalk checkout is not a Git working tree: $prewalk_checkout" >&2
+    exit 1
+  fi
+  render_settings_args+=(--prewalk-source "$prewalk_checkout")
+fi
+if [[ -f "$settings_target" && ! -L "$settings_target" ]]; then
+  render_settings_args+=(--existing-settings "$settings_target")
+fi
+while IFS=$'\t' read -r key; do
+  render_settings_args+=(--managed-key "$key")
+done < <(manifest list settingsManagedKeys)
+render_settings_args+=(--package-source "$repo_real_dir")
+rendered_settings="$("${render_settings_args[@]}")"
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 backup_dir="${agent_dir}/backups/${timestamp}"
@@ -247,17 +267,15 @@ while IFS=$'\t' read -r relative backup_relative; do
   fi
 done < <(manifest list retired commands)
 
-settings_target="${agent_dir}/${rendered_target}"
-
 if [[ -f "$settings_target" && ! -L "$settings_target" ]] && cmp -s <(printf '%s\n' "$rendered_settings") "$settings_target"; then
-  echo "unchanged: ${rendered_target} (tracked defaults + local overrides)"
+  echo "unchanged: ${rendered_target} (managed setup settings + live Pi preferences)"
 else
   if [[ -e "$settings_target" || -L "$settings_target" ]]; then
     run mkdir -p "$backup_dir"
     run mv "$settings_target" "${backup_dir}/${rendered_target}"
   fi
   if "$dry_run"; then
-    echo "would render: ${rendered_target} (tracked defaults + local overrides)"
+    echo "would render: ${rendered_target} (managed setup settings + live Pi preferences)"
   else
     settings_tmp="${settings_target}.tmp.$$"
     printf '%s\n' "$rendered_settings" > "$settings_tmp"

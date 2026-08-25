@@ -38,6 +38,7 @@ Unlike a generic Pi installation or a loose extension collection, this workspace
 - Future work must not expose credentials, private session content, generated session summaries, machine-specific paths, or other local state in distributable packages. Private session metadata belongs under the Pi agent directory and remains outside setup backup and restore.
 - Compatibility with Pi and interactions among concurrently loaded extensions are material constraints; extension ordering, tool ownership, context hooks, provider overlays, reload behavior, and lifecycle cleanup require explicit validation.
 - Every remote npm and Git package uses a floating locator so Pi's native `pi update --extensions` command performs the update it advertises. Local package replacements remain explicit machine choices.
+- Pi's own settings remain authoritative for user preferences. Setup provides defaults for a clean install and manages package and extension configuration without undoing later changes made through `/settings`.
 
 ## Brand Commitments
 
@@ -53,7 +54,7 @@ Unlike a generic Pi installation or a loose extension collection, this workspace
 - `extensions/session-spend-dashboard/README.md` documents the dashboard's commands, data model, routes, refresh behavior, and security guarantees.
 - `docs/research/2026-08-05-pi-session-spend-dashboard.md` records comparative research and the rationale for a focused read-only dashboard.
 - `docs/research/2026-08-04-pi-tool-output-ui-options.md` records current Pi and Code Mode output-presentation constraints.
-- `settings.json` references the floating remote `pi-prewalk` repository; the explicit local replacement remains authoritative during development.
+- `settings.json` references the floating remote `pi-prewalk` repository; setup selects only `~/Developer/pi-prewalk` during local development.
 - `agent-browser-policy.json`, `extensions/agent-browser-policy.ts`, and the Webflow Designer skill runtime keep nested browser chat and cookie transfer fail-closed, allow ordinary browser calls from the active model, and provide a single-owner browser lifecycle with a persistent test profile and no persisted cookie values in the repository. The skill's maintenance-only test-knowledge path uses a curated, commit-bound subset of Webflow test evidence and keeps scenario setup plan-only until a reviewed sanitized handoff exists.
 - `skills/webflow-designer-agent-browser/scripts/validate-change.py` and `extensions/webflow-validation-approval.ts` route reviewed Webflow changes to fixed tests, require exact interactive approval for one candidate run, and emit sanitized receipts without runtime promotion.
 - `skills/webflow-designer-agent-browser/references/change-validation-guide.{md,html}` explains how to route and read a change-validation run; `skills/webflow-designer-agent-browser/references/evidence-compiler-architecture.{md,html}` explains the reviewed evidence compiler, runtime contract, receipt rules, and PICO-inspired boundaries.

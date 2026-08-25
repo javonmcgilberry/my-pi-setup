@@ -12,6 +12,7 @@ import {
 const base = {
   version: 1,
   rendered: { "settings.json": "settings.json" },
+  settingsManagedKeys: ["packages"],
   copied: [],
   linked: {},
   commands: {},
@@ -35,6 +36,7 @@ describe("managed install manifest", () => {
   it("normalizes the checked-in inventory for every consumer", () => {
     const manifest = loadManifest();
     assert.equal(manifest.version, 1);
+    assert.deepEqual(manifest.settingsManagedKeys, ["packages", "subagents", "vstack"]);
     assert.equal(manifest.copied.length, 11);
     assert.deepEqual(manifest.linked, [
       {
@@ -160,6 +162,17 @@ describe("managed install manifest", () => {
     assert.throws(
       () => normalizeManifest({ ...base, rendered: { "settings.json": "settings.json", "other.json": "settings.json" } }),
       /rendered must contain exactly one/,
+    );
+  });
+
+  it("requires packages in the managed settings contract", () => {
+    assert.throws(
+      () => normalizeManifest({ ...base, settingsManagedKeys: [] }),
+      /must include packages/,
+    );
+    assert.throws(
+      () => normalizeManifest({ ...base, settingsManagedKeys: ["packages", "packages"] }),
+      /duplicate keys/,
     );
   });
 

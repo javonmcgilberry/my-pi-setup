@@ -3,6 +3,16 @@
 This repository is the source of truth for Javon's Pi setup. Work from the
 repository that owns each change; `~/.pi/agent` contains installed output.
 
+The editable source layout is fixed:
+
+| Component | Sole editable checkout |
+| --- | --- |
+| Pi core | `~/Developer/pi` |
+| Prewalk | `~/Developer/pi-prewalk` |
+| Pi setup | `~/Developer/my-pi-setup` |
+
+Do not edit a second clone or any generated checkout under `~/.pi/agent`.
+
 ## Ownership and architecture
 
 - Edit tracked configuration, package metadata, scripts, skills, and linked
@@ -12,8 +22,12 @@ repository that owns each change; `~/.pi/agent` contains installed output.
   `package.json`. Routine npm and Git packages float so Pi's native
   `pi update --extensions` command can update them.
 - Treat `config/manifest.json` as the authoritative managed-install inventory,
-  including the `pi-update-all` shell command. Update it before changing setup,
-  drift, validation, retirement, or restore behavior.
+  including the `pi-update-all` shell command and the top-level settings keys
+  owned by setup. Update it before changing setup, drift, validation,
+  retirement, or restore behavior.
+- Pi's live global settings are the source of truth for normal user preferences.
+  Tracked settings provide clean-install defaults, while setup reapplies only
+  the manifest-declared managed keys and preserves the other live values.
 - Treat root `PRODUCT.md` as shared product authority for tracked skills,
   extensions, terminal/TUI behavior, and localhost interfaces.
 - Make Pi core changes in `~/Developer/pi`, rather than the globally installed
@@ -21,11 +35,10 @@ repository that owns each change; `~/.pi/agent` contains installed output.
   `~/.pi/agent/git` read-only.
 - Use the unmodified upstream `npm:pi-subagents` package. Keep the retired
   custom fork and its Prewalk execution-profile policy retired.
-- Put machine-only overrides in ignored `settings.local.json`. Keep credentials,
-  browser profiles, cookies, and runtime data outside tracked files.
-- An explicit `packageReplacements` entry in `settings.local.json` always wins
-  over its tracked remote locator. Do not infer replacements from checkout
-  names or nearby directories; stale and retired clones must not load silently.
+- Put machine-only preference overrides in ignored `settings.local.json`. Keep
+  credentials, browser profiles, cookies, and runtime data outside tracked
+  files. Setup selects local Prewalk only from `~/Developer/pi-prewalk`; there
+  is no second package-replacement path.
 
 This repository is an installable personal Pi package. Its bootstrap renders
 global settings plus the few files and shared links that Pi packages cannot
@@ -33,13 +46,13 @@ place.
 
 ### Prewalk source boundary
 
-- Edit Prewalk in its owning checkout. During local development, use the
-  ignored `settings.local.json` replacement. For source-only changes, restart
-  Pi; no setup edit is needed.
-- Without that replacement, clean installs follow the default branch of
+- Edit Prewalk only in `~/Developer/pi-prewalk`. During local development,
+  setup selects that checkout automatically when it is a Git working tree. For
+  source-only changes, restart Pi; no settings or setup edit is needed.
+- Without the canonical checkout, clean installs follow the default branch of
   `git:github.com/javonmcgilberry/pi-prewalk`; Pi owns the generated checkout
   under `~/.pi/agent/git`.
-- To share Prewalk changes, test, commit, and push its owning checkout. Do not
+- To share Prewalk changes, test, commit, and push `~/Developer/pi-prewalk`. Do not
   duplicate its version in this setup repository.
 
 ### Shared skills

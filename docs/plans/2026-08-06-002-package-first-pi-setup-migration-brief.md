@@ -1,5 +1,11 @@
 # Package-first Pi setup migration brief
 
+> Historical record. The package-replacement and Prewalk-submodule decisions
+> in this brief were superseded on 2026-08-25 by the canonical checkout
+> contract in [`AGENTS.md`](../../AGENTS.md) and [`README.md`](../../README.md).
+> Preserve the text for historical context, but do not use it as current setup
+> instructions.
+
 ## Approval
 
 **Approved 2026-08-06**

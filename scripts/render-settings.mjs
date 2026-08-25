@@ -3,7 +3,12 @@
 import { readFileSync } from "node:fs";
 
 function readObject(file) {
-  const value = JSON.parse(readFileSync(file, "utf8"));
+  let value;
+  try {
+    value = JSON.parse(readFileSync(file, "utf8"));
+  } catch (error) {
+    throw new Error(`Could not read JSON object from ${file}`, { cause: error });
+  }
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${file} must contain a JSON object`);
   }
@@ -30,24 +35,38 @@ function merge(base, override) {
 const args = process.argv.slice(2);
 const baseFile = args.shift();
 let localFile;
-if (args[0] && args[0] !== "--package-source") localFile = args.shift();
+if (args[0] && !args[0].startsWith("--")) localFile = args.shift();
 let packageSource;
-if (args[0] === "--package-source") {
-  args.shift();
-  packageSource = args.shift();
+let prewalkSource;
+let existingFile;
+const managedKeys = new Set();
+while (args.length > 0) {
+  const option = args.shift();
+  if (option === "--package-source") packageSource = args.shift();
+  else if (option === "--prewalk-source") prewalkSource = args.shift();
+  else if (option === "--existing-settings") existingFile = args.shift();
+  else if (option === "--managed-key") managedKeys.add(args.shift());
+  else throw new Error(`Unknown option: ${option}`);
 }
-if (!baseFile || args.length > 0 || (process.argv.includes("--package-source") && !packageSource)) {
+if (
+  !baseFile ||
+  (process.argv.includes("--package-source") && !packageSource) ||
+  (process.argv.includes("--prewalk-source") && !prewalkSource) ||
+  (process.argv.includes("--existing-settings") && !existingFile) ||
+  [...managedKeys].some((key) => !key)
+) {
   throw new Error(
-    "Usage: render-settings.mjs <settings.json> [settings.local.json] [--package-source <path>]",
+    "Usage: render-settings.mjs <settings.json> [settings.local.json] [--existing-settings <path>] [--managed-key <key>]... [--prewalk-source <path>] [--package-source <path>]",
   );
 }
 
 const base = readObject(baseFile);
 let rendered = base;
+let local;
 
 if (localFile) {
-  const local = readObject(localFile);
-  const allowed = new Set(["settings", "packageReplacements"]);
+  local = readObject(localFile);
+  const allowed = new Set(["settings"]);
   const unknown = Object.keys(local).filter((key) => !allowed.has(key));
   if (unknown.length > 0) {
     throw new Error(`Unknown local settings keys: ${unknown.join(", ")}`);
@@ -59,26 +78,26 @@ if (localFile) {
     }
     rendered = merge(rendered, local.settings);
   }
+}
 
-  if (local.packageReplacements !== undefined) {
-    const replacements = local.packageReplacements;
-    if (!replacements || typeof replacements !== "object" || Array.isArray(replacements)) {
-      throw new Error("settings.local.json packageReplacements must be a JSON object");
-    }
-    if (!Array.isArray(rendered.packages)) {
-      throw new Error("Tracked settings must contain a packages array before applying replacements");
-    }
-    const packages = [...rendered.packages];
-    for (const [source, replacement] of Object.entries(replacements)) {
-      if (typeof replacement !== "string" || replacement.length === 0) {
-        throw new Error(`Replacement for ${source} must be a non-empty string`);
-      }
-      const index = packages.indexOf(source);
-      if (index === -1) throw new Error(`Cannot replace missing package source: ${source}`);
-      packages[index] = replacement;
-    }
-    rendered = { ...rendered, packages };
+if (existingFile) {
+  const existing = readObject(existingFile);
+  const preferences = Object.fromEntries(
+    Object.entries(existing).filter(([key]) => !managedKeys.has(key)),
+  );
+  rendered = merge(rendered, preferences);
+}
+
+if (prewalkSource) {
+  if (!Array.isArray(rendered.packages)) {
+    throw new Error("Tracked settings must contain a packages array before selecting local Prewalk");
   }
+  const trackedPrewalk = "git:github.com/javonmcgilberry/pi-prewalk";
+  const packages = [...rendered.packages];
+  const index = packages.indexOf(trackedPrewalk);
+  if (index === -1) throw new Error(`Cannot select local Prewalk without ${trackedPrewalk}`);
+  packages[index] = prewalkSource;
+  rendered = { ...rendered, packages };
 }
 
 if (packageSource) {

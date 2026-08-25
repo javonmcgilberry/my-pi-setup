@@ -1,5 +1,11 @@
 # Pi source-of-truth and update automation brief
 
+> Historical record. The old `~/webdev` ownership and `packageReplacements`
+> design described below were superseded on 2026-08-25 by the canonical
+> checkout contract in [`AGENTS.md`](../../AGENTS.md) and [`README.md`](../../README.md).
+> Do not use those historical paths or replacement settings as current setup
+> instructions.
+
 ## Outcome
 
 The Pi setup has one clear ownership rule: portable configuration and small
