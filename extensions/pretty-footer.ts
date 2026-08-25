@@ -224,35 +224,10 @@ function metricLines(
 	];
 }
 
-function prewalkLines(text: string, theme: Theme, width: number): string[] {
-	const routeText = text.replace(/^prewalk:\s*/i, "").split(" (", 1)[0] ?? "";
-	const [plannerText = "planner", executorText = "executor"] = routeText.split(/\s+\/\s+/, 2);
-	const plannerActive = plannerText.startsWith("[") && plannerText.endsWith("]");
-	const executorActive = executorText.startsWith("[") && executorText.endsWith("]");
-	const planner = plannerText.replace(/^\[|\]$/g, "");
-	const executor = executorText.replace(/^\[|\]$/g, "");
-	const route = [
-		plannerActive ? theme.bold(theme.fg("accent", planner)) : theme.fg("dim", planner),
-		theme.fg("dim", " → "),
-		executorActive ? theme.bold(theme.fg("success", executor)) : theme.fg("dim", executor),
-	].join("");
-	const failed = /\(failed(?:: ([^)]+))?\)/.exec(text);
-	const cancelled = /\(cancelled(?:; ([^)]+))?\)/.exec(text);
-	let state: string;
-	if (failed) {
-		state = theme.bold(theme.fg("error", `✕ FAILED${failed[1] ? `  ${failed[1]}` : ""}`));
-	} else if (cancelled) {
-		state = theme.fg("muted", `○ CANCELLED${cancelled[1] ? `  ${cancelled[1]}` : ""}`);
-	} else if (text.includes("(switching after this turn)")) {
-		state = theme.bold(theme.fg("warning", "● SWITCHING AFTER THIS TURN"));
-	} else if (text.includes("(waiting for first code change)")) {
-		state = theme.bold(theme.fg("warning", "● WAITING FOR FIRST CODE CHANGE"));
-	} else if (executorActive) {
-		state = theme.bold(theme.fg("success", `● EXECUTING WITH ${executor.toUpperCase()}`));
-	} else {
-		state = theme.bold(theme.fg("accent", `● PLANNING WITH ${planner.toUpperCase()}`));
-	}
-	return alignedPair(section(theme, "PREWALK", route), state, width);
+export function renderPrewalkStatus(text: string, theme: Theme, width: number): string[] {
+	const status = plainStatus(text).replace(/^prewalk:\s*/i, "").trim();
+	if (!status) return [];
+	return sectionItems(theme, "PREWALK", [status], width);
 }
 
 function compactSystemStatus(key: string, text: string, theme: Theme): string {
@@ -319,7 +294,7 @@ export function renderPrettyFooterLines(
 		: theme.fg("dim", displayPath(ctx.cwd));
 	return [
 		...alignedPair(pathLeft, modelStatusText(ctx, theme), width),
-		...(prewalk ? prewalkLines(cleanStatus(prewalk), theme, width) : []),
+		...(prewalk ? renderPrewalkStatus(prewalk, theme, width) : []),
 		...metricLines(ctx, theme, width, { artifactRuns, usageCache }),
 		...secondaryStatusLines(statuses, theme, width),
 	];

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
 
 import {
 	buildFooterMetricModel,
@@ -9,6 +11,7 @@ import {
 import {
 	createArtifactUsageRefresher,
 	createFooterUsageCache,
+	renderPrewalkStatus,
 } from "./pretty-footer.ts";
 import type { TaskUsage, TaskUsageSummary } from "./session-spend-dashboard/task-usage.ts";
 
@@ -24,6 +27,64 @@ function usage(overrides: Partial<FooterUsage> = {}): FooterUsage {
 		...overrides,
 	};
 }
+
+const plainTheme = {
+	bold: (text: string) => text,
+	fg: (_color: string, text: string) => text,
+} as unknown as Theme;
+
+test("renders the canonical Prewalk status without deriving a route", () => {
+	assert.deepEqual(
+		renderPrewalkStatus(
+			"prewalk: Planning · Planner: 5.6 Sol (low reasoning) → Executor: 5.6 Luna (low reasoning)",
+			plainTheme,
+			120,
+		),
+		[
+			"PREWALK  Planning · Planner: 5.6 Sol (low reasoning) → Executor: 5.6 Luna (low reasoning)",
+		],
+	);
+	assert.deepEqual(
+		renderPrewalkStatus(
+			"prewalk: Executing · Executor: 5.6 Luna (low reasoning)",
+			plainTheme,
+			120,
+		),
+		["PREWALK  Executing · Executor: 5.6 Luna (low reasoning)"],
+	);
+});
+
+test("renders legacy Prewalk status literally and removes ANSI whitespace noise", () => {
+	const legacy = renderPrewalkStatus(
+		"prewalk: [5.6 Sol · low] / Luna · low (switching after this turn)",
+		plainTheme,
+		120,
+	);
+	assert.deepEqual(legacy, ["PREWALK  [5.6 Sol · low] / Luna · low (switching after this turn)"]);
+	assert.ok(!legacy.join("\n").includes("PLANNING WITH"));
+	assert.ok(!legacy.join("\n").includes("EXECUTING WITH"));
+
+	assert.deepEqual(
+		renderPrewalkStatus(
+			"\u001b[31mprewalk: Planning\r\n\t · Planner: 5.6 Sol (low reasoning) → Executor: 5.6 Luna (low reasoning)\u001b[0m",
+			plainTheme,
+			120,
+		),
+		[
+			"PREWALK  Planning · Planner: 5.6 Sol (low reasoning) → Executor: 5.6 Luna (low reasoning)",
+		],
+	);
+});
+
+test("keeps canonical Prewalk status within narrow footer widths", () => {
+	const status =
+		"prewalk: Ready · Planner: 5.6 Sol (low reasoning) → Executor: 5.6 Luna (low reasoning) · waiting for the first code change";
+	for (const width of [16, 24, 40, 72]) {
+		const lines = renderPrewalkStatus(status, plainTheme, width);
+		assert.ok(lines.length > 0);
+		assert.ok(lines.every((line) => visibleWidth(line) <= width), `overflow at ${width}`);
+	}
+});
 
 test("labels session cost, context, tokens, and prompt cache in plain language", () => {
 	const model = buildFooterMetricModel({
