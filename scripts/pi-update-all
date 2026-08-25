@@ -7,9 +7,9 @@ Usage:
   pi-update-all
   pi-update-all "commit message"
 
-With a clean setup repository, updates the live setup and every floating Pi
-package. With uncommitted setup changes, the commit message is required; the
-command validates, commits, and pushes those changes first.
+With a clean setup repository, updates the live setup, Pi itself, and every
+floating Pi package. With uncommitted setup changes, the commit message is
+required; the command validates, commits, and pushes those changes first.
 USAGE
 }
 
@@ -58,8 +58,8 @@ echo "Applying the live Pi setup..."
 "${clean_env[@]}" "$repo_dir/setup.sh"
 "${clean_env[@]}" "$repo_dir/scripts/drift.sh"
 
-echo "Updating Pi extensions..."
-"${clean_env[@]}" "$pi_bin" update --extensions
+echo "Updating Pi and its packages..."
+"${clean_env[@]}" "$pi_bin" update --all
 
 "${clean_env[@]}" "$repo_dir/scripts/drift.sh"
-echo "Pi setup and extensions are current. Start Pi normally."
+echo "Pi, its setup, and its packages are current. Start Pi normally."

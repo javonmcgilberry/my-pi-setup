@@ -86,7 +86,10 @@ It runs `check.sh` **before** staging anything, so the secret scan, the
 forbidden-path scan, and the manifest inventory check cannot be skipped by a
 commit. A hand-rolled `git commit` skips all of them. A clean tree makes the
 script a no-op that exits 0, so it is always safe to run. `--full` swaps the
-fast tier for the complete suite; `--push` publishes after a successful commit.
+fast tier for the complete suite. Before `--push` publishes, it fetches the
+tracked branch and rebases unpublished local commits when the remote moved. A
+conflicting rebase is aborted, leaving the local commits unchanged. If the
+remote changes during the push, the command retries up to three times.
 
 Code-only changes generally need a Pi restart to load.
 Changes to rendered settings, copied configuration, or bootstrap inventory
@@ -128,10 +131,14 @@ pi-update-all "describe the change"
 ```
 
 With a dirty setup repository, the message is required. The command runs the
-full checks, commits and pushes the setup, applies it, updates extensions, and
-verifies drift. With a clean repository, it skips the commit and performs the
-apply and update. It refuses to run while Pi is open, so it never replaces code
-that a session has already loaded.
+full checks, commits the setup, syncs with the tracked remote, pushes, applies
+the files, runs Pi's native `pi update --all`, and verifies drift. The native
+update refreshes Pi itself and its packages. The Git sync rebases unpublished
+commits onto remote work, so another checkout can push while this checkout is
+idle. It stops without applying anything if the changes conflict. With a clean
+repository, it skips the commit and performs the sync, apply, and update. It
+refuses to run while Pi is open, so it never replaces code that a session has
+already loaded.
 
 ### Updating extensions
 
@@ -142,10 +149,10 @@ pi-update-all
 ```
 
 Every routine package entry in `settings.json` is a stable, unversioned locator.
-The command applies those locators, invokes Pi's native
-`pi update --extensions` updater, and verifies the live setup. npm packages move
-to their current registry releases and Git packages move to their remote default
-branches. Restart Pi afterward.
+The command applies those locators and invokes Pi's native `pi update --all`.
+That updates Pi itself, moves npm packages to their current registry releases,
+and moves Git packages to their remote default branches. The command then
+verifies the live setup. Restart Pi afterward.
 
 Prewalk follows the same update rule. Your explicit local replacement wins on
 this machine; clean installs follow the current remote default branch. To share

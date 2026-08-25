@@ -57,7 +57,7 @@ done
 
 # Idempotent: nothing staged, nothing changed, nothing untracked means there is
 # nothing to commit. --push is still honored below, so `land.sh --push` always
-# means "make the remote match local" rather than silently doing nothing.
+# syncs the tracked branch rather than silently doing nothing.
 if [[ -z "$(git status --porcelain -- "${paths[@]:-.}")" ]]; then
 	echo "land: nothing to commit."
 else
@@ -83,11 +83,5 @@ else
 fi
 
 if [[ "$push" -eq 1 ]]; then
-	if [[ -z "$(git log --branches --not --remotes --oneline)" ]]; then
-		echo "land: nothing to push."
-		exit 0
-	fi
-	echo "land: pushing..."
-	GIT_TERMINAL_PROMPT=0 git push
-	echo "land: pushed to $(git rev-parse --abbrev-ref '@{upstream}' 2>/dev/null || echo upstream)."
+	"$repo_dir/scripts/push-with-rebase.sh" "$repo_dir"
 fi

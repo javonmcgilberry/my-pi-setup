@@ -105,8 +105,8 @@ depending on repeated prompt instructions.
 
 Code-only changes generally need a Pi restart. Rendered settings, copied
 configuration, and bootstrap-inventory changes require `setup.sh`. The
-installed `pi-update-all` command handles setup, package updates, and drift
-verification after Pi closes.
+installed `pi-update-all` command handles setup, Pi and package updates, and
+drift verification after Pi closes.
 
 ### Isolated validation and live application
 
