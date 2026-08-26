@@ -20,11 +20,13 @@ captured data, and proves cleanup.
    target from a default host or an unrelated open tab.
 4. Complete the [authentication gate](#authenticate-the-dedicated-profile)
    before the first isolated run.
-5. Prepare the runtime and declare the target and service checks.
-6. Open or connect to the exact Designer URL, then inspect a narrow surface.
-7. Verify the Designer document and all readiness checks.
-8. Perform only the authorized interaction.
-9. Finish the owned runtime, prove that it stopped, then retire the automation
+5. Recover only the declared local HUD tasks and reconcile any stale dedicated
+   Chrome process before retrying the browser operation.
+6. Prepare the runtime and declare the target and service checks.
+7. Open or connect to the exact Designer URL, then inspect a narrow surface.
+8. Verify the Designer document and all readiness checks.
+9. Perform only the authorized interaction.
+10. Finish the owned runtime, prove that it stopped, then retire the automation
    session.
 
 The lifecycle can be driven by a host integration or directly from a shell.
@@ -107,6 +109,46 @@ both `hud` and `designer_service`. If either default probe fails, report that
 named blocker instead of guessing another port or endpoint. Always probe
 `target_http` against the exact requested Designer URL.
 
+## Recover local launch prerequisites
+
+The HUD's `designer` umbrella task may intentionally report `exited/up` because
+its command is `true` and its dependency health is the meaningful signal. Do
+not restart that meta-task solely because it is exited. For a repeatable launch,
+pass only the configured concrete tasks to the recovery helper:
+
+```sh
+python3 "$SKILL_DIR/scripts/ensure-hud-tasks.py" ensure \
+  --repo /path/to/webflow \
+  --task server \
+  --task wf-proxy \
+  --task entrypoints/designer/client
+```
+
+The helper starts stopped/exited clients, stops and starts a running unhealthy
+client, polls every selected task, and fails closed unless each selected task
+reports `running/up` or the HUD-authoritative `exited/up` meta-task state. It
+never starts a preset or touches an unlisted task. The benchmark preflight
+uses this same helper before reporting HUD readiness.
+
+If Auth Vault or browser startup reports a profile-lock failure, first inspect
+the exact dedicated profile and then confirm cleanup only when the classifier
+reports an orphan:
+
+```sh
+python3 "$SKILL_DIR/scripts/reconcile-chrome-profile.py" reconcile \
+  --profile "$DEDICATED_PROFILE"
+python3 "$SKILL_DIR/scripts/reconcile-chrome-profile.py" reconcile \
+  --profile "$DEDICATED_PROFILE" --confirm
+```
+
+This command accepts only profiles below the skill's dedicated profile root,
+recognizes only verified Chrome for Testing bundles, treats a live
+`agent-browser` owner as active, and removes only stale singleton symlinks
+after the matching orphaned process tree stops. It never terminates normal
+Chrome, an unknown profile owner, or an active dedicated browser. The
+benchmark Auth Vault wrapper invokes the confirmed pass once after a failed
+Vault operation; a remaining active or unknown owner stays a blocker.
+
 ## Verify readiness
 
 The five readiness checks are:
@@ -157,9 +199,10 @@ Do not call `agent_browser close` while the managed runtime is still running.
 For a raw CDP connection, `close` can terminate the browser instead of merely
 disconnecting the transport.
 
-After an interruption, use `status`. Run `reconcile` only for the safe stale
-states it identifies. Never infer that a lease is stale from a missing receipt,
-and never terminate an unknown listener or replacement runtime.
+After an interruption, use `browser-runtime.py status` for the managed runtime.
+Use `reconcile-chrome-profile.py` only for the safe stale profile state it
+identifies. Never infer that a lease is stale from a missing receipt, and never
+terminate an unknown listener, profile owner, or replacement runtime.
 
 ## Record evidence
 

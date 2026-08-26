@@ -811,6 +811,51 @@ class DesignerCodeModeTests(unittest.TestCase):
             }
         )
 
+    def test_designer_surface_rejects_non_designer_hosts_and_lookalike_titles(self):
+        with self.assertRaisesRegex(
+            designer_code_mode.ProtocolError, "unsafe_target"
+        ):
+            self.service().handle(
+                {
+                    **self.prepare_request(),
+                    "target": "https://wfdev.io/login",
+                    "checks": [
+                        *self.checks()[:2],
+                        {
+                            "name": "target_http",
+                            "kind": "http",
+                            "url": "https://wfdev.io/login",
+                            "status": 200,
+                        },
+                    ],
+                }
+            )
+
+        self.assertFalse(
+            designer_code_mode._is_designer_title(
+                TARGET, "Not Webflow Designer"
+            )
+        )
+        self.assertFalse(
+            designer_code_mode._is_designer_title(
+                "https://wfdev.io/login", "Webflow Designer"
+            )
+        )
+        self.assertFalse(
+            designer_code_mode._is_designer_title(TARGET, "Webflow -")
+        )
+
+    def test_target_fragments_are_rejected_before_browser_actions(self):
+        with self.assertRaisesRegex(
+            designer_code_mode.ProtocolError, "unsafe_target"
+        ):
+            self.service().handle(
+                {
+                    **self.prepare_request(),
+                    "target": f"{TARGET}#private-token",
+                }
+            )
+
     def test_transport_consistency_is_enforced_without_silent_fallback(self):
         service = self.service()
         prepared = service.handle(self.prepare_request())

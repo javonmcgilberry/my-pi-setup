@@ -23,6 +23,64 @@
       "loadWhen": "starting, releasing, stopping, or diagnosing the authenticated browser runtime"
     },
     {
+      "id": "browser.profile-reconcile",
+      "category": "runtime",
+      "implementation": "scripts/reconcile-chrome-profile.py",
+      "owner": "browser-runtime",
+      "purpose": "Classify and clean only orphaned Chrome for Testing processes that use one dedicated automation profile.",
+      "inputs": [
+        "dedicated-profile-path",
+        "explicit-cleanup-confirmation"
+      ],
+      "postconditions": [
+        "verified-process-owner",
+        "profile-lock-cleanup-proof"
+      ],
+      "sensitivity": "profile-metadata",
+      "maturity": "provisional",
+      "disposition": "keep",
+      "loadWhen": "an Auth Vault or browser operation fails and a dedicated profile process may be orphaned"
+    },
+    {
+      "id": "browser.hud-recovery",
+      "category": "runtime",
+      "implementation": "scripts/ensure-hud-tasks.py",
+      "owner": "designer-session",
+      "purpose": "Restart only configured unhealthy Webflow HUD tasks and wait for their declared healthy states.",
+      "inputs": [
+        "webflow-repo-path",
+        "configured-task-names",
+        "bounded-wait"
+      ],
+      "postconditions": [
+        "selected-tasks-healthy",
+        "unrelated-tasks-untouched"
+      ],
+      "sensitivity": "sanitized-task-status",
+      "maturity": "provisional",
+      "disposition": "keep",
+      "loadWhen": "before a repeatable Designer launch when a selected HUD task is stopped or unhealthy"
+    },
+    {
+      "id": "browser.auth-vault",
+      "category": "runtime",
+      "implementation": "scripts/designer-load-auth.mjs",
+      "owner": "browser-runtime",
+      "purpose": "Inspect or interactively provision a named agent-browser Auth Vault profile while retrying once through dedicated-profile recovery after a failed Vault command.",
+      "inputs": [
+        "benchmark-config-path",
+        "interactive-test-account-only-for-setup"
+      ],
+      "postconditions": [
+        "vault-profile-status",
+        "credentials-never-returned"
+      ],
+      "sensitivity": "credentials",
+      "maturity": "provisional",
+      "disposition": "keep",
+      "loadWhen": "checking or provisioning the dedicated Designer benchmark Auth Vault entry"
+    },
+    {
       "id": "browser.cookie-transfer",
       "category": "runtime",
       "implementation": "scripts/cookie-transfer.mjs",

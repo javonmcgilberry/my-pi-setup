@@ -25,6 +25,8 @@ def reject_sensitive_url(value: str) -> None:
         raise ValueError("Designer URL must use HTTP or HTTPS")
     if parts.username is not None or parts.password is not None:
         raise ValueError("Refusing URL with user information")
+    if parts.fragment:
+        raise ValueError("Refusing URL with a fragment")
     host = parts.hostname.lower()
     if not (
         host in {"design.webflow.com", "design.wfdev.io", "wfdev.io", "localhost", "127.0.0.1", "::1"}

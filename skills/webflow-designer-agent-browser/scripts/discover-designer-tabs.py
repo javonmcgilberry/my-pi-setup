@@ -41,7 +41,6 @@ def is_designer_url(value: str) -> bool:
             host == "design.webflow.com"
             or host.endswith(".design.wfdev.io")
             or host == "design.wfdev.io"
-            or host == "wfdev.io"
         )
     )
 

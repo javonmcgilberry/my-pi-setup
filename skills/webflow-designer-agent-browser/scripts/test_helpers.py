@@ -66,6 +66,7 @@ class DiscoverTests(unittest.TestCase):
 
     def test_non_designer_host_is_rejected(self):
         self.assertFalse(discover.is_designer_url("https://example.com"))
+        self.assertFalse(discover.is_designer_url("https://wfdev.io/login"))
 
     def test_ownership_diagnostic_is_read_only_and_sanitized(self):
         expected_url = (
@@ -426,6 +427,21 @@ class SessionTests(unittest.TestCase):
             port=None,
             tab=None,
             url="https://design.webflow.com/?token=private",
+            user_agent="Chrome",
+            ready_selector="#ready",
+            surface="body",
+        )
+        with self.assertRaises(ValueError):
+            session.build_commands(args)
+
+    def test_isolated_plan_rejects_url_fragments(self):
+        args = argparse.Namespace(
+            mode="isolated",
+            transport="native",
+            session="designer-check",
+            port=None,
+            tab=None,
+            url="https://design.webflow.com/#private-token",
             user_agent="Chrome",
             ready_selector="#ready",
             surface="body",

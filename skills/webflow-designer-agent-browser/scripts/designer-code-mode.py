@@ -94,6 +94,9 @@ browser_runtime = _load_script(
 designer_session = _load_script(
     "webflow_designer_designer_session", "designer-session.py"
 )
+discover_designer_tabs = _load_script(
+    "webflow_designer_discover_designer_tabs", "discover-designer-tabs.py"
+)
 readiness_gate = _load_script(
     "webflow_designer_readiness_gate", "readiness-gate.py"
 )
@@ -255,6 +258,8 @@ def _validate_target(value: object) -> tuple[str, str]:
     target = _bounded_string(value, "target")
     try:
         designer_session.reject_sensitive_url(target)
+        if not discover_designer_tabs.is_designer_url(target):
+            raise ValueError("target is not a Designer URL")
     except (ValueError, TypeError):
         _fail("unsafe_target", "input")
     parts = urlsplit(target)
@@ -668,18 +673,11 @@ def _gate_checks(
 
 def _is_designer_title(url: str, title: str) -> bool:
     observed = title.lower().strip()
-    host = (urlsplit(url).hostname or "").lower()
-    designer_host = (
-        host in {"design.webflow.com", "design.wfdev.io"}
-        or host.endswith(".design.wfdev.io")
+    title_matches = observed == "webflow designer" or (
+        re.fullmatch(r"(?:dev:\s*)?webflow\s+-\s+\S.*", observed)
+        is not None
     )
-    return (
-        "webflow" in observed
-        and "designer" in observed
-    ) or (
-        designer_host
-        and re.match(r"^(?:dev:\s*)?webflow\s+-", observed) is not None
-    )
+    return discover_designer_tabs.is_designer_url(url) and title_matches
 
 
 class DesignerCodeMode:

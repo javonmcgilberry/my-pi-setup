@@ -493,8 +493,13 @@ The configured lifecycle facade owns the transaction
 `prepare` -> browser interaction -> `verify` -> authorized work -> `finish`.
 The private receipt binds the transaction to the runtime identity and lease.
 `finish` must prove `runtimeOwned: false`, `cdpReady: false`, `consumer: null`,
-`leasePresent: false`, and `status: stopped`. After an interruption, `status`
-classifies the runtime and `reconcile` handles only safe stale states.
+`leasePresent: false`, and `status: stopped`. After an interruption, use
+`browser-runtime.py status` for the managed runtime and
+`reconcile-chrome-profile.py` only for an exact dedicated profile whose
+classifier reports an orphaned Chrome for Testing process. The shared skill
+also provides `ensure-hud-tasks.py`, which restarts only configured unhealthy
+HUD tasks and waits for their final healthy state; it does not start an
+umbrella preset.
 
 #### Validate current Webflow changes
 
@@ -555,13 +560,22 @@ Before the first isolated run, Chrome for Testing opens visibly so the user can
 sign in with a dedicated Webflow test user that has only the access needed for
 QA. Its profile keeps the login for later runs. If an account must remain active
 in another browser, the workflow asks to attach to that tab instead.
-`browser-runtime.py` is the only process that starts or stops Chrome. The
+`browser-runtime.py` owns normal managed-runtime starts and stops. The profile
+reconciler may terminate a separately detected orphan only after it has proved
+the exact Chrome for Testing process and dedicated profile. The runtime
 helper gives an owned runtime one second to stop cleanly before forcing it to
 stop, then verifies that its process group and CDP listener are gone. The
 automation client closes its session only after the runtime reports that Chrome
 has stopped. Cleanup never signs out or clears cookies. When service endpoints
 are not supplied, `https://wfdev.io:8443/` is the default probe for both `hud`
 and `designer_service`; failed probes stop the run.
+
+The dedicated-profile reconciler is a separate fail-closed recovery path for
+agent-browser or Auth Vault failures. It accepts only a profile below the
+managed profile root, recognizes only verified Chrome for Testing bundles,
+leaves an active browser owner alone, and removes stale singleton symlinks only
+after the matching orphan process tree has stopped. It never falls back to or
+terminates normal Chrome.
 
 For a recorded result, generate and validate a mode-specific report with
 `skills/webflow-designer-agent-browser/scripts/automation-evidence.py`. The
