@@ -25,8 +25,10 @@ captured data, and proves cleanup.
 6. Prepare the runtime and declare the target and service checks.
 7. Open or connect to the exact Designer URL, then inspect a narrow surface.
 8. Verify the Designer document and all readiness checks.
-9. Perform only the authorized interaction.
-10. Finish the owned runtime, prove that it stopped, then retire the automation
+9. Choose the fast lane for read-only observation or the guarded lane for
+   stateful or uncertain work.
+10. Perform only the authorized interaction.
+11. Finish the owned runtime, prove that it stopped, then retire the automation
    session.
 
 The lifecycle can be driven by a host integration or directly from a shell.
@@ -166,6 +168,34 @@ fixed sidebar control is not a readiness check because Designer shells vary by
 role. Verify the surface with compact evidence before any authorized work.
 
 ## Inspect and act
+
+After readiness, choose an interaction lane. A lane describes the authorized
+browser work; it does not replace the attached/isolated mode, transport, or
+transaction lifecycle.
+
+Use the **fast lane** for observation only. The exact target, authentication,
+ownership boundary, and all five readiness checks must already be verified.
+Keep the work scoped to snapshots, screenshots, visible text, layout, spacing,
+color, and bounded diagnostics that do not include bodies or sensitive data.
+An attached tab also needs explicit attachment authorization and a paused user.
+
+Use the **guarded lane** before navigation, reload, selection changes, canvas
+edits, undo, redo, publish, connected-app actions, or any account, security, or
+privacy change. It also applies to shared or customer surfaces and whenever the
+target, owner, effect, or ability to change state is uncertain. Capture a small
+baseline, obtain the required authorization, perform one bounded action, and
+verify its postcondition and unrelated state.
+
+Start in the fast lane only when every eligibility condition is proven.
+Escalate before the first state-changing action. Keep the current transport and
+owned transaction when the guarded work fits their approved scope; otherwise
+finish cleanly and prepare a new guarded transaction. Never downgrade guarded
+work to avoid authorization. An unclassified action is guarded or blocked.
+
+Both lanes keep the same target, authentication, ownership, privacy, evidence,
+and cleanup requirements. Fast-lane work cannot change state, so it does not
+need a mutation baseline or mutation authorization. It still requires
+readiness and stopped-runtime proof.
 
 - Preserve the full approved URL, including `pageId`, `simulateRole`, host, and
   port. Reject credentials and secret-bearing query parameters.

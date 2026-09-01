@@ -492,6 +492,14 @@ shells, and the wrong iframe before any QA action changes state.
 The configured lifecycle facade owns the transaction
 `prepare` -> browser interaction -> `verify` -> authorized work -> `finish`.
 The private receipt binds the transaction to the runtime identity and lease.
+After verification, observational work can use a fast lane for scoped
+snapshots, screenshots, visual checks, and bounded diagnostics. Any navigation,
+selection change, edit, undo, redo, publish, connected-app action, or uncertain
+operation uses the guarded lane with a baseline, explicit authorization, and a
+verified postcondition. Both lanes keep the same target, authentication,
+ownership, privacy, and cleanup checks. An unclassified action is guarded or
+blocked.
+
 `finish` must prove `runtimeOwned: false`, `cdpReady: false`, `consumer: null`,
 `leasePresent: false`, and `status: stopped`. After an interruption, use
 `browser-runtime.py status` for the managed runtime and
