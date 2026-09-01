@@ -11,7 +11,7 @@
     {"id": "confirmation-digest-disabled", "target": "validate-change.py", "group": "approval", "old": "or value.get(\"approvalDigest\") != approval_digest", "new": "or False and value.get(\"approvalDigest\") != approval_digest"},
     {"id": "lease-presence-relaxed", "target": "browser-runtime.py", "group": "lifecycle", "old": "and status.get(\"leasePresent\") is False", "new": "and status.get(\"leasePresent\") is not False"},
     {"id": "consumer-check-removed", "target": "browser-runtime.py", "group": "lifecycle", "old": "        and status.get(\"consumer\") is None\n", "new": ""},
-    {"id": "unknown-query-accepted", "target": "sanitize-evidence.py", "group": "privacy", "old": "if key not in SAFE_QUERY_KEYS and item != REDACTED:", "new": "if False and key not in SAFE_QUERY_KEYS and item != REDACTED:"},
+    {"id": "sensitive-query-accepted", "target": "sanitize-evidence.py", "group": "privacy", "old": "if sensitive_key(key) and item != REDACTED:", "new": "if False and sensitive_key(key) and item != REDACTED:"},
     {"id": "unsafe-query-value-accepted", "target": "sanitize-evidence.py", "group": "privacy", "old": "if item != REDACTED and UNSAFE_TEXT.search(item):", "new": "if False and item != REDACTED and UNSAFE_TEXT.search(item):"},
     {"id": "report-privacy-check-removed", "target": "automation-evidence.py", "group": "privacy", "old": "    sanitize_evidence.assert_safe_evidence(value)\n", "new": ""}
   ]

@@ -64,6 +64,18 @@ class DiscoverTests(unittest.TestCase):
             "https://design.webflow.com/path",
         )
 
+    def test_ownership_preserves_campaign_route_query(self):
+        value = (
+            "https://site.design.wfdev.io:8443/?pageId=abc"
+            "&campaignId=campaign&itemId=item&locale=en"
+        )
+
+        self.assertEqual(
+            discover.validate_ownership_url(value),
+            "https://site.design.wfdev.io:8443/?pageId=abc"
+            "&campaignId=campaign&itemId=item&locale=en",
+        )
+
     def test_non_designer_host_is_rejected(self):
         self.assertFalse(discover.is_designer_url("https://example.com"))
         self.assertFalse(discover.is_designer_url("https://wfdev.io/login"))

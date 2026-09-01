@@ -22,7 +22,7 @@ from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any, Callable, NoReturn, cast
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import urlsplit
 
 try:
     import fcntl
@@ -56,7 +56,6 @@ SERVICE_CHECKS = REQUIRED_CHECKS[:3]
 DEFAULT_SERVICE_URL = "https://wfdev.io:8443/"
 CHECK_STATES = {"ready", "unavailable", "error"}
 SURFACE_STATES = {"designer", "login", "error", "unknown"}
-SAFE_QUERY_KEYS = {"pageId", "simulateRole"}
 LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 SENSITIVE_TERMS = (
     "authorization",
@@ -263,12 +262,6 @@ def _validate_target(value: object) -> tuple[str, str]:
             raise ValueError("target is not a Designer URL")
     except (ValueError, TypeError):
         _fail("unsafe_target", "input")
-    parts = urlsplit(target)
-    if any(
-        key not in SAFE_QUERY_KEYS
-        for key, _item in parse_qsl(parts.query, keep_blank_values=True)
-    ):
-        _fail("unsafe_target", "input")
     return target, sanitize_evidence.sanitize_url(target)
 
 
@@ -277,12 +270,6 @@ def _validate_service_url(value: object) -> tuple[str, str]:
     try:
         designer_session.reject_sensitive_url(raw_url)
     except (ValueError, TypeError):
-        _fail("unsafe_service_url", "input")
-    parts = urlsplit(raw_url)
-    if any(
-        key not in SAFE_QUERY_KEYS
-        for key, _item in parse_qsl(parts.query, keep_blank_values=True)
-    ):
         _fail("unsafe_service_url", "input")
     return raw_url, sanitize_evidence.sanitize_url(raw_url)
 

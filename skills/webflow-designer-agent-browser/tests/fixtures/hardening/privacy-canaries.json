@@ -5,7 +5,7 @@
     {"id": "path", "value": "/Users/private/privacy-canary"},
     {"id": "query", "value": "https://example.invalid/designer?token=privacy-canary-token"},
     {"id": "credential", "value": "Bearer privacy-canary-credential"},
-    {"id": "unknown-query", "value": "https://example.invalid/designer?debug=private-value"},
+    {"id": "unknown-query", "value": "https://example.invalid/designer?debug=private-value", "expectedRawSafe": true},
     {"id": "unsafe-safe-key", "value": "https://example.invalid/designer?pageId=Bearer%20private-value"},
     {"id": "userinfo", "value": "https://fixture-user@example.invalid/designer"},
     {"id": "fragment", "value": "https://example.invalid/designer#private-fragment"},

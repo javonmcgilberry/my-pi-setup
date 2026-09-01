@@ -241,8 +241,9 @@ and cleanup requirements. Fast-lane work cannot change state, so it does not
 need a mutation baseline or mutation authorization. It still requires
 readiness and stopped-runtime proof.
 
-- Preserve the full approved URL, including `pageId`, `simulateRole`, host, and
-  port. Reject credentials and secret-bearing query parameters.
+- Preserve the full approved URL, including its query string, host, and port.
+  Reject credentials, URL fragments, and explicitly secret-bearing query
+  names, but do not duplicate Designer routing with a parameter allowlist.
 - Do not snapshot during `prepare`. First classify the compact URL/title result
   and complete `verify`; only then take a scoped interactive snapshot. Treat
   refs as valid only for the latest snapshot of the same tab and frame.

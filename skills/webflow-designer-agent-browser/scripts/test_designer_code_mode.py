@@ -1265,6 +1265,27 @@ class DesignerCodeModeTests(unittest.TestCase):
             }
         )
 
+    def test_campaign_navigation_query_is_preserved(self):
+        request = self.prepare_request()
+        request["target"] = (
+            TARGET
+            + "&campaignId=campaign&itemId=item&locale=en&futureRouteKey=value"
+        )
+        request.pop("checks")
+
+        service = self.service()
+        prepared = service.handle(request)
+
+        self.assertEqual(prepared["actions"][1]["args"], ["open", request["target"]])
+        service.handle(
+            {
+                "version": 1,
+                "operation": "finish",
+                "transactionId": prepared["transactionId"],
+                "transport": "native",
+            }
+        )
+
     def test_cli_plan_requires_a_named_session_and_keeps_cli_actions(self):
         service = self.service()
         prepared = service.handle(self.prepare_request(transport="cli"))

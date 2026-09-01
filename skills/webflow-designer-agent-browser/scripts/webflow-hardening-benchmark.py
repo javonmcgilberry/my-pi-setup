@@ -466,6 +466,7 @@ def privacy_metrics(automation_evidence: Any, fixture: dict[str, Any]) -> dict[s
     raw_acceptance = sum(
         int(automation_evidence.sanitize_evidence.is_safe_evidence_text(item["value"]))
         for item in fixture["canaries"]
+        if not item.get("expectedRawSafe", False)
     )
     try:
         automation_evidence.validate_report(privacy_report(automation_evidence, fixture, canary=canary))
@@ -739,8 +740,8 @@ def mutation_probe(module: Any, mutant: dict[str, Any], fixture: dict[str, Any],
             state["leaseValid"] = None
         return bool(module.runtime_is_stopped(state))
     if group == "privacy":
-        if mutant["id"] == "unknown-query-accepted":
-            return bool(module.is_safe_evidence_text("https://example.invalid/?debug=private"))
+        if mutant["id"] == "sensitive-query-accepted":
+            return bool(module.is_safe_evidence_text("https://example.invalid/?token=private"))
         if mutant["id"] == "unsafe-query-value-accepted":
             return bool(module.is_safe_evidence_text("https://example.invalid/?pageId=Bearer%20private"))
         try:

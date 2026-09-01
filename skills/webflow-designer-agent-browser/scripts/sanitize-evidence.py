@@ -20,7 +20,6 @@ SENSITIVE_KEY_PARTS = (
     "storage",
     "token",
 )
-SAFE_QUERY_KEYS = {"pageId", "simulateRole"}
 MAX_STRING = 2000
 MAX_ITEMS = 100
 MAX_DEPTH = 12
@@ -38,7 +37,7 @@ def sanitize_url(value: str) -> str:
     if parts.scheme not in {"http", "https", "ws", "wss"}:
         return value
     query = [
-        (key, item if key in SAFE_QUERY_KEYS else REDACTED)
+        (key, REDACTED if sensitive_key(key) else item)
         for key, item in parse_qsl(parts.query, keep_blank_values=True)
     ]
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), ""))
@@ -60,7 +59,7 @@ def is_safe_evidence_text(value: str) -> bool:
         if UNSAFE_TEXT.search(parts.netloc) or UNSAFE_TEXT.search(parts.path):
             return False
         for key, item in parse_qsl(parts.query, keep_blank_values=True):
-            if key not in SAFE_QUERY_KEYS and item != REDACTED:
+            if sensitive_key(key) and item != REDACTED:
                 return False
             if item != REDACTED and UNSAFE_TEXT.search(item):
                 return False

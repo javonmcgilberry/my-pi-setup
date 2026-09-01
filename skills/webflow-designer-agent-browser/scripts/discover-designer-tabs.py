@@ -13,7 +13,15 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-SAFE_QUERY_KEYS = {"pageId", "simulateRole"}
+SENSITIVE_QUERY_PARTS = (
+    "authorization",
+    "cookie",
+    "credential",
+    "password",
+    "secret",
+    "storage",
+    "token",
+)
 LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 ATTACHMENT_CONFIG_VERSION = 1
 
@@ -22,7 +30,8 @@ def sanitize_url(value: str) -> str:
     parts = urlsplit(value)
     safe_query = []
     for key, item in parse_qsl(parts.query, keep_blank_values=True):
-        safe_query.append((key, item if key in SAFE_QUERY_KEYS else "[REDACTED]"))
+        sensitive = any(part in key.lower() for part in SENSITIVE_QUERY_PARTS)
+        safe_query.append((key, "[REDACTED]" if sensitive else item))
     host = parts.hostname or ""
     if ":" in host and not host.startswith("["):
         host = f"[{host}]"
@@ -194,18 +203,6 @@ def verify_attachment_surface(
 def validate_ownership_url(value: str) -> str:
     if not is_designer_url(value):
         raise ValueError("ownership URL must identify a Webflow Designer")
-    unsafe_keys = {
-        key
-        for key, _item in parse_qsl(
-            urlsplit(value).query,
-            keep_blank_values=True,
-        )
-        if key not in SAFE_QUERY_KEYS
-    }
-    if unsafe_keys:
-        raise ValueError(
-            f"ownership URL contains unsupported query keys: {sorted(unsafe_keys)}"
-        )
     return sanitize_url(value)
 
 
