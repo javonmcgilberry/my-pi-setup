@@ -43,6 +43,7 @@ json_files=(
 	skills/webflow-designer-agent-browser/config/attachment.json
 	skills/webflow-designer-agent-browser/schemas/designer-validation-contract.schema.json
 	skills/webflow-designer-agent-browser/schemas/designer-validation-receipt.schema.json
+	skills/webflow-designer-agent-browser/schemas/webflow-browser-cli-request.schema.json
 )
 
 node -e 'for (const file of process.argv.slice(1)) JSON.parse(require("fs").readFileSync(file, "utf8"))' "${json_files[@]}"

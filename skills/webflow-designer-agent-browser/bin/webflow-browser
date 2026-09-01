@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+"""Run the standalone Webflow browser lifecycle CLI."""
+
+from pathlib import Path
+import sys
+
+
+LIB_DIR = Path(__file__).resolve().parents[1] / "lib"
+sys.path.insert(0, str(LIB_DIR))
+
+from webflow_browser.cli import main
+
+
+raise SystemExit(main())

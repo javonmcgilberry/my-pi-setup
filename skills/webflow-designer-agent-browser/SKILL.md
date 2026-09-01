@@ -40,9 +40,9 @@ captured data, and proves cleanup.
 The lifecycle can be driven by a host integration or directly from a shell.
 Native `agent_browser` returns compact structured results when available; the
 `agent-browser` CLI remains the fallback. `scripts/designer-code-mode.py`
-provides the same JSON protocol for either path, and the direct helpers remain
-available for diagnostics and CLI plans. A Playwright, Selenium, or other
-transport adapter is not included.
+is the Pi compatibility adapter for the same core used by
+`bin/webflow-browser`; the direct helpers remain available for diagnostics and
+CLI plans. A Playwright, Selenium, or other transport adapter is not included.
 
 ## Choose a mode
 
@@ -129,11 +129,19 @@ it does not prove that the native wrapper connected.
 ## Prepare the browser
 
 For normal local or authenticated QA, use the lifecycle facade or the
-standalone JSON protocol. The operation declares the exact target, surface,
-transport, and mode. `checks` is optional: when omitted, Code Mode probes
-`https://wfdev.io:8443/` for both `hud` and `designer_service`, then probes
-`target_http` against the exact target. It starts or reuses Chrome for Testing,
-claims the exclusive `agent_browser` lease, and returns the browser actions.
+standalone JSON protocol. Outside Pi, call
+`$SKILL_DIR/bin/webflow-browser`; Pi's protocol uses the compatibility adapter
+at `scripts/designer-code-mode.py`. Both use the deep lifecycle module in
+`lib/webflow_browser`, which owns deterministic validation, runtime leases,
+readiness, and cleanup. `SKILL.md` remains the source of judgment,
+authorization, interaction lanes, and orchestration.
+
+The operation declares the exact target, surface, transport, and mode.
+`checks` is optional: when omitted, Code Mode probes `https://wfdev.io:8443/`
+for both `hud` and `designer_service`, then probes `target_http` against the
+exact target. It starts the managed Chrome for Testing runtime only after
+proving that no live runtime owner is present, claims the exclusive
+`agent_browser` lease, and returns the browser actions.
 
 The managed profile is separate from the user's normal Chrome profile. Never
 launch normal Chrome, attach to its profile, copy its credentials, or use a

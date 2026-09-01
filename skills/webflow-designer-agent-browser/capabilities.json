@@ -117,12 +117,25 @@
       "loadWhen": "bootstrapping a bounded Designer observation"
     },
     {
+      "id": "designer.browser-cli",
+      "category": "designer",
+      "implementation": "bin/webflow-browser",
+      "owner": "webflow_browser",
+      "purpose": "Expose the deterministic Designer lifecycle through a versioned JSON CLI while keeping runtime, lease, readiness, Auth Vault, and cleanup mechanics behind a narrow interface.",
+      "inputs": ["versioned-json-request", "exact-target-or-transaction"],
+      "postconditions": ["deterministic-json-result", "meaningful-exit-code", "stopped-runtime-proof"],
+      "sensitivity": "sanitized-browser-metadata",
+      "maturity": "provisional",
+      "disposition": "keep",
+      "loadWhen": "running the Designer lifecycle from CI, shell automation, or a non-Pi host"
+    },
+    {
       "id": "designer.code-mode",
       "category": "designer",
       "implementation": "scripts/designer-code-mode.py",
       "owner": "webflow_designer",
-      "purpose": "Classify and safely converge Designer service readiness, managed runtime ownership, optional Auth Vault login, transport-specific browser plans, capability lookup, surface verification, and cleanup without pre-verification snapshots.",
-      "inputs": ["transaction-request", "optional-auth-vault-profile", "compact-browser-surface-evidence"],
+      "purpose": "Adapt Pi's Code Mode protocol to the shared Designer lifecycle module while preserving optional Auth Vault login, transport-specific browser plans, surface verification, and cleanup without pre-verification snapshots.",
+      "inputs": ["transaction-request", "optional-auth-vault-profile", "compact-browser-surface-evidence", "standalone-core"],
       "postconditions": ["bounded-lifecycle-classification", "exclusive-runtime-lease", "fail-closed-readiness-decision", "verified-runtime-cleanup"],
       "sensitivity": "sanitized-browser-metadata",
       "maturity": "provisional",

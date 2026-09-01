@@ -1,8 +1,50 @@
 # Standalone CLI
 
 The standalone path exposes change-validation diagnostics and the managed
-browser lifecycle. Native `agent_browser` is a host integration and is not
-required here.
+browser lifecycle. The deterministic lifecycle lives in the local
+`lib/webflow_browser` package and is exposed through `bin/webflow-browser`.
+Pi keeps its judgment, authorization, interaction lanes, and orchestration in
+`SKILL.md`; `scripts/designer-code-mode.py` remains the compatibility adapter
+used by the Pi-facing protocol. Native `agent_browser` is a host integration
+and is not required to produce the lifecycle result.
+
+## Lifecycle CLI
+
+Use the CLI for shell automation, CI, or a non-Pi host. Each lifecycle command
+reads at most one versioned JSON request from stdin and writes one sanitized JSON
+result to stdout. The request envelope is described by
+`schemas/webflow-browser-cli-request.schema.json`; the core still performs the
+semantic validation for targets, modes, checks, and transaction state.
+
+```sh
+CLI="$SKILL_DIR/bin/webflow-browser"
+"$CLI" --help
+printf '%s\n' '{"version":1,"operation":"status"}' | "$CLI" status
+```
+
+The commands are:
+
+- `prepare`: run service preflight, claim the owned runtime lease, and return
+  the ordered browser actions.
+- `verify`: recheck service and runtime identity, then classify the exact
+  Designer surface.
+- `status`: classify the current runtime, lease, and transaction without
+  changing them. With no stdin, it uses the status request above.
+- `reconcile`: recover only a stale lease or transaction state that `status`
+  marks as safe to recover.
+- `finish`: release the transaction and prove stopped-runtime cleanup.
+- `cleanup`: alias for `finish`.
+
+The CLI returns exit code `0` for a completed command, `1` for a lifecycle or
+cleanup failure, `2` for an invalid command or request, `3` for a readiness or
+authentication blocker, and `4` for an ownership or transaction conflict.
+It returns browser actions but never executes them or emits credentials,
+cookies, raw DOM, customer data, or full browser state.
+
+The [architecture map](webflow-browser-cli-architecture.html) shows the old
+script shape and the new core seam. The
+[lifecycle map](webflow-browser-cli-lifecycle.html) shows command flow,
+ownership, cleanup, and the split between Pi policy and standalone mechanics.
 
 ## Change validation
 
@@ -131,17 +173,19 @@ exact non-login Designer surface. If the identified profile is absent, report
 
 ## Managed transaction
 
-Use `designer-code-mode.py` when the run needs the prepare, verify, and finish
-contract. It owns the runtime generation and lease. Send one JSON request at a
-time and execute only the browser action it returns.
+Use `bin/webflow-browser` when the run needs the prepare, verify, and finish
+contract outside Pi. It owns the runtime generation and lease through the
+shared core. Send one JSON request at a time and execute only the browser
+action it returns. Pi uses the equivalent compatibility adapter at
+`scripts/designer-code-mode.py`.
 
 Check the protocol and interrupted-run state first:
 
 ```sh
-CODE_MODE="$SKILL_DIR/scripts/designer-code-mode.py"
-printf 'help\n' | python3 "$CODE_MODE"
+CLI="$SKILL_DIR/bin/webflow-browser"
+"$CLI" --help
 printf '%s\n' '{"version":1,"operation":"status"}' \
-  | python3 "$CODE_MODE"
+  | "$CLI" status
 ```
 
 Prepare an isolated native run with the real approved target. Native requests
@@ -159,7 +203,7 @@ SURFACE='body'
 READY_SELECTOR='body'
 AUTH_PROFILE='webflow-designer-benchmark'
 
-cat <<JSON | python3 "$CODE_MODE"
+cat <<JSON | "$CLI" prepare
 {
   "version": 1,
   "operation": "prepare",
@@ -194,7 +238,7 @@ isolated mode.
 After the browser action, send compact surface evidence to `verify`:
 
 ```sh
-cat <<JSON | python3 "$CODE_MODE"
+cat <<JSON | "$CLI" verify
 {
   "version": 1,
   "operation": "verify",
@@ -226,7 +270,7 @@ capture or report a login-page DOM.
 Always finish, including after a failed action:
 
 ```sh
-cat <<JSON | python3 "$CODE_MODE"
+cat <<JSON | "$CLI" finish
 {
   "version": 1,
   "operation": "finish",

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/webflow-designer/webflow-browser-cli-request.schema.json",
+  "title": "Webflow browser CLI request",
+  "description": "The versioned JSON envelope accepted by the standalone lifecycle CLI.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "operation"],
+  "properties": {
+    "version": {"const": 1},
+    "operation": {"enum": ["prepare", "verify", "status", "reconcile", "finish"]},
+    "transport": {"enum": ["native", "cli"]},
+    "mode": {"enum": ["isolated", "attached"]},
+    "target": {"type": "string", "minLength": 1, "maxLength": 2000},
+    "surface": {
+      "oneOf": [
+        {"type": "string", "minLength": 1, "maxLength": 2000},
+        {"type": "object"}
+      ]
+    },
+    "readySelector": {"type": "string", "minLength": 1, "maxLength": 2000},
+    "session": {"type": "string", "minLength": 1, "maxLength": 64},
+    "authProfile": {"type": "string", "minLength": 1, "maxLength": 80},
+    "checks": {"type": "array", "minItems": 3, "maxItems": 3},
+    "timeoutSeconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 30},
+    "runtimeMode": {"enum": ["headless", "headed"]},
+    "maxRuntimeSeconds": {"type": "integer", "minimum": 60, "maximum": 14400},
+    "transactionId": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"}
+  }
+}

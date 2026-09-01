@@ -3,6 +3,12 @@
 Read this reference after the main workflow when the task involves local
 services, iframes, canvas assertions, screenshots, or diagnostics.
 
+The standalone lifecycle interface is `bin/webflow-browser`, backed by the
+`lib/webflow_browser` module. It exposes versioned JSON and process exit codes
+for CI and shell callers. Pi keeps authorization and interaction judgment in
+`SKILL.md` and reaches the same implementation through
+`scripts/designer-code-mode.py`.
+
 ## Transaction handoff
 
 The normal sequence is:
@@ -13,15 +19,16 @@ auth list -> prepare -> action plan -> URL/title classification -> verify -> aut
 
 The sessionless Auth Vault list is a preflight, not authentication proof. Use
 only an explicitly identified dedicated Webflow profile. When `authProfile` is
-provided, `prepare` performs the declared service probes, starts or reuses the
-managed Chrome for Testing runtime, claims the exclusive browser lease, and
-returns `connect -> auth login -> exact-target open -> wait`. Without that field,
-the headed authentication gate remains the fallback. The browser transport
-executes the returned plan without substitutions. Classify URL/title evidence
-before taking a snapshot; `verify` accepts compact surface evidence and permits
-work only when the transaction still owns the expected runtime and all
-readiness conditions pass. `finish` closes the session, releases the lease,
-stops only the owned runtime, and proves the stopped state.
+provided, `prepare` performs the declared service probes, starts the managed
+Chrome for Testing runtime only after proving that no live runtime owner is
+present, claims the exclusive browser lease, and returns `connect -> auth
+login -> exact-target open -> wait`. Without that field, the headed
+authentication gate remains the fallback. The browser transport executes the
+returned plan without substitutions. Classify URL/title evidence before taking
+a snapshot; `verify` accepts compact surface evidence and permits work only
+when the transaction still owns the expected runtime and all readiness
+conditions pass. `finish` closes the session, releases the lease, stops only
+the owned runtime, and proves the stopped state.
 
 The private receipt binds the transaction to the runtime PID, start generation,
 and lease token. A replacement process or unknown listener cannot satisfy an

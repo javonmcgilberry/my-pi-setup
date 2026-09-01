@@ -212,7 +212,7 @@ That restraint is the point. The validator is designed to stop when it lacks evi
 
 - `skills/webflow-designer-agent-browser/scripts/test-corpus-index.py:433-756,1207-1395`: extraction, feature analysis, semantic identity, candidate grouping, holdouts, coverage, and discovery validation.
 - `skills/webflow-designer-agent-browser/scripts/validate-change.py:306-1204`: routing, proposal context, candidate validation, output classification, receipts, and execution.
-- `skills/webflow-designer-agent-browser/scripts/designer-code-mode.py:1799-2003`: candidate state, digest-bound approval, one-run claiming, and the `validate_change` interface.
+- `skills/webflow-designer-agent-browser/lib/webflow_browser/core.py:1799-2003`: candidate state, digest-bound approval, one-run claiming, and the `validate_change` interface.
 - `skills/webflow-designer-agent-browser/schemas/designer-validation-contract.schema.json`: the closed candidate contract.
 - `skills/webflow-designer-agent-browser/schemas/designer-validation-receipt.schema.json`: the compact public receipt.
 - `skills/webflow-designer-agent-browser/test-corpus-policy.json`: source roots, operation seed, mappings, runners, budgets, and allowlists.

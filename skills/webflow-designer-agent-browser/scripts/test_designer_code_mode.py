@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import importlib.util
+import sys
 import tempfile
 import types
 import unittest
@@ -8,11 +8,10 @@ from pathlib import Path
 from unittest import mock
 
 
-SCRIPT = Path(__file__).with_name("designer-code-mode.py")
-SPEC = importlib.util.spec_from_file_location("designer_code_mode_tests_target", SCRIPT)
-assert SPEC is not None and SPEC.loader is not None
-designer_code_mode = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(designer_code_mode)
+LIB_DIR = Path(__file__).resolve().parents[1] / "lib"
+sys.path.insert(0, str(LIB_DIR))
+
+from webflow_browser import core as designer_code_mode
 
 
 TARGET = "https://design.webflow.com/projects/synthetic?pageId=synthetic"
@@ -745,6 +744,21 @@ class DesignerCodeModeTests(unittest.TestCase):
             }
         )
         self.assertTrue(repeated["alreadyFinished"])
+        self.assertEqual(
+            repeated["cleanup"],
+            {
+                "status": "stopped",
+                "runtimeOwned": False,
+                "cdpReady": False,
+                "mode": None,
+                "consumer": None,
+                "leaseOwner": None,
+                "leasePresent": False,
+                "endpointKind": "direct_cdp",
+                "host": "loopback",
+                "port": 9333,
+            },
+        )
 
     def test_prepare_uses_documented_default_http_service_probes(self):
         calls = []
@@ -885,6 +899,21 @@ class DesignerCodeModeTests(unittest.TestCase):
                 self.prepare_request(auth_profile="../webflow-designer-test")
             )
         self.assertEqual(self.runtime.events, [])
+
+    def test_malformed_enum_values_fail_as_invalid_input(self):
+        request = self.prepare_request()
+        request["checks"][0]["kind"] = {}
+        with self.assertRaisesRegex(
+            designer_code_mode.ProtocolError, "invalid_readiness_check"
+        ):
+            self.service().handle(request)
+
+        surface = self.verify_request("00000000-0000-4000-8000-000000000000")["surface"]
+        surface["document"] = {}
+        with self.assertRaisesRegex(
+            designer_code_mode.ProtocolError, "invalid_surface_evidence"
+        ):
+            designer_code_mode._validate_surface(surface, TARGET, "body")
 
     def test_prepare_waits_for_post_start_runtime_readiness_to_settle(self):
         self.runtime.transient_unready_after_start = 2
@@ -1083,6 +1112,18 @@ class DesignerCodeModeTests(unittest.TestCase):
         ):
             self.service().handle(self.prepare_request())
         self.assertNotIn("start", self.runtime.events)
+
+    def test_prepare_defers_a_live_owned_runtime_without_a_lease(self):
+        self.runtime.owned = True
+        self.runtime.ready = True
+        self.runtime.mode = "headless"
+        with self.assertRaisesRegex(
+            designer_code_mode.ProtocolError, "runtime_ownership_unknown"
+        ):
+            self.service().handle(self.prepare_request())
+        self.assertNotIn("start", self.runtime.events)
+        self.assertNotIn("claim", self.runtime.events)
+        self.assertTrue(self.runtime.owned)
 
     def test_runtime_mode_conflict_is_fail_closed(self):
         self.runtime.fail_start = FakeRuntimeFailure(

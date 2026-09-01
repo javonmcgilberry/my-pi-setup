@@ -20,6 +20,8 @@ packages/*
 prewalk/analytics/
 session-metadata/
 bin/
+!skills/webflow-designer-agent-browser/bin/
+!skills/webflow-designer-agent-browser/bin/**
 git/
 npm/
 node_modules/

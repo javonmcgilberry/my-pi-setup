@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Webflow browser CLI architecture</title>
+  <style>
+    :root {
+      --paper: rgb(255 255 255);
+      --well: rgb(240 240 240);
+      --ink: rgb(8 8 8);
+      --muted: rgb(90 90 90);
+      --quiet: rgb(171 171 171);
+      --line: rgb(224 224 224);
+      --blue: rgb(20 110 245);
+      --sans: "WF Visual Sans", "WF Visual Sans Variable", Arial, sans-serif;
+      --mono: "WF Visual Sans Mono", "SF Mono", ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--sans);
+    }
+    .shell { max-width: 1180px; margin: 0 auto; padding: 48px 28px 64px; }
+    .eyebrow, .label {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: .8rem;
+      font-weight: 550;
+      letter-spacing: 0;
+      line-height: 1.2;
+      text-transform: uppercase;
+    }
+    h1, h2 { font-weight: 600; letter-spacing: 0; line-height: 1.3; }
+    h1 { max-width: 760px; margin: 12px 0 12px; font-size: 2rem; }
+    h2 { margin: 0; font-size: 1.25rem; }
+    p { max-width: 760px; margin: 0; font-size: 1rem; line-height: 1.6; }
+    .standfirst { color: var(--muted); max-width: 700px; }
+    .section { margin-top: 42px; }
+    .section-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 14px; }
+    .section-head .label { color: var(--blue); }
+    figure { margin: 0; }
+    .stage {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+      padding: 18px;
+    }
+    svg { display: block; width: 100%; min-width: 760px; height: auto; }
+    .box { fill: var(--paper); stroke: var(--line); stroke-width: 2; }
+    .box.well { fill: var(--well); }
+    .box.seam { stroke: var(--blue); stroke-width: 3; }
+    .edge { fill: none; stroke: var(--muted); stroke-width: 2; }
+    .edge.seam { stroke: var(--blue); stroke-width: 3; }
+    .svg-title { fill: var(--ink); font-family: var(--sans); font-size: 20px; font-weight: 600; }
+    .svg-copy { fill: var(--muted); font-family: var(--mono); font-size: 14px; }
+    .svg-micro { fill: var(--quiet); font-family: var(--mono); font-size: 12px; letter-spacing: 1px; }
+    figcaption { margin: 12px 0 0; color: var(--muted); font-size: .875rem; line-height: 1.6; }
+    .notes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+    .note { border-top: 1px solid var(--line); padding-top: 12px; }
+    .note p { margin-top: 6px; color: var(--muted); font-size: .875rem; }
+    code { font-family: var(--mono); font-size: .9em; }
+    @media (max-width: 720px) {
+      .shell { padding: 32px 16px 48px; }
+      .notes { grid-template-columns: 1fr; }
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: rgb(8 8 8);
+        --well: rgb(23 23 23);
+        --ink: rgb(255 255 255);
+        --muted: rgb(171 171 171);
+        --quiet: rgb(90 90 90);
+        --line: rgb(54 54 54);
+        --blue: rgb(59 137 255);
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div class="eyebrow">Webflow browser / module map</div>
+      <h1>Keep policy above the lifecycle seam</h1>
+      <p class="standfirst">The old script made Pi, shell callers, and lifecycle details learn the same interface. The new shape puts one deep module behind a small JSON seam while the Pi skill keeps the judgment that must stay human-facing.</p>
+    </header>
+
+    <section class="section" aria-labelledby="structure-title">
+      <div class="section-head"><span class="label">01</span><h2 id="structure-title">Old and new structure</h2></div>
+      <figure>
+        <div class="stage">
+          <svg viewBox="0 0 1120 430" role="img" aria-labelledby="structure-svg-title structure-svg-desc">
+            <title id="structure-svg-title">Old script compared with the new CLI and core module</title>
+            <desc id="structure-svg-desc">The old shape sends three callers directly into one large script. The new shape sends Pi and standalone callers through adapters into a shared core module, which reuses existing lifecycle scripts.</desc>
+            <defs>
+              <marker id="arrow-old" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8" fill="none" stroke="rgb(90 90 90)" stroke-width="1.5"/></marker>
+              <marker id="arrow-new" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8" fill="none" stroke="rgb(20 110 245)" stroke-width="1.5"/></marker>
+            </defs>
+
+            <text x="30" y="28" class="svg-micro">BEFORE / SHALLOW SEAM</text>
+            <rect x="30" y="52" width="200" height="58" rx="4" class="box well"/>
+            <text x="130" y="77" text-anchor="middle" class="svg-title">Pi skill</text>
+            <text x="130" y="97" text-anchor="middle" class="svg-copy">policy + lifecycle</text>
+            <rect x="30" y="140" width="200" height="58" rx="4" class="box well"/>
+            <text x="130" y="165" text-anchor="middle" class="svg-title">Shell caller</text>
+            <text x="130" y="185" text-anchor="middle" class="svg-copy">JSON + commands</text>
+            <rect x="30" y="228" width="200" height="58" rx="4" class="box well"/>
+            <text x="130" y="253" text-anchor="middle" class="svg-title">CI job</text>
+            <text x="130" y="273" text-anchor="middle" class="svg-copy">status + retries</text>
+            <path d="M230 81 H300 V198 H350" class="edge" marker-end="url(#arrow-old)"/>
+            <path d="M230 169 H300 V198 H350" class="edge" marker-end="url(#arrow-old)"/>
+            <path d="M230 257 H300 V198 H350" class="edge" marker-end="url(#arrow-old)"/>
+            <rect x="350" y="80" width="245" height="236" rx="4" class="box"/>
+            <text x="472" y="122" text-anchor="middle" class="svg-title">designer-code-mode.py</text>
+            <text x="472" y="150" text-anchor="middle" class="svg-copy">parse + prepare + verify</text>
+            <text x="472" y="172" text-anchor="middle" class="svg-copy">lease + readiness + finish</text>
+            <text x="472" y="194" text-anchor="middle" class="svg-copy">transport + policy knowledge</text>
+            <path d="M372 228 H573" class="edge"/>
+            <text x="472" y="258" text-anchor="middle" class="svg-micro">EVERY CALLER LEARNS THE DETAILS</text>
+            <rect x="650" y="112" width="170" height="172" rx="4" class="box well"/>
+            <text x="735" y="153" text-anchor="middle" class="svg-title">Lifecycle scripts</text>
+            <text x="735" y="181" text-anchor="middle" class="svg-copy">runtime</text>
+            <text x="735" y="202" text-anchor="middle" class="svg-copy">session</text>
+            <text x="735" y="223" text-anchor="middle" class="svg-copy">readiness</text>
+            <text x="735" y="244" text-anchor="middle" class="svg-copy">evidence</text>
+            <path d="M595 198 H650" class="edge" marker-end="url(#arrow-old)"/>
+
+            <text x="30" y="354" class="svg-micro">AFTER / DEEP CORE SEAM</text>
+            <rect x="30" y="370" width="160" height="44" rx="4" class="box well"/>
+            <text x="110" y="397" text-anchor="middle" class="svg-title">SKILL.md</text>
+            <rect x="235" y="370" width="160" height="44" rx="4" class="box"/>
+            <text x="315" y="397" text-anchor="middle" class="svg-title">Pi adapter</text>
+            <rect x="440" y="370" width="210" height="44" rx="4" class="box seam"/>
+            <text x="545" y="397" text-anchor="middle" class="svg-title">lib/webflow_browser</text>
+            <rect x="695" y="370" width="160" height="44" rx="4" class="box"/>
+            <text x="775" y="397" text-anchor="middle" class="svg-title">Lifecycle scripts</text>
+            <rect x="30" y="304" width="160" height="44" rx="4" class="box well"/>
+            <text x="110" y="331" text-anchor="middle" class="svg-title">Shell / CI</text>
+            <rect x="235" y="304" width="160" height="44" rx="4" class="box"/>
+            <text x="315" y="331" text-anchor="middle" class="svg-title">bin/webflow-browser</text>
+            <path d="M190 392 H235" class="edge seam" marker-end="url(#arrow-new)"/>
+            <path d="M395 392 H440" class="edge seam" marker-end="url(#arrow-new)"/>
+            <path d="M650 392 H695" class="edge seam" marker-end="url(#arrow-new)"/>
+            <path d="M190 326 H235" class="edge seam" marker-end="url(#arrow-new)"/>
+            <path d="M395 326 H545 V370" class="edge seam" marker-end="url(#arrow-new)"/>
+          </svg>
+        </div>
+        <figcaption>The adapter is a seam, not a second implementation. Callers know the JSON interface; the core hides runtime identity, lease state, readiness, and cleanup sequencing.</figcaption>
+      </figure>
+      <div class="notes">
+        <div class="note"><div class="label">Interface</div><p>Versioned JSON in, sanitized JSON out, plus a process exit code.</p></div>
+        <div class="note"><div class="label">Depth</div><p>Prepare, verify, status, and finish keep lifecycle rules behind one module.</p></div>
+        <div class="note"><div class="label">Locality</div><p>Pi policy stays in <code>SKILL.md</code>; mechanics change in one core.</p></div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
