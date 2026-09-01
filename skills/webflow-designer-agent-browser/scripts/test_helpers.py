@@ -271,10 +271,8 @@ class SessionTests(unittest.TestCase):
         self.assertNotIn("open", flattened)
         self.assertNotIn("close", flattened)
         self.assertEqual(commands[0]["sessionMode"], "fresh")
-        self.assertEqual(
-            commands[-1]["args"],
-            ["snapshot", "-i", "-c", "-s", "#panel"],
-        )
+        self.assertEqual(commands[-1]["args"], ["wait", "#ready"])
+        self.assertNotIn("snapshot", flattened)
 
     def test_cli_transport_emits_agent_browser_commands(self):
         args = argparse.Namespace(
@@ -294,8 +292,51 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(commands[0]["args"], ["--session", "designer-cli-test", "open", args.url])
         self.assertEqual(
             commands[-1]["args"],
-            ["--session", "designer-cli-test", "snapshot", "-i", "-c", "-s", "#panel"],
+            ["--session", "designer-cli-test", "wait", "#ready"],
         )
+
+    def test_snapshot_is_opt_in_for_explicit_diagnostics(self):
+        args = argparse.Namespace(
+            mode="isolated",
+            transport="native",
+            session=None,
+            port=None,
+            tab=None,
+            url="https://design.webflow.com/",
+            user_agent=None,
+            ready_selector="#ready",
+            surface="#panel",
+            include_snapshot=True,
+        )
+        commands = session.build_commands(args)
+        self.assertEqual(
+            commands[-1]["args"],
+            ["snapshot", "-i", "-c", "-s", "#panel"],
+        )
+
+    def test_auth_vault_login_precedes_target_without_resetting_native_session(self):
+        args = argparse.Namespace(
+            mode="isolated",
+            transport="native",
+            session=None,
+            port=None,
+            tab=None,
+            url="https://design.webflow.com/",
+            user_agent=None,
+            ready_selector="#ready",
+            surface="#panel",
+            auth_profile="webflow-designer-test",
+        )
+        commands = session.build_commands(args)
+        self.assertEqual(
+            [command["args"] for command in commands],
+            [
+                ["auth", "login", "webflow-designer-test"],
+                ["open", args.url],
+                ["wait", "#ready"],
+            ],
+        )
+        self.assertNotIn("sessionMode", commands[1])
 
     def test_managed_isolated_plan_connects_before_navigating(self):
         args = argparse.Namespace(

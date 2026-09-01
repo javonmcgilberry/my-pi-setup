@@ -568,19 +568,29 @@ adapter is not included. All paths use a dedicated Chrome for Testing profile
 and keep it separate from normal Chrome. The skill never stores credentials,
 cookies, tokens, raw DOM, or customer data in the repository.
 
-Before the first isolated run, Chrome for Testing opens visibly so the user can
-sign in with a dedicated Webflow test user that has only the access needed for
-QA. Its profile keeps the login for later runs. If an account must remain active
-in another browser, the workflow asks to attach to that tab instead.
+Before an isolated run, the workflow checks the sessionless Auth Vault list and
+uses only an explicitly identified dedicated Webflow profile. Pass that exact
+name as `authProfile`; Code Mode then runs `auth login` after connecting to the
+owned runtime and before opening the exact Designer URL. A Vault login is only
+an authentication attempt, so URL/title classification and `verify` must still
+prove a non-login Designer surface. If no suitable Vault entry exists, Chrome
+for Testing opens visibly so the user can sign in with a dedicated Webflow test
+user that has only the access needed for QA. Its profile keeps the login for
+later runs. If an account must remain active in another browser, the workflow
+asks to attach to that tab instead. Auth checks never return credentials or a
+login-page snapshot; keep transient profile metadata out of reports.
 `browser-runtime.py` owns normal managed-runtime starts and stops. The profile
 reconciler may terminate a separately detected orphan only after it has proved
 the exact Chrome for Testing process and dedicated profile. The runtime
 helper gives an owned runtime one second to stop cleanly before forcing it to
 stop, then verifies that its process group and CDP listener are gone. The
 automation client closes its session only after the runtime reports that Chrome
-has stopped. Cleanup never signs out or clears cookies. When service endpoints
-are not supplied, `https://wfdev.io:8443/` is the default probe for both `hud`
-and `designer_service`; failed probes stop the run.
+has stopped. Cleanup never signs out or clears cookies. When `checks` is omitted
+from Code Mode, `https://wfdev.io:8443/` is the default probe for both `hud` and
+`designer_service`, and the exact target is the `target_http` probe; failed
+probes stop the run. Preparation emits no snapshot. A scoped snapshot is
+allowed only after URL/title classification and successful verification (the
+direct helper requires explicit `--include-snapshot`).
 
 The dedicated-profile reconciler is a separate fail-closed recovery path for
 agent-browser or Auth Vault failures. It accepts only a profile below the

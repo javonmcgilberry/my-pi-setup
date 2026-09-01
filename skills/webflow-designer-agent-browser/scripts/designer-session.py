@@ -16,6 +16,7 @@ from typing import cast
 DEFAULT_READY_SELECTOR = "body"
 SENSITIVE_QUERY_PARTS = ("token", "secret", "password", "credential", "code")
 SERVICE_LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}$")
+AUTH_PROFILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,79}$")
 LEASE_ID = re.compile(r"^[0-9a-f]{32}$")
 
 
@@ -47,6 +48,18 @@ def validate_service_label(value: str) -> str:
     lowered = value.lower()
     if any(part in lowered for part in SENSITIVE_QUERY_PARTS):
         raise ValueError("service label contains a sensitive term")
+    return value
+
+
+def validate_auth_profile(value: str) -> str:
+    if not isinstance(value, str) or not AUTH_PROFILE_NAME.fullmatch(value):
+        raise ValueError(
+            "Auth Vault profile names must use bounded letters, digits, dots, "
+            "underscores, hyphens, or spaces"
+        )
+    lowered = value.lower()
+    if any(part in lowered for part in SENSITIVE_QUERY_PARTS):
+        raise ValueError("Auth Vault profile name contains a sensitive term")
     return value
 
 
@@ -193,6 +206,11 @@ def build_commands(args: argparse.Namespace) -> list[dict[str, object]]:
         raise ValueError("--port must be between 1 and 65535")
     if args.transport == "cli" and not args.session:
         raise ValueError("--session is required for cli transport")
+    auth_profile = getattr(args, "auth_profile", None)
+    if auth_profile is not None:
+        validate_auth_profile(auth_profile)
+        if args.mode != "isolated":
+            raise ValueError("Auth Vault login requires isolated mode")
 
     def browser_action(
         action_args: list[str], *, fresh: bool = False
@@ -230,6 +248,8 @@ def build_commands(args: argparse.Namespace) -> list[dict[str, object]]:
         if not args.port:
             raise ValueError("--port is required for a managed runtime")
         commands.append(browser_action(["connect", str(args.port)], fresh=True))
+        if auth_profile is not None:
+            commands.append(browser_action(["auth", "login", auth_profile]))
         if args.mode == "attached":
             commands.append(browser_action(["tab"]))
             if args.tab:
@@ -246,14 +266,18 @@ def build_commands(args: argparse.Namespace) -> list[dict[str, object]]:
         if args.tab:
             commands.append(browser_action(["tab", args.tab]))
     else:
+        if auth_profile is not None:
+            commands.append(browser_action(["auth", "login", auth_profile]))
         commands.append(
             browser_action(
-                isolated_navigation(include_user_agent=True), fresh=True
+                isolated_navigation(include_user_agent=True),
+                fresh=auth_profile is None,
             )
         )
 
     commands.append(browser_action(["wait", args.ready_selector]))
-    commands.append(browser_action(["snapshot", "-i", "-c", "-s", args.surface]))
+    if getattr(args, "include_snapshot", False):
+        commands.append(browser_action(["snapshot", "-i", "-c", "-s", args.surface]))
     return commands
 
 
@@ -358,6 +382,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ready-selector", default=DEFAULT_READY_SELECTOR)
     parser.add_argument("--surface", default="body")
     parser.add_argument("--user-agent")
+    parser.add_argument("--auth-profile", type=validate_auth_profile)
+    parser.add_argument(
+        "--include-snapshot",
+        action="store_true",
+        help="include a scoped snapshot for an explicitly authorized diagnostic",
+    )
     parser.add_argument("--lease-id", type=validate_lease_id)
     parser.add_argument(
         "--tcp-service",

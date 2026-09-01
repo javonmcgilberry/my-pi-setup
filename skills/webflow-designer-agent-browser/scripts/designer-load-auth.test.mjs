@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {parseProfiles, runAgentBrowser} from './designer-load-auth.mjs';
+import {classifyAuthProfile, parseProfiles, runAgentBrowser} from './designer-load-auth.mjs';
 
 test('parseProfiles accepts the bounded Auth Vault list shape', () => {
   assert.deepEqual(
@@ -24,6 +24,25 @@ test('parseProfiles rejects an unsuccessful or malformed Vault response', () => 
   assert.throws(
     () => parseProfiles(JSON.stringify({success: true, data: {profiles: [null]}})),
     /invalid Auth Vault response/,
+  );
+});
+
+test('classifyAuthProfile returns only bounded readiness states', () => {
+  assert.equal(
+    classifyAuthProfile([{name: 'webflow-designer'}], 'webflow-designer'),
+    'auth_profile_ready',
+  );
+  assert.equal(
+    classifyAuthProfile([{name: 'other'}], 'webflow-designer'),
+    'auth_profile_missing',
+  );
+  assert.throws(
+    () => classifyAuthProfile([{name: 'webflow-designer'}], ''),
+    /invalid Auth Vault profile readiness input/,
+  );
+  assert.throws(
+    () => classifyAuthProfile([null], 'webflow-designer'),
+    /invalid Auth Vault profile readiness input/,
   );
 });
 

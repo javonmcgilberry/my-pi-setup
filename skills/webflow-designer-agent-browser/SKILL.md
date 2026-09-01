@@ -18,13 +18,19 @@ captured data, and proves cleanup.
 2. Select one [browser transport](#select-a-transport) before starting.
 3. Obtain the exact Designer URL. Ask for it when it is missing; never infer a
    target from a default host or an unrelated open tab.
-4. Complete the [authentication gate](#authenticate-the-dedicated-profile)
-   before the first isolated run.
+4. Check the sessionless Auth Vault list. Use the explicitly configured
+   dedicated Webflow profile when it is ready; otherwise report the blocker and
+   use the headed [authentication gate](#authenticate-the-dedicated-profile)
+   only with user authorization.
 5. For local runs, recover only the declared HUD tasks and reconcile any stale
    dedicated Chrome process before retrying the browser operation.
-6. Prepare the runtime and declare the target and service checks.
-7. Open or connect to the exact Designer URL, then inspect a narrow surface.
-8. Verify the Designer document and all readiness checks.
+6. Prepare the runtime and declare the exact target. Omit `checks` to use the
+   documented service defaults; pass `authProfile` only for the identified Vault
+   profile.
+7. Execute the returned actions in order; Auth Vault login, when requested,
+   precedes opening the exact Designer URL.
+8. Classify the observed URL/title, then verify the Designer document and all
+   readiness checks.
 9. Choose the fast lane for read-only observation or the guarded lane for
    stateful or uncertain work.
 10. Perform only the authorized interaction.
@@ -55,7 +61,35 @@ after the observation.
 ## Authenticate the dedicated profile
 
 An isolated run never opens a target in a fresh profile with unknown auth state.
-For a new, reset, or expired dedicated profile:
+Before preparing an isolated run, use the native tool without a session (or the
+CLI without `--session`) to list Auth Vault names:
+
+```text
+native agent_browser args: ["auth", "list"]
+CLI: agent-browser auth list
+```
+
+When the private benchmark Auth Vault config is available, the equivalent
+bounded check is:
+
+```sh
+node "$SKILL_DIR/scripts/designer-load-auth.mjs" status "$AUTH_CONFIG"
+```
+
+Continue only when its `classification` is `auth_profile_ready`; a missing or
+failed check is an authentication blocker. Keep the result transient.
+
+Use `authProfile` only when the user or private setup has identified one exact,
+dedicated Webflow profile. Never choose the first profile, expose the list in a
+report, or treat a saved Vault entry as proof that the site session is valid.
+When that profile is selected, `prepare` emits `auth login <authProfile>` after
+the owned runtime connects and before it opens the exact target. The login
+result is only an authentication attempt; `verify` must still observe the exact
+non-login Designer surface.
+
+If no identified Vault profile is present, report `auth_profile_missing`; if the
+Vault check itself fails, report `auth_vault_unavailable`. Stop unless the user
+authorizes the headed fallback. For a new, reset, or expired dedicated profile:
 
 1. Start the dedicated Chrome for Testing runtime in headed mode.
 2. Ask the user to authenticate a dedicated test user. If the proposed account
@@ -96,9 +130,10 @@ it does not prove that the native wrapper connected.
 
 For normal local or authenticated QA, use the lifecycle facade or the
 standalone JSON protocol. The operation declares the exact target, surface,
-transport, mode, and the three service probes: `hud`, `designer_service`, and
-`target_http`. It starts or reuses Chrome for Testing, claims the exclusive
-`agent_browser` lease, and returns the browser actions.
+transport, and mode. `checks` is optional: when omitted, Code Mode probes
+`https://wfdev.io:8443/` for both `hud` and `designer_service`, then probes
+`target_http` against the exact target. It starts or reuses Chrome for Testing,
+claims the exclusive `agent_browser` lease, and returns the browser actions.
 
 The managed profile is separate from the user's normal Chrome profile. Never
 launch normal Chrome, attach to its profile, copy its credentials, or use a
@@ -106,10 +141,9 @@ profile path from another browser task. Manual headed startup is reserved for
 login, MFA, and visual debugging. See [standalone CLI](references/standalone-cli.md)
 for bootstrap and recovery commands.
 
-When service endpoints are not supplied, probe `https://wfdev.io:8443/` for
-both `hud` and `designer_service`. If either default probe fails, report that
-named blocker instead of guessing another port or endpoint. Always probe
-`target_http` against the exact requested Designer URL.
+If either default service probe fails, report that named blocker instead of
+guessing another port or endpoint. Always probe `target_http` against the exact
+requested Designer URL.
 
 ## Recover local launch prerequisites
 
@@ -177,6 +211,8 @@ Use the **fast lane** for observation only. The exact target, authentication,
 ownership boundary, and all five readiness checks must already be verified.
 Keep the work scoped to snapshots, screenshots, visible text, layout, spacing,
 color, and bounded diagnostics that do not include bodies or sensitive data.
+The preparation handoff may run the selected Auth Vault login and open the exact
+target; once the fast lane starts, do not navigate, select, or edit.
 An attached tab also needs explicit attachment authorization and a paused user.
 
 Use the **guarded lane** before navigation, reload, selection changes, canvas
@@ -199,8 +235,9 @@ readiness and stopped-runtime proof.
 
 - Preserve the full approved URL, including `pageId`, `simulateRole`, host, and
   port. Reject credentials and secret-bearing query parameters.
-- Start with a scoped interactive snapshot. Treat refs as valid only for the
-  latest snapshot of the same tab and frame.
+- Do not snapshot during `prepare`. First classify the compact URL/title result
+  and complete `verify`; only then take a scoped interactive snapshot. Treat
+  refs as valid only for the latest snapshot of the same tab and frame.
 - Prove semantic state before taking a screenshot. Use screenshots for layout,
   transformed canvas content, spacing, or color.
 - Treat attached sessions as read-only until the task authorizes navigation,

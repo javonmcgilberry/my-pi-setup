@@ -8,14 +8,19 @@ services, iframes, canvas assertions, screenshots, or diagnostics.
 The normal sequence is:
 
 ```text
-prepare -> browser interaction -> verify -> authorized work -> finish
+auth list -> prepare -> action plan -> URL/title classification -> verify -> authorized work -> finish
 ```
 
-`prepare` performs the declared service probes, starts or reuses the managed
-Chrome for Testing runtime, and claims the exclusive browser lease. The browser
-transport performs page interaction. `verify` accepts compact surface evidence
-and permits work only when the transaction still owns the expected runtime and
-all readiness conditions pass. `finish` closes the session, releases the lease,
+The sessionless Auth Vault list is a preflight, not authentication proof. Use
+only an explicitly identified dedicated Webflow profile. When `authProfile` is
+provided, `prepare` performs the declared service probes, starts or reuses the
+managed Chrome for Testing runtime, claims the exclusive browser lease, and
+returns `connect -> auth login -> exact-target open -> wait`. Without that field,
+the headed authentication gate remains the fallback. The browser transport
+executes the returned plan without substitutions. Classify URL/title evidence
+before taking a snapshot; `verify` accepts compact surface evidence and permits
+work only when the transaction still owns the expected runtime and all
+readiness conditions pass. `finish` closes the session, releases the lease,
 stops only the owned runtime, and proves the stopped state.
 
 The private receipt binds the transaction to the runtime PID, start generation,
@@ -33,9 +38,11 @@ The five readiness names are:
 - `designer_surface`: the approved Designer document is authenticated, not a
   login document, and not a Chrome error page.
 
-The service probe request normally contains `hud`, `designer_service`, and
-`target_http`. The runtime and surface checks are produced during the browser
-handoff. `auth_required`, `unavailable`, and `error` block QA.
+The service probe request may omit `checks`. Code Mode then uses
+`https://wfdev.io:8443/` for both `hud` and `designer_service`, plus
+`target_http` for the exact target. Explicit checks remain supported. The
+runtime and surface checks are produced during the browser handoff.
+`auth_required`, `unavailable`, and `error` block QA.
 
 ## URL and environment
 
@@ -64,10 +71,12 @@ and no Chrome error page. A fixed sidebar selector is not a readiness check.
 
 After readiness:
 
-1. Scope the snapshot to the feature surface.
-2. If the selector is absent from the main frame, enumerate frames and inspect
+1. Classify the exact URL/title and complete `verify` before capturing page
+   content.
+2. Scope any later snapshot to the feature surface.
+3. If the selector is absent from the main frame, enumerate frames and inspect
    the matching frame.
-3. For an extension, match the expected origin and route, wait for an
+4. For an extension, match the expected origin and route, wait for an
    extension-owned selector, and take a fresh snapshot.
 
 The canvas commonly lives in an iframe such as `/site/empty.html`. The parent

@@ -53,6 +53,7 @@ REQUIRED_CHECKS = (
     "designer_surface",
 )
 SERVICE_CHECKS = REQUIRED_CHECKS[:3]
+DEFAULT_SERVICE_URL = "https://wfdev.io:8443/"
 CHECK_STATES = {"ready", "unavailable", "error"}
 SURFACE_STATES = {"designer", "login", "error", "unknown"}
 SAFE_QUERY_KEYS = {"pageId", "simulateRole"}
@@ -263,9 +264,27 @@ def _validate_target(value: object) -> tuple[str, str]:
     except (ValueError, TypeError):
         _fail("unsafe_target", "input")
     parts = urlsplit(target)
-    if any(key not in SAFE_QUERY_KEYS for key, _item in parse_qsl(parts.query)):
+    if any(
+        key not in SAFE_QUERY_KEYS
+        for key, _item in parse_qsl(parts.query, keep_blank_values=True)
+    ):
         _fail("unsafe_target", "input")
     return target, sanitize_evidence.sanitize_url(target)
+
+
+def _validate_service_url(value: object) -> tuple[str, str]:
+    raw_url = _bounded_string(value, "url")
+    try:
+        designer_session.reject_sensitive_url(raw_url)
+    except (ValueError, TypeError):
+        _fail("unsafe_service_url", "input")
+    parts = urlsplit(raw_url)
+    if any(
+        key not in SAFE_QUERY_KEYS
+        for key, _item in parse_qsl(parts.query, keep_blank_values=True)
+    ):
+        _fail("unsafe_service_url", "input")
+    return raw_url, sanitize_evidence.sanitize_url(raw_url)
 
 
 def _validate_session(value: object) -> str:
@@ -275,6 +294,14 @@ def _validate_session(value: object) -> str:
     if any(term in session.lower() for term in SENSITIVE_TERMS):
         _fail("sensitive_input_rejected")
     return session
+
+
+def _validate_auth_profile(value: object) -> str:
+    profile = _bounded_string(value, "authProfile", maximum=80)
+    try:
+        return designer_session.validate_auth_profile(profile)
+    except (ValueError, TypeError):
+        _fail("invalid_auth_profile")
 
 
 def _validate_transport(value: object) -> str:
@@ -317,9 +344,12 @@ def _validate_check(check: object, target: str) -> dict[str, object]:
 
     if set(item) != {"name", "kind", "url", "status"}:
         _fail("invalid_readiness_check")
-    raw_url, sanitized_url = _validate_target(item.get("url"))
-    if name == "target_http" and sanitized_url != target:
-        _fail("target_check_mismatch")
+    if name == "target_http":
+        raw_url, sanitized_url = _validate_target(item.get("url"))
+        if sanitized_url != target:
+            _fail("target_check_mismatch")
+    else:
+        raw_url, _sanitized_url = _validate_service_url(item.get("url"))
     status = _bounded_int(item.get("status"), "status", minimum=100, maximum=599)
     return {
         "label": label,
@@ -337,6 +367,29 @@ def _validate_checks(value: object, target: str) -> list[dict[str, object]]:
     if set(names) != set(SERVICE_CHECKS) or len(names) != len(set(names)):
         _fail("invalid_readiness_check")
     return checks
+
+
+def _default_checks(target: str) -> list[dict[str, object]]:
+    return [
+        {
+            "name": "hud",
+            "kind": "http",
+            "url": DEFAULT_SERVICE_URL,
+            "status": 200,
+        },
+        {
+            "name": "designer_service",
+            "kind": "http",
+            "url": DEFAULT_SERVICE_URL,
+            "status": 200,
+        },
+        {
+            "name": "target_http",
+            "kind": "http",
+            "url": target,
+            "status": 200,
+        },
+    ]
 
 
 def _validate_surface(value: object, target: str, selector: str) -> dict[str, object]:
@@ -442,6 +495,7 @@ def parse_request(raw: str) -> dict[str, Any]:
             "surface",
             "readySelector",
             "session",
+            "authProfile",
             "checks",
             "timeoutSeconds",
             "runtimeMode",
@@ -527,6 +581,10 @@ class TransactionStore:
         if state["runtimeMode"] not in {"headless", "headed"}:
             _fail("transaction_state_invalid", "transaction")
         if not isinstance(state["target"], str) or not isinstance(state["surface"], str):
+            _fail("transaction_state_invalid", "transaction")
+        if "authVaultRequested" in state and not isinstance(
+            state["authVaultRequested"], bool
+        ):
             _fail("transaction_state_invalid", "transaction")
         try:
             _raw_target, normalized_target = _validate_target(state["target"])
@@ -1136,6 +1194,7 @@ class DesignerCodeMode:
         selector: str,
         ready_selector: str,
         session: str | None,
+        auth_profile: str | None = None,
     ) -> list[dict[str, object]]:
         namespace = SimpleNamespace()
         namespace.transport = transport
@@ -1145,6 +1204,8 @@ class DesignerCodeMode:
         namespace.ready_selector = ready_selector
         namespace.port = self.config.port
         namespace.session = session
+        namespace.auth_profile = auth_profile
+        namespace.include_snapshot = False
         namespace.tab = None
         namespace.user_agent = None
         namespace.managed_runtime = True
@@ -1253,6 +1314,11 @@ class DesignerCodeMode:
             request.get("readySelector"), "readySelector"
         )
         runtime_mode = _validate_runtime_mode(request.get("runtimeMode"))
+        auth_profile = None
+        if "authProfile" in request:
+            if mode != "isolated":
+                _fail("auth_profile_requires_isolated")
+            auth_profile = _validate_auth_profile(request.get("authProfile"))
         session = None
         if transport == "cli":
             if "session" not in request:
@@ -1260,7 +1326,12 @@ class DesignerCodeMode:
             session = _validate_session(request.get("session"))
         elif "session" in request:
             _fail("session_not_allowed")
-        checks = _validate_checks(request.get("checks"), target)
+        checks = _validate_checks(
+            _default_checks(target_raw)
+            if "checks" not in request
+            else request.get("checks"),
+            target,
+        )
         timeout_value = request.get("timeoutSeconds", 2)
         if isinstance(timeout_value, bool) or not isinstance(timeout_value, (int, float)):
             _fail("invalid_timeout")
@@ -1283,6 +1354,7 @@ class DesignerCodeMode:
             selector=selector,
             ready_selector=ready_selector,
             session=session,
+            auth_profile=auth_profile,
         )
         service_results = self._service_results(checks, timeout)
         failed = [
@@ -1366,6 +1438,7 @@ class DesignerCodeMode:
                 "surface": selector,
                 "readySelector": ready_selector,
                 "session": session,
+                "authVaultRequested": auth_profile is not None,
                 "port": status.get("port"),
                 "checks": service_results,
                 "checkSpecs": self._sanitized_check_specs(checks),
@@ -1418,6 +1491,7 @@ class DesignerCodeMode:
             "runtime": runtime_receipt,
             "target": target,
             "actions": actions,
+            "authVaultRequested": auth_profile is not None,
             "checks": checks_for_output,
             "blockers": ["designer_surface"],
             "cleanup": {
@@ -2086,6 +2160,11 @@ class DesignerCodeMode:
                     "preferred": "native",
                     "fallback": "cli",
                     "switching": "forbidden_after_prepare",
+                },
+                "prepare": {
+                    "checks": "optional; defaults to wfdev.io:8443 plus the exact target",
+                    "authProfile": "optional isolated Auth Vault profile",
+                    "actions": "connect, optional auth login, exact-target open, wait; no snapshot",
                 },
                 "output": "sanitized_bounded_json",
             }

@@ -104,6 +104,31 @@ reset, expired, or on a login page:
 valid. A login page, expired-auth page, or blank document blocks the run. An
 authenticated surface can proceed without asking the user to log in again.
 
+For an existing Auth Vault entry, run the sessionless list before preparing a
+transaction and select only the exact dedicated Webflow profile identified by
+the private setup:
+
+```sh
+agent-browser auth list
+```
+
+For the private benchmark configuration, the same check returns a compact
+`classification` without page content:
+
+```sh
+node "$SKILL_DIR/scripts/designer-load-auth.mjs" status "$AUTH_CONFIG"
+```
+
+Proceed only for `auth_profile_ready`; keep the result out of durable reports.
+
+Do not pass `--session` to this check or copy its output into a report. In the
+managed transaction, pass that exact name as `authProfile`; Code Mode then emits
+`auth login <authProfile>` after connecting and before opening the target. A
+successful Vault login is not authentication proof: `verify` still requires the
+exact non-login Designer surface. If the identified profile is absent, report
+`auth_profile_missing`; if the check itself fails, report
+`auth_vault_unavailable`. Use the headed gate only when the user authorizes it.
+
 ## Managed transaction
 
 Use `designer-code-mode.py` when the run needs the prepare, verify, and finish
@@ -119,39 +144,40 @@ printf '%s\n' '{"version":1,"operation":"status"}' \
   | python3 "$CODE_MODE"
 ```
 
-Prepare an isolated CLI run with the real approved target and service checks.
-When service endpoints are not supplied, use `https://wfdev.io:8443/` for both
-`hud` and `designer_service`; report either failed default probe instead of
-guessing another endpoint. The three service checks are required in the request. The helper derives
-`browser_profile` after it starts the managed browser and leaves
-`designer_surface` pending until verification.
+Prepare an isolated native run with the real approved target. Native requests
+must not contain the CLI-only `session` field. Omit `checks` to use
+`https://wfdev.io:8443/` for both `hud` and `designer_service`, plus an exact
+`target_http` probe; report a failed default probe instead of guessing another
+endpoint. Add `authProfile` only when the preceding Auth Vault list identified
+that exact dedicated profile. The helper derives `browser_profile` after it
+starts the managed browser and leaves `designer_surface` pending until
+verification.
 
 ```sh
 DESIGNER_URL='https://design.webflow.com/?pageId=synthetic-page'
 SURFACE='body'
 READY_SELECTOR='body'
-HUD_PORT=3000
-DESIGNER_SERVICE_PORT=3001
-SESSION='webflow-qa'
+AUTH_PROFILE='webflow-designer-benchmark'
 
 cat <<JSON | python3 "$CODE_MODE"
 {
   "version": 1,
   "operation": "prepare",
-  "transport": "cli",
+  "transport": "native",
   "mode": "isolated",
   "target": "$DESIGNER_URL",
   "surface": "$SURFACE",
   "readySelector": "$READY_SELECTOR",
-  "session": "$SESSION",
-  "checks": [
-    {"name": "hud", "kind": "tcp", "host": "127.0.0.1", "port": $HUD_PORT},
-    {"name": "designer_service", "kind": "tcp", "host": "127.0.0.1", "port": $DESIGNER_SERVICE_PORT},
-    {"name": "target_http", "kind": "http", "url": "$DESIGNER_URL", "status": 200}
-  ]
+  "authProfile": "$AUTH_PROFILE"
 }
 JSON
 ```
+
+Remove the `authProfile` line when no exact dedicated Vault entry is
+configured; then stop for the headed authentication gate rather than guessing
+credentials or a different profile. The action list is already the contract:
+execute `connect`, optional `auth login`, exact-target `open`, and `wait` in
+order. Preparation never emits a snapshot.
 
 Use the returned `actions` in order. The first action connects to the runtime
 owned by the transaction; the isolated plan then opens the approved target in
@@ -173,7 +199,7 @@ cat <<JSON | python3 "$CODE_MODE"
   "version": 1,
   "operation": "verify",
   "transactionId": "<transaction-id-from-prepare>",
-  "transport": "cli",
+  "transport": "native",
   "surface": {
     "url": "https://design.webflow.com/?pageId=synthetic-page",
     "title": "Webflow - Example site",
@@ -192,6 +218,11 @@ the requested work. If it reports `auth_required`, `unavailable`, or `error`,
 stop and resolve that named blocker. Do not weaken the check or continue on a
 login or Chrome error page.
 
+Only after URL/title classification and successful `verify` may the browser
+take a scoped snapshot. The direct helper's snapshot is opt-in with
+`--include-snapshot`; the Code Mode preparation plan never enables it. Do not
+capture or report a login-page DOM.
+
 Always finish, including after a failed action:
 
 ```sh
@@ -200,7 +231,7 @@ cat <<JSON | python3 "$CODE_MODE"
   "version": 1,
   "operation": "finish",
   "transactionId": "<transaction-id-from-prepare>",
-  "transport": "cli"
+  "transport": "native"
 }
 JSON
 ```
@@ -224,12 +255,12 @@ facade is not needed. `--preflight-only --dry-run` does not open a browser:
 ```sh
 python3 "$SKILL_DIR/scripts/designer-session.py" isolated \
   --transport cli \
-  --session "$SESSION" \
+  --session 'webflow-qa' \
   --url "$DESIGNER_URL" \
   --ready-selector "$READY_SELECTOR" \
   --surface "$SURFACE" \
-  --tcp-service hud 127.0.0.1 "$HUD_PORT" \
-  --tcp-service designer_service 127.0.0.1 "$DESIGNER_SERVICE_PORT" \
+  --tcp-service hud 127.0.0.1 3000 \
+  --tcp-service designer_service 127.0.0.1 3001 \
   --http-service target_http "$DESIGNER_URL" 200 \
   --preflight-only --dry-run
 ```

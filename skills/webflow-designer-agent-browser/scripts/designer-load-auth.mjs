@@ -45,6 +45,22 @@ export function parseProfiles(stdout) {
   return result.data.profiles;
 }
 
+export function classifyAuthProfile(profiles, expectedName) {
+  if (
+    !Array.isArray(profiles) ||
+    profiles.some(
+      (profile) => !profile || typeof profile.name !== 'string' || !profile.name,
+    ) ||
+    typeof expectedName !== 'string' ||
+    !expectedName
+  ) {
+    throw new Error('invalid Auth Vault profile readiness input');
+  }
+  return profiles.some((profile) => profile.name === expectedName)
+    ? 'auth_profile_ready'
+    : 'auth_profile_missing';
+}
+
 function profileFromConfig(config) {
   if (!config || typeof config !== 'object' || Array.isArray(config)) {
     throw new Error('benchmark config must be a JSON object');
@@ -130,14 +146,12 @@ export async function status(configPath) {
     throw new Error('could not inspect the agent-browser Auth Vault');
   }
   const profiles = parseProfiles(completed.stdout);
+  const classification = classifyAuthProfile(profiles, profile.name);
   process.stdout.write(
     `${JSON.stringify({
       ok: true,
       configured: true,
-      vaultProfilePresent: profiles.some(({name}) => name === profile.name),
-      browserEngine: BROWSER_ENGINE,
-      profileName: profile.name,
-      profileDirectory: profile.profile,
+      classification,
     })}\n`,
   );
 }

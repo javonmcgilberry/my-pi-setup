@@ -239,18 +239,29 @@ class DesignerCodeModeTests(unittest.TestCase):
             {"name": "target_http", "kind": "http", "url": TARGET, "status": 200},
         ]
 
-    def prepare_request(self, *, transport="native", runtime_mode=None):
+    def prepare_request(
+        self,
+        *,
+        transport="native",
+        runtime_mode=None,
+        mode="isolated",
+        include_checks=True,
+        auth_profile=None,
+    ):
         request = {
             "version": 1,
             "operation": "prepare",
             "transport": transport,
-            "mode": "isolated",
+            "mode": mode,
             "target": TARGET,
             "surface": "body",
-            "checks": self.checks(),
         }
+        if include_checks:
+            request["checks"] = self.checks()
         if runtime_mode is not None:
             request["runtimeMode"] = runtime_mode
+        if auth_profile is not None:
+            request["authProfile"] = auth_profile
         if transport == "cli":
             request["session"] = "synthetic"
         return request
@@ -685,6 +696,10 @@ class DesignerCodeModeTests(unittest.TestCase):
         self.assertEqual(prepared["actions"][0]["tool"], "agent_browser")
         self.assertEqual(prepared["actions"][0]["args"], ["connect", "9333"])
         self.assertEqual(prepared["actions"][1]["args"], ["open", TARGET])
+        self.assertNotIn(
+            "snapshot",
+            [argument for action in prepared["actions"] for argument in action["args"]],
+        )
         self.assertEqual(
             prepared["cleanup"]["order"],
             ["finish", "retire_browser_session"],
@@ -730,6 +745,146 @@ class DesignerCodeModeTests(unittest.TestCase):
             }
         )
         self.assertTrue(repeated["alreadyFinished"])
+
+    def test_prepare_uses_documented_default_http_service_probes(self):
+        calls = []
+
+        def capture_preflight(checks, timeout):
+            calls.append((checks, timeout))
+            return ready_preflight(checks, timeout)
+
+        service = self.service(preflight=capture_preflight)
+        prepared = service.handle(self.prepare_request(include_checks=False))
+        self.assertEqual(len(calls), 1)
+        checks, timeout = calls[0]
+        self.assertEqual(timeout, 2.0)
+        self.assertEqual(
+            checks,
+            [
+                {
+                    "label": "hud",
+                    "kind": "http",
+                    "url": designer_code_mode.DEFAULT_SERVICE_URL,
+                    "status": 200,
+                },
+                {
+                    "label": "designer_service",
+                    "kind": "http",
+                    "url": designer_code_mode.DEFAULT_SERVICE_URL,
+                    "status": 200,
+                },
+                {"label": "target_http", "kind": "http", "url": TARGET, "status": 200},
+            ],
+        )
+        self.assertTrue(all(check["kind"] == "http" for check in checks))
+        self.assertFalse(prepared["authVaultRequested"])
+        service.handle(
+            {
+                "version": 1,
+                "operation": "finish",
+                "transactionId": prepared["transactionId"],
+                "transport": "native",
+            }
+        )
+
+    def test_documented_service_http_endpoint_is_not_validated_as_a_designer_target(self):
+        request = self.prepare_request()
+        request["checks"] = [
+            {
+                "name": "hud",
+                "kind": "http",
+                "url": designer_code_mode.DEFAULT_SERVICE_URL,
+                "status": 200,
+            },
+            {
+                "name": "designer_service",
+                "kind": "http",
+                "url": designer_code_mode.DEFAULT_SERVICE_URL,
+                "status": 200,
+            },
+            request["checks"][2],
+        ]
+        service = self.service()
+        prepared = service.handle(request)
+        self.assertEqual(prepared["status"], "prepared")
+        service.handle(
+            {
+                "version": 1,
+                "operation": "finish",
+                "transactionId": prepared["transactionId"],
+                "transport": "native",
+            }
+        )
+
+    def test_auth_vault_login_precedes_exact_target_without_preverification_snapshot(self):
+        service = self.service()
+        prepared = service.handle(
+            self.prepare_request(auth_profile="webflow-designer-test")
+        )
+        self.assertTrue(prepared["authVaultRequested"])
+        stored = service.store.load()
+        self.assertIsNotNone(stored)
+        self.assertTrue(stored["authVaultRequested"])
+        self.assertNotIn("authProfile", stored)
+        self.assertEqual(
+            [action["args"] for action in prepared["actions"]],
+            [
+                ["connect", "9333"],
+                ["auth", "login", "webflow-designer-test"],
+                ["open", TARGET],
+                ["wait", "body"],
+            ],
+        )
+        service.handle(
+            {
+                "version": 1,
+                "operation": "finish",
+                "transactionId": prepared["transactionId"],
+                "transport": "native",
+            }
+        )
+
+    def test_auth_vault_cli_login_keeps_the_named_cli_session(self):
+        service = self.service()
+        prepared = service.handle(
+            self.prepare_request(
+                transport="cli", auth_profile="webflow-designer-test"
+            )
+        )
+        self.assertEqual(
+            [action["args"] for action in prepared["actions"]],
+            [
+                ["--session", "synthetic", "connect", "9333"],
+                ["--session", "synthetic", "auth", "login", "webflow-designer-test"],
+                ["--session", "synthetic", "open", TARGET],
+                ["--session", "synthetic", "wait", "body"],
+            ],
+        )
+        service.handle(
+            {
+                "version": 1,
+                "operation": "finish",
+                "transactionId": prepared["transactionId"],
+                "transport": "cli",
+            }
+        )
+
+    def test_auth_vault_profile_is_isolated_only_and_bounded(self):
+        with self.assertRaisesRegex(
+            designer_code_mode.ProtocolError, "auth_profile_requires_isolated"
+        ):
+            self.service().handle(
+                self.prepare_request(
+                    mode="attached", auth_profile="webflow-designer-test"
+                )
+            )
+        with self.assertRaisesRegex(
+            designer_code_mode.ProtocolError, "invalid_auth_profile"
+        ):
+            self.service().handle(
+                self.prepare_request(auth_profile="../webflow-designer-test")
+            )
+        self.assertEqual(self.runtime.events, [])
 
     def test_prepare_waits_for_post_start_runtime_readiness_to_settle(self):
         self.runtime.transient_unready_after_start = 2
