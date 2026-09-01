@@ -137,6 +137,7 @@ describe("setup bootstrap", () => {
     await mkdir(target.agentDir, { recursive: true });
     await writeFile(settingsFile, `${JSON.stringify({
       defaultThinkingLevel: "low",
+      httpIdleTimeoutMs: 300000,
       modelThinkingLevels: { "openai/example": "high" },
       packages: ["npm:stale"],
       subagents: { defaultModel: "stale" },
@@ -146,6 +147,7 @@ describe("setup bootstrap", () => {
     await run(setupScript, [], target);
     let settings = JSON.parse(await readFile(settingsFile, "utf8"));
     assert.equal(settings.defaultThinkingLevel, "low");
+    assert.equal(settings.httpIdleTimeoutMs, 0);
     assert.deepEqual(settings.modelThinkingLevels, { "openai/example": "high" });
     assert.equal(settings.packages.includes("npm:stale"), false);
     assert.equal(settings.packages.at(-1), repoRoot);

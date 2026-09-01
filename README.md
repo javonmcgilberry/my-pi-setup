@@ -26,8 +26,8 @@ cd ~/Developer/my-pi-setup
 On a clean install, the installer combines this repository's defaults with the
 optional, ignored `settings.local.json`. If Pi already has a `settings.json`,
 setup keeps normal preferences changed through `/settings` and reapplies only
-the managed `packages`, `subagents`, and `vstack` keys. The manifest records
-that ownership split.
+the managed `httpIdleTimeoutMs`, `packages`, `subagents`, and `vstack` keys.
+The manifest records that ownership split.
 
 Setup writes the result to `${PI_AGENT_DIR:-~/.pi/agent}` and links shared skills
 into `${AGENTS_SKILLS_DIR:-~/.agents/skills}`. Existing managed files are backed
@@ -219,14 +219,18 @@ version change.
 
 Pi's live `settings.json` is the source of truth for normal preferences. Changes
 made through `/settings`, including the thinking level, survive later setup and
-drift checks. This repository owns only the manifest-declared `packages`,
-`subagents`, and `vstack` keys.
+drift checks. This repository owns only the manifest-declared
+`httpIdleTimeoutMs`, `packages`, `subagents`, and `vstack` keys. It sets
+`httpIdleTimeoutMs` to `0`, which disables Pi's HTTP stream idle timeout so a
+long planner reasoning pass is not aborted after five minutes without receiving
+data.
 
 [`settings.json`](settings.json) supplies these clean-install defaults:
 
-- This setup targets Pi `0.84.0`. The regular TUI remains the default.
+- This setup targets Pi `0.84.4`. The regular TUI remains the default.
   Fullscreen mode is optional, and interactive transcripts can render Mermaid
   diagrams and LaTeX.
+- HTTP stream idle timeouts are disabled so long reasoning passes can finish.
 - OpenAI Codex is the default provider and `gpt-5.6-luna` is the default model.
 - `openai-codex/gpt-5.6-luna` is the only model in the model-selection list.
 - The default thinking level is `max`.
@@ -384,7 +388,7 @@ setup.
 
 | File | Role |
 | --- | --- |
-| `settings.json` | Combines clean-install defaults, optional local fallbacks, and existing Pi preferences. Setup owns `packages`, `subagents`, and `vstack`; Pi keeps the other live values. |
+| `settings.json` | Combines clean-install defaults, optional local fallbacks, and existing Pi preferences. Setup owns `httpIdleTimeoutMs`, `packages`, `subagents`, and `vstack`; Pi keeps the other live values. |
 | `AGENTS.md` | Gives agents the source-ownership, validation, documentation, and publication rules for this setup. |
 | `REALTIME-SYSTEM-PROMPT.md` | Supplies Pi Codex Conversion's realtime conversational prompt. |
 | `agent-browser-policy.json` | Fail-closed model, nested-chat, and cookie-transfer defaults for the native browser extension. |
@@ -780,7 +784,7 @@ excluded. `setup.sh` does not copy or restore them.
 | Part | Source of truth | Live installation or data |
 | --- | --- | --- |
 | Global Pi preferences | Pi `/settings` and other native settings changes | `~/.pi/agent/settings.json`, preserved across setup runs |
-| Managed global settings | This repo plus ignored `settings.local.json` | The `packages`, `subagents`, and `vstack` keys in `~/.pi/agent/settings.json` |
+| Managed global settings | This repo plus ignored `settings.local.json` | The `httpIdleTimeoutMs`, `packages`, `subagents`, and `vstack` keys in `~/.pi/agent/settings.json` |
 | Update command | `scripts/pi-update-all` | `~/.local/bin/pi-update-all` |
 | Personal Pi package and extensions | This repo | Loaded from this checkout by the rendered owner settings, or from Pi's managed Git checkout for a public install |
 | Shared agent skills | This repo | `~/.agents/skills/tui-cli-design` and `~/.agents/skills/webflow-designer-agent-browser` |

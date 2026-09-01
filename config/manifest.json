@@ -4,6 +4,7 @@
     "settings.json": "settings.json"
   },
   "settingsManagedKeys": [
+    "httpIdleTimeoutMs",
     "packages",
     "subagents",
     "vstack"
