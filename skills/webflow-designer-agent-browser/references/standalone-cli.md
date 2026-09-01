@@ -41,10 +41,11 @@ authentication blocker, and `4` for an ownership or transaction conflict.
 It returns browser actions but never executes them or emits credentials,
 cookies, raw DOM, customer data, or full browser state.
 
-The [architecture map](webflow-browser-cli-architecture.html) shows the old
-script shape and the new core seam. The
-[lifecycle map](webflow-browser-cli-lifecycle.html) shows command flow,
-ownership, cleanup, and the split between Pi policy and standalone mechanics.
+The [architecture guide](webflow-browser-cli-architecture.html) explains the
+workflow’s responsibilities, interaction lanes, and why the same promise must
+hold for Pi and standalone callers. The
+[lifecycle guide](webflow-browser-cli-lifecycle.html) follows command flow,
+ownership, readiness, cleanup, recovery, and the standalone interface.
 
 ## Change validation
 

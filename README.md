@@ -568,9 +568,10 @@ readiness blockers, ownership conflicts, and lifecycle failures. The shared
 `lib/webflow_browser` module keeps runtime, lease, readiness, Auth Vault, and
 cleanup details behind that interface; Pi-specific judgment and authorization
 remain in `SKILL.md`.
-The skill includes offline [architecture](skills/webflow-designer-agent-browser/references/webflow-browser-cli-architecture.html)
+The skill includes self-contained offline [architecture](skills/webflow-designer-agent-browser/references/webflow-browser-cli-architecture.html)
 and [lifecycle](skills/webflow-designer-agent-browser/references/webflow-browser-cli-lifecycle.html)
-maps for the seam and its cleanup proof.
+guides explaining the workflow’s responsibilities, interaction lanes, lifecycle
+proof, recovery, and standalone interface.
 
 For compact native browser results, the recommended host integration is
 [`pi-agent-browser-native`](https://pi.dev/packages/pi-agent-browser-native?name=agent-browser-native).

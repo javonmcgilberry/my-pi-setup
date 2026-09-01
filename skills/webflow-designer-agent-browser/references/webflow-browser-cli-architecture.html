@@ -3,159 +3,1288 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Webflow browser CLI architecture</title>
-  <style>
-    :root {
-      --paper: rgb(255 255 255);
-      --well: rgb(240 240 240);
-      --ink: rgb(8 8 8);
-      --muted: rgb(90 90 90);
-      --quiet: rgb(171 171 171);
-      --line: rgb(224 224 224);
-      --blue: rgb(20 110 245);
-      --sans: "WF Visual Sans", "WF Visual Sans Variable", Arial, sans-serif;
-      --mono: "WF Visual Sans Mono", "SF Mono", ui-monospace, monospace;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      background: var(--paper);
-      color: var(--ink);
-      font-family: var(--sans);
-    }
-    .shell { max-width: 1180px; margin: 0 auto; padding: 48px 28px 64px; }
-    .eyebrow, .label {
-      color: var(--muted);
-      font-family: var(--mono);
-      font-size: .8rem;
-      font-weight: 550;
-      letter-spacing: 0;
-      line-height: 1.2;
-      text-transform: uppercase;
-    }
-    h1, h2 { font-weight: 600; letter-spacing: 0; line-height: 1.3; }
-    h1 { max-width: 760px; margin: 12px 0 12px; font-size: 2rem; }
-    h2 { margin: 0; font-size: 1.25rem; }
-    p { max-width: 760px; margin: 0; font-size: 1rem; line-height: 1.6; }
-    .standfirst { color: var(--muted); max-width: 700px; }
-    .section { margin-top: 42px; }
-    .section-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 14px; }
-    .section-head .label { color: var(--blue); }
-    figure { margin: 0; }
-    .stage {
-      overflow-x: auto;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--paper);
-      padding: 18px;
-    }
-    svg { display: block; width: 100%; min-width: 760px; height: auto; }
-    .box { fill: var(--paper); stroke: var(--line); stroke-width: 2; }
-    .box.well { fill: var(--well); }
-    .box.seam { stroke: var(--blue); stroke-width: 3; }
-    .edge { fill: none; stroke: var(--muted); stroke-width: 2; }
-    .edge.seam { stroke: var(--blue); stroke-width: 3; }
-    .svg-title { fill: var(--ink); font-family: var(--sans); font-size: 20px; font-weight: 600; }
-    .svg-copy { fill: var(--muted); font-family: var(--mono); font-size: 14px; }
-    .svg-micro { fill: var(--quiet); font-family: var(--mono); font-size: 12px; letter-spacing: 1px; }
-    figcaption { margin: 12px 0 0; color: var(--muted); font-size: .875rem; line-height: 1.6; }
-    .notes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
-    .note { border-top: 1px solid var(--line); padding-top: 12px; }
-    .note p { margin-top: 6px; color: var(--muted); font-size: .875rem; }
-    code { font-family: var(--mono); font-size: .9em; }
-    @media (max-width: 720px) {
-      .shell { padding: 32px 16px 48px; }
-      .notes { grid-template-columns: 1fr; }
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --paper: rgb(8 8 8);
-        --well: rgb(23 23 23);
-        --ink: rgb(255 255 255);
-        --muted: rgb(171 171 171);
-        --quiet: rgb(90 90 90);
-        --line: rgb(54 54 54);
-        --blue: rgb(59 137 255);
-      }
-    }
+  <meta name="description" content="Why Webflow Designer browser work separates judgment, proof, lanes, and a reusable lifecycle.">
+  <title>A Designer run is a contract | Webflow browser architecture</title>
+  <style id="guide-style">
+:root {
+  --page-paper: #fff;
+  --page-well: #f0f0f0;
+  --page-ink: #080808;
+  --page-muted: #5a5a5a;
+  --page-quiet: #898989;
+  --page-line: #e0e0e0;
+  --page-blue: #146ef5;
+  --page-sans: "WF Visual Sans", "WF Visual Sans Variable", Arial, sans-serif;
+  --page-mono: "WF Visual Sans Mono", "SF Mono", ui-monospace, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--page-paper);
+  color: var(--page-ink);
+  font-family: var(--page-sans);
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+}
+.guide {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 28px 72px;
+}
+.guide-header {
+  padding: 56px 0 34px;
+  border-bottom: 1px solid var(--page-line);
+}
+.eyebrow {
+  margin: 0 0 14px;
+  color: var(--page-muted);
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.2;
+}
+h1, h2, h3 {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+h1 {
+  max-width: 780px;
+  font-size: 2rem;
+  line-height: 1.2;
+}
+h2 {
+  max-width: 780px;
+  font-size: 1.5rem;
+  line-height: 1.3;
+}
+h3 {
+  max-width: 780px;
+  font-size: 1.25rem;
+  line-height: 1.4;
+}
+p, li {
+  max-width: 760px;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+p { margin: 0 0 16px; }
+.lede {
+  max-width: 760px;
+  margin-top: 18px;
+  color: var(--page-muted);
+  font-size: 1rem;
+}
+.guide-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin-top: 24px;
+  color: var(--page-quiet);
+  font-family: var(--page-mono);
+  font-size: .8rem;
+  line-height: 1.6;
+  text-transform: uppercase;
+}
+.contents {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 20px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--page-line);
+  color: var(--page-muted);
+  font-size: .875rem;
+  line-height: 1.6;
+}
+.contents strong {
+  color: var(--page-ink);
+  font-weight: 600;
+}
+a {
+  color: var(--page-blue);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.guide-section {
+  margin-top: 52px;
+}
+.section-kicker {
+  margin-bottom: 10px;
+  color: var(--page-blue);
+  font-family: var(--page-mono);
+  font-size: .8rem;
+  font-weight: 550;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+.guide-section > h2 { margin-bottom: 16px; }
+.guide-section > h3 { margin: 30px 0 12px; }
+.principles, .sequence, .checklist {
+  max-width: 760px;
+  margin: 18px 0 20px;
+  padding-left: 24px;
+}
+.principles li, .sequence li, .checklist li {
+  margin: 8px 0;
+  padding-left: 4px;
+}
+.callout {
+  max-width: 760px;
+  margin: 22px 0;
+  padding: 16px 18px;
+  border: 1px solid var(--page-line);
+  background: var(--page-well);
+}
+.callout strong { font-weight: 600; }
+.diagram-slot {
+  display: grid;
+  gap: 38px;
+  margin-top: 42px;
+}
+.diagram-slot .wfviz { width: 100%; }
+.table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 20px 0;
+}
+table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-size: .875rem;
+  line-height: 1.55;
+}
+th, td {
+  padding: 12px 14px;
+  border-top: 1px solid var(--page-line);
+  text-align: left;
+  vertical-align: top;
+}
+thead th {
+  color: var(--page-muted);
+  font-family: var(--page-mono);
+  font-size: .8rem;
+  font-weight: 550;
+  text-transform: uppercase;
+}
+tbody th {
+  width: 20%;
+  font-weight: 600;
+}
+tbody td { color: var(--page-muted); }
+.two-col {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px;
+  max-width: 900px;
+  margin-top: 22px;
+}
+.two-col > div {
+  padding-top: 14px;
+  border-top: 1px solid var(--page-line);
+}
+.two-col h3 { margin-bottom: 8px; }
+.two-col p { color: var(--page-muted); }
+.small-note {
+  color: var(--page-muted);
+  font-size: .875rem;
+}
+.action-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 760px;
+  margin: 20px 0;
+}
+.action-strip span {
+  padding: 8px 11px;
+  border: 1px solid var(--page-line);
+  color: var(--page-ink);
+  font-family: var(--page-mono);
+  font-size: .8rem;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+.five-checks {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin: 22px 0;
+}
+.five-checks > div {
+  padding-top: 12px;
+  border-top: 1px solid var(--page-line);
+}
+.five-checks strong {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+.five-checks span {
+  display: block;
+  color: var(--page-muted);
+  font-size: .875rem;
+  line-height: 1.6;
+}
+pre {
+  max-width: 900px;
+  overflow-x: auto;
+  margin: 20px 0;
+  padding: 18px 20px;
+  border: 1px solid var(--page-line);
+  border-radius: 4px;
+  background: #171717;
+  color: #fff;
+  font-family: var(--page-mono);
+  font-size: .8rem;
+  line-height: 1.6;
+  white-space: pre;
+}
+pre code {
+  font: inherit;
+  color: inherit;
+}
+.guide-footer {
+  margin-top: 64px;
+  padding-top: 20px;
+  border-top: 1px solid var(--page-line);
+  color: var(--page-muted);
+  font-size: .875rem;
+}
+.guide-footer p { font-size: .875rem; }
+@media (max-width: 800px) {
+  .guide { padding: 0 16px 52px; }
+  .guide-header { padding-top: 36px; }
+  .two-col, .five-checks { grid-template-columns: 1fr; }
+  .five-checks { gap: 0; }
+  .five-checks > div { padding: 12px 0; }
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page-paper: #080808;
+    --page-well: #171717;
+    --page-ink: #fff;
+    --page-muted: #ababab;
+    --page-quiet: #898989;
+    --page-line: #363636;
+    --page-blue: #3b89ff;
+  }
+}
+  </style>
+  <style id="wf-viz-style">
+/* ---------- 0. DEFENSIVE RESET ---------------------------------------
+   This lands inside someone else's stylesheet. A host page's element
+   selectors -- div{border}, h3{text-transform}, p{font-size},
+   button{padding}, svg{border} -- all out-specify inheritance and will
+   wreck the chrome. Verified against a hostile-host fixture.
+
+   Specificity is the whole trick. The reset must BEAT the host's element
+   selectors (0,0,1) but LOSE to our own component classes (0,1,0).
+   `.wfviz :where(p)` scores exactly (0,1,0): the class counts, :where()
+   contributes nothing. It therefore outranks any bare `p{}` on the host
+   page, and ties with our classes -- which win because they come later.
+   (A `:where(.wfviz)` prefix would score 0 and lose to the host. Don't.)
+   -------------------------------------------------------------------- */
+.wfviz, .wfviz *, .wfviz *::before, .wfviz *::after{ box-sizing:border-box }
+
+/* the root element itself -- host `div{}` rules reach it too */
+.wfviz{
+  margin:0; padding:0; border:0; background:none;
+  float:none; max-width:none; box-shadow:none; text-align:left;
+}
+
+.wfviz :where(div,p,h1,h2,h3,h4,h5,h6,span,button,figure,ul,ol,li){
+  margin:0; padding:0; border:0; background:none;
+  font:inherit; color:inherit;
+  letter-spacing:normal; text-transform:none; text-align:left;
+  text-decoration:none; box-shadow:none; float:none; max-width:none;
+  list-style:none;
+}
+.wfviz :where(svg){
+  margin:0; padding:0; border:0; background:none;
+  width:auto; height:auto; max-width:none; float:none; vertical-align:baseline;
+}
+.wfviz :where(button){ appearance:none; -webkit-appearance:none; cursor:pointer }
+
+/* ---------- 1. TOKENS ------------------------------------------------ */
+.wfviz{
+  /* Webflow brand palette (developers.webflow.com) */
+  --wf-blue:#146ef5;   --wf-blue-400:#3b89ff; --wf-blue-600:#0055d4;
+  --wf-green:#00d722;  --wf-orange:#ff6b00;   --wf-red:#ee1d36;
+  --wf-black:#080808;  --wf-g900:#171717;     --wf-g700:#363636;
+  --wf-g600:#5a5a5a;   --wf-g400:#898989;     --wf-g300:#ababab;
+  --wf-border:#e0e0e0;   --wf-g200:#d8d8d8;   --wf-g100:#f0f0f0;     --wf-white:#fff;
+
+  /* Surfaces — the only tokens dark mode reassigns */
+  --viz-bg:var(--wf-white);
+  --viz-paper:var(--wf-white);
+  --viz-ink:var(--wf-black);
+  --viz-ink-soft:var(--wf-g600);
+  --viz-line:var(--wf-border);
+  --viz-line-strong:var(--wf-g300);
+  --viz-faint:var(--wf-g100);
+  --viz-muted:var(--wf-g600);
+  --viz-accent:var(--wf-blue);
+
+  /* Verdict tones. Brand green/orange are too light for hairlines on
+     white, so line work deepens them; dark mode restores brand values. */
+  --viz-tone-ok:color-mix(in srgb,var(--wf-green) 78%,var(--wf-black));
+  --viz-tone-warn:color-mix(in srgb,var(--wf-orange) 88%,var(--wf-black));
+  --viz-tone-live:var(--wf-blue);
+  --viz-tone-neutral:var(--wf-g400);
+  --viz-tone:var(--viz-accent);
+
+  --viz-mono:"WF Visual Sans Mono","SF Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --viz-sans:"WF Visual Sans","WF Visual Sans Variable",Arial,sans-serif;
+  /* Motion. Curves are sanctioned values, not hand-rolled — the strong
+     ease-out is the standard UI curve, and every enter/exit uses it.
+     Durations split by job: chrome answers a pointer (fast), the stage
+     explains (slower, but still inside the 780ms autoplay beat). */
+  --viz-ease-out:cubic-bezier(.23,1,.32,1);
+  --viz-dur:240ms;       /* stage state changes */
+  --viz-dur-fast:150ms;  /* chrome: hover, press, focus */
+  --viz-dur-bar:420ms;   /* the one bar-growth beat -- explanatory, not UI */
+
+  color:var(--viz-ink);
+  font-family:var(--viz-sans);
+  font-synthesis:none;
+  -webkit-font-smoothing:antialiased;
+}
+@media (prefers-color-scheme:dark){
+  .wfviz:not([data-theme="light"]){
+    --viz-bg:var(--wf-black); --viz-paper:var(--wf-g900);
+    --viz-ink:var(--wf-white); --viz-ink-soft:var(--wf-g300);
+    --viz-line:var(--wf-g700); --viz-line-strong:var(--wf-g600);
+    --viz-faint:var(--wf-g700); --viz-muted:var(--wf-g300);
+    --viz-accent:var(--wf-blue-400);
+    --viz-tone-ok:var(--wf-green);
+    --viz-tone-warn:var(--wf-orange);
+    --viz-tone-live:var(--wf-blue-400);
+  }
+}
+.wfviz[data-theme="dark"]{
+  --viz-bg:var(--wf-black); --viz-paper:var(--wf-g900);
+  --viz-ink:var(--wf-white); --viz-ink-soft:var(--wf-g300);
+  --viz-line:var(--wf-g700); --viz-line-strong:var(--wf-g600);
+  --viz-faint:var(--wf-g700); --viz-muted:var(--wf-g300);
+  --viz-accent:var(--wf-blue-400);
+  --viz-tone-ok:var(--wf-green);
+  --viz-tone-warn:var(--wf-orange);
+  --viz-tone-live:var(--wf-blue-400);
+}
+
+.wfviz [data-tone=ok]     {--viz-tone:var(--viz-tone-ok)}
+.wfviz [data-tone=warn]   {--viz-tone:var(--viz-tone-warn)}
+.wfviz [data-tone=live]   {--viz-tone:var(--viz-tone-live)}
+.wfviz [data-tone=neutral]{--viz-tone:var(--viz-tone-neutral)}
+
+/* ---------- 2. SHELL ------------------------------------------------- */
+/* Stage type is specified in viewBox UNITS, which scale with the container.
+   A 1120-unit viewBox dropped in a ~740px blog column renders at 0.66x, so a
+   9-unit label lands near 6px -- well under the 11px floor. Breaking the figure
+   out of the text column fixes that without a redraw. The reference diagrams do
+   exactly this: Cursor ships --git-breakout-width: min(150%, calc(100vw - 3rem)).
+   Opt in per instance with data-breakout. */
+@media (min-width:1280px){
+  .wfviz[data-breakout]{
+    --wfviz-breakout:min(150%, calc(100vw - 3rem));
+    width:var(--wfviz-breakout);
+    margin-left:calc((100% - var(--wfviz-breakout)) / 2);
+  }
+}
+
+.wfviz-shell{
+  border:1px solid var(--viz-line); border-radius:8px;
+  background:var(--viz-paper); overflow:hidden;
+}
+.wfviz-head{padding:18px 20px 16px; border-bottom:1px solid var(--viz-line); background:var(--viz-bg)}
+.wfviz-head h3{margin:0 0 5px; font-size:1.25rem; font-weight:600; line-height:1.4; letter-spacing:0; color:var(--viz-ink)}
+.wfviz-head p{margin:0; font-size:.875rem; line-height:1.6; color:var(--viz-muted)}
+
+.wfviz-stage{display:block; width:100%; height:auto; background:var(--viz-bg); user-select:none; -webkit-user-select:none}
+.wfviz-stage *{pointer-events:none}
+
+/* ---------- 3. TYPE -------------------------------------------------- */
+.viz-sec{fill:var(--viz-muted); font-family:var(--viz-mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase}
+
+/* Section headings double as the stage indicator. The tab strip used to say
+   "there are four parts to this"; four evenly-sized tabs also said "and they
+   happen in order", which is false -- the signals fan out and the repeats are
+   a loop over the whole thing. The label does the honest version: it names its
+   region, sits where that region actually is, and goes from grey to ink when
+   the region fills. Naming and progress in one mark, no extra ink. */
+.viz-seclabel{transition:fill var(--viz-dur) var(--viz-ease-out)}
+[data-state=active] .viz-seclabel,[data-state=done] .viz-seclabel{fill:var(--viz-ink)}
+.viz-secrule{stroke:var(--viz-ink); stroke-width:2; opacity:0; transition:opacity var(--viz-dur) var(--viz-ease-out)}
+[data-state=active] .viz-secrule,[data-state=done] .viz-secrule{opacity:1}
+.viz-key{fill:var(--viz-ink); font-family:var(--viz-mono); font-size:14px; font-weight:700; letter-spacing:.02em}
+.viz-sub{fill:var(--viz-muted); font-family:var(--viz-mono); font-size:11px; letter-spacing:.06em; text-transform:uppercase}
+.viz-num{fill:var(--viz-muted); font-family:var(--viz-mono); font-size:11px; letter-spacing:.02em}
+.viz-foot{fill:var(--viz-muted); font-family:var(--viz-mono); font-size:11px; letter-spacing:.09em; text-transform:uppercase}
+
+/* ---------- 4. PRIMITIVES -------------------------------------------- */
+.viz-panel{fill:none; stroke:var(--viz-line); stroke-width:1}
+.viz-rule{stroke:var(--viz-faint); stroke-width:1}
+.viz-lane{fill:none; stroke:var(--viz-line-strong); stroke-width:1; stroke-dasharray:3 5}
+.viz-spine{stroke:var(--viz-line); stroke-width:1}
+
+.viz-edge{fill:none; stroke:var(--viz-line-strong); stroke-width:1; transition:stroke var(--viz-dur) var(--viz-ease-out)}
+.viz-arrow{fill:var(--viz-line-strong); transition:fill var(--viz-dur) var(--viz-ease-out)}
+[data-state=active] .viz-edge,[data-state=done] .viz-edge{stroke:var(--viz-tone)}
+[data-state=active] .viz-arrow,[data-state=done] .viz-arrow{fill:var(--viz-tone)}
+
+/* Rows fade in as the run progresses. Neutral even when done. */
+.viz-row{opacity:0; transition:opacity var(--viz-dur) var(--viz-ease-out)}
+.viz-row[data-state=done],.viz-row[data-state=active]{opacity:1}
+
+.viz-band{fill:var(--viz-tone); opacity:0; transition:opacity var(--viz-dur) var(--viz-ease-out)}
+[data-state=active] .viz-band{opacity:.09}
+
+/* Timeline dots and status glyphs stay neutral when they pass. Colour
+   appears exactly once in the run — on the turn that needs attention. */
+.viz-dot{fill:var(--viz-line-strong); transition:fill var(--viz-dur) var(--viz-ease-out)}
+[data-state=active] .viz-dot,
+[data-tone=warn][data-state=done] .viz-dot{fill:var(--viz-tone)}
+
+.viz-glyph{fill:none; stroke:var(--viz-line-strong); stroke-width:1.4; stroke-linecap:round; stroke-linejoin:round; transition:stroke var(--viz-dur) var(--viz-ease-out)}
+[data-state=active] .viz-glyph,
+[data-tone=warn][data-state=done] .viz-glyph{stroke:var(--viz-tone)}
+.viz-tool{fill:var(--viz-ink-soft); font-family:var(--viz-mono); font-size:13px; letter-spacing:.01em; transition:fill var(--viz-dur) var(--viz-ease-out)}
+[data-state=active] .viz-tool,[data-state=done] .viz-tool{fill:var(--viz-ink)}
+.viz-note{fill:var(--viz-tone); font-family:var(--viz-mono); font-size:11px; letter-spacing:.05em; text-transform:uppercase; font-weight:700}
+
+/* Chips (artifacts) */
+.viz-chip rect{fill:none; stroke:var(--viz-line); stroke-width:1; transition:stroke var(--viz-dur) var(--viz-ease-out), fill var(--viz-dur) var(--viz-ease-out)}
+.viz-chip text{fill:var(--viz-muted); font-family:var(--viz-mono); font-size:11px; letter-spacing:.04em; transition:fill var(--viz-dur) var(--viz-ease-out)}
+[data-state=active] .viz-chip rect{fill:color-mix(in srgb,var(--viz-tone) 10%,transparent); stroke:var(--viz-tone)}
+[data-state=active] .viz-chip text,[data-state=done] .viz-chip text{fill:var(--viz-ink)}
+
+/* Signal rows */
+.viz-sig-name{fill:var(--viz-ink-soft); font-family:var(--viz-mono); font-size:13px; letter-spacing:.01em; transition:fill var(--viz-dur) var(--viz-ease-out)}
+[data-state=active] .viz-sig-name,[data-state=done] .viz-sig-name{fill:var(--viz-ink)}
+.viz-sig-src{fill:var(--viz-muted); font-family:var(--viz-mono); font-size:11px; letter-spacing:.05em; text-transform:uppercase}
+.viz-tick{stroke:var(--viz-line-strong); stroke-width:2; transition:stroke var(--viz-dur) var(--viz-ease-out)}
+[data-state=active] .viz-tick{stroke:var(--viz-tone)}
+
+/* Repeat bars — scaleY so height animates without CSS geometry props */
+.viz-track{fill:var(--viz-faint)}
+.viz-fill{
+  /* full-strength brand blue reads as a shout at this size — pull it back
+     toward paper so the bar shape carries the message, not the saturation */
+  fill:color-mix(in srgb,var(--viz-tone) 68%,var(--viz-paper));
+  transform:scaleY(0); transform-box:fill-box; transform-origin:50% 100%;
+  transition:transform var(--viz-dur-bar) var(--viz-ease-out);
+}
+[data-state=done] .viz-fill,[data-state=active] .viz-fill{transform:scaleY(1)}
+.viz-base{stroke:var(--viz-line-strong); stroke-width:1}
+.viz-stat{fill:var(--viz-ink); font-family:var(--viz-mono); font-size:13px; font-weight:700; letter-spacing:.02em}
+.viz-dev{fill:var(--viz-muted); font-family:var(--viz-mono); font-size:11px; letter-spacing:.03em}
+.viz-dev[data-tone=warn]{fill:var(--viz-tone-warn); font-weight:700}
+
+/* ---------- 5. CHROME ------------------------------------------------ */
+.wfviz-phases{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); border-top:1px solid var(--viz-line); background:var(--viz-bg)}
+.wfviz-phase{
+  appearance:none; border:0; border-right:1px solid var(--viz-line); background:transparent;
+  cursor:pointer; padding:11px 8px; min-height:40px;
+  font-family:var(--viz-mono); font-size:.8rem; font-weight:550; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--viz-muted);
+  transition:background var(--viz-dur-fast) ease, color var(--viz-dur-fast) ease, transform var(--viz-dur-fast) ease;
+}
+.wfviz-phase:last-child{border-right:0}
+/* Touch fires a false :hover on tap and leaves the control lit. Gate it. */
+@media (hover:hover) and (pointer:fine){
+  .wfviz-phase:hover{background:color-mix(in srgb,var(--viz-accent) 9%,transparent); color:var(--viz-ink)}
+}
+.wfviz-phase:active{transform:scale(.99)}
+.wfviz-phase[data-active]{
+  box-shadow:inset 0 0 0 1px var(--viz-accent);
+  background:color-mix(in srgb,var(--viz-accent) 11%,transparent);
+  color:var(--viz-ink); font-weight:700;
+}
+.wfviz-phase:focus-visible{box-shadow:inset 0 0 0 2px var(--viz-accent); outline:none}
+
+.wfviz-transport{display:flex; align-items:center; justify-content:center; gap:8px; padding:11px; border-top:1px solid var(--viz-line); background:var(--viz-bg)}
+.wfviz-btn{
+  appearance:none; cursor:pointer; min-height:30px; padding:0 13px;
+  border:1px solid var(--viz-line); border-radius:4px;
+  background:var(--viz-paper); color:var(--viz-ink);
+  font-family:var(--viz-sans); font-size:.875rem; font-weight:500;
+  transition:background var(--viz-dur-fast) ease, border-color var(--viz-dur-fast) ease, transform var(--viz-dur-fast) ease;
+  /* flex-centred so the caret sits on the optical centre of the label.
+     Unicode ◀ / ▶ were used here originally: neither WF Visual Sans nor
+     Arial carries them, so they fell back to a symbol font whose metrics
+     put the glyph on a different baseline than the text -- visibly high,
+     and inconsistent across platforms. Inline SVG instead. */
+  display:inline-flex; align-items:center; justify-content:center; gap:7px;
+  line-height:1;
+}
+.wfviz-arrow{
+  /* Arrows are typeset glyphs, not icons -- brand notes/type.md. U+2190/2192
+     exist in WF Visual Sans and in every fallback, so they sit on the text
+     baseline. The earlier U+25C0/25B6 triangles did not exist in the sans and
+     fell through to a symbol font with different metrics: visibly misaligned,
+     and different again on Windows. */
+  font-family:inherit; line-height:1; opacity:.75;
+}
+@media (hover:hover) and (pointer:fine){
+  .wfviz-btn:hover{border-color:var(--viz-line-strong); background:var(--viz-faint)}
+  .wfviz-btn[data-primary]:hover{background:color-mix(in srgb,var(--viz-accent) 86%,#000)}
+}
+/* Press feedback: the control acknowledges the pointer before the stage does. */
+.wfviz-btn:active{transform:scale(.97)}
+.wfviz-btn:focus-visible{outline:none; box-shadow:0 0 0 2px var(--viz-paper),0 0 0 4px var(--viz-accent)}
+.wfviz-btn[data-primary]{border-color:var(--viz-accent); background:var(--viz-accent); color:#fff; min-width:76px}
+
+.wfviz-caption{padding:14px 20px; border-top:1px solid var(--viz-line); background:var(--viz-bg); color:var(--viz-muted); font-size:.875rem; line-height:1.6}
+.wfviz-caption p{margin:0}
+
+@media (max-width:600px){
+  .wfviz-phases{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .wfviz-phase:nth-child(2n){border-right:0}
+  .wfviz-phase:nth-child(-n+2){border-bottom:1px solid var(--viz-line)}
+}
+@media (prefers-reduced-motion:reduce){
+  /* Gentler, not zero. The crossfades carry meaning -- which node is live,
+     which turn went warn -- so they stay, just short. What goes is the
+     movement: the bars snap to height instead of growing, and the 0/80/160ms
+     stagger (an inline transition-delay, hence !important) collapses. */
+  .wfviz{--viz-dur:120ms; --viz-dur-fast:100ms}
+  .viz-fill{transition:none !important}
+  .wfviz-btn:active,.wfviz-phase:active{transform:none}
+}
   </style>
 </head>
 <body>
-  <main class="shell">
-    <header>
-      <div class="eyebrow">Webflow browser / module map</div>
-      <h1>Keep policy above the lifecycle seam</h1>
-      <p class="standfirst">The old script made Pi, shell callers, and lifecycle details learn the same interface. The new shape puts one deep module behind a small JSON seam while the Pi skill keeps the judgment that must stay human-facing.</p>
-    </header>
+  <main class="guide">
+  <header class="guide-header">
+    <p class="eyebrow">Webflow browser / why the workflow is shaped this way</p>
+    <h1>A Designer run is a contract, not a script.</h1>
+    <p class="lede">When you ask a browser to inspect or change a Designer
+      document, two questions have to stay distinct: what is this run allowed
+      to do, and what does the browser prove before it does it? The workflow
+      answers both questions without making the Webflow user learn every browser
+      detail.</p>
+    <p class="lede">The contract also catches the cases where the browser
+      reaches the wrong document. It covers the rest of the run too: ownership,
+      readiness, evidence, privacy, and cleanup.</p>
+    <div class="guide-meta">
+      <span>Audience: Webflow users and maintainers</span>
+      <span>Read with: the Webflow Designer skill</span>
+      <span>Runtime: managed Chrome for Testing</span>
+    </div>
+  </header>
 
-    <section class="section" aria-labelledby="structure-title">
-      <div class="section-head"><span class="label">01</span><h2 id="structure-title">Old and new structure</h2></div>
-      <figure>
-        <div class="stage">
-          <svg viewBox="0 0 1120 430" role="img" aria-labelledby="structure-svg-title structure-svg-desc">
-            <title id="structure-svg-title">Old script compared with the new CLI and core module</title>
-            <desc id="structure-svg-desc">The old shape sends three callers directly into one large script. The new shape sends Pi and standalone callers through adapters into a shared core module, which reuses existing lifecycle scripts.</desc>
-            <defs>
-              <marker id="arrow-old" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8" fill="none" stroke="rgb(90 90 90)" stroke-width="1.5"/></marker>
-              <marker id="arrow-new" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8" fill="none" stroke="rgb(20 110 245)" stroke-width="1.5"/></marker>
-            </defs>
+  <nav class="contents" aria-label="On this page">
+    <strong>On this page</strong>
+    <a href="#promise">The promise</a>
+    <a href="#terms">Terms</a>
+    <a href="#boundary">The boundary</a>
+    <a href="#responsibilities">Responsibilities</a>
+    <a href="#lanes">Interaction lanes</a>
+    <a href="#interface">The CLI interface</a>
+    <a href="#checklist">Checklist</a>
+  </nav>
 
-            <text x="30" y="28" class="svg-micro">BEFORE / SHALLOW SEAM</text>
-            <rect x="30" y="52" width="200" height="58" rx="4" class="box well"/>
-            <text x="130" y="77" text-anchor="middle" class="svg-title">Pi skill</text>
-            <text x="130" y="97" text-anchor="middle" class="svg-copy">policy + lifecycle</text>
-            <rect x="30" y="140" width="200" height="58" rx="4" class="box well"/>
-            <text x="130" y="165" text-anchor="middle" class="svg-title">Shell caller</text>
-            <text x="130" y="185" text-anchor="middle" class="svg-copy">JSON + commands</text>
-            <rect x="30" y="228" width="200" height="58" rx="4" class="box well"/>
-            <text x="130" y="253" text-anchor="middle" class="svg-title">CI job</text>
-            <text x="130" y="273" text-anchor="middle" class="svg-copy">status + retries</text>
-            <path d="M230 81 H300 V198 H350" class="edge" marker-end="url(#arrow-old)"/>
-            <path d="M230 169 H300 V198 H350" class="edge" marker-end="url(#arrow-old)"/>
-            <path d="M230 257 H300 V198 H350" class="edge" marker-end="url(#arrow-old)"/>
-            <rect x="350" y="80" width="245" height="236" rx="4" class="box"/>
-            <text x="472" y="122" text-anchor="middle" class="svg-title">designer-code-mode.py</text>
-            <text x="472" y="150" text-anchor="middle" class="svg-copy">parse + prepare + verify</text>
-            <text x="472" y="172" text-anchor="middle" class="svg-copy">lease + readiness + finish</text>
-            <text x="472" y="194" text-anchor="middle" class="svg-copy">transport + policy knowledge</text>
-            <path d="M372 228 H573" class="edge"/>
-            <text x="472" y="258" text-anchor="middle" class="svg-micro">EVERY CALLER LEARNS THE DETAILS</text>
-            <rect x="650" y="112" width="170" height="172" rx="4" class="box well"/>
-            <text x="735" y="153" text-anchor="middle" class="svg-title">Lifecycle scripts</text>
-            <text x="735" y="181" text-anchor="middle" class="svg-copy">runtime</text>
-            <text x="735" y="202" text-anchor="middle" class="svg-copy">session</text>
-            <text x="735" y="223" text-anchor="middle" class="svg-copy">readiness</text>
-            <text x="735" y="244" text-anchor="middle" class="svg-copy">evidence</text>
-            <path d="M595 198 H650" class="edge" marker-end="url(#arrow-old)"/>
+  <section class="guide-section" id="promise">
+    <div class="section-kicker">01 / purpose</div>
+    <h2>What this workflow is protecting</h2>
+    <p>A Designer browser task is not complete because a process started, a
+      command returned, or a selector existed. It is complete when the intended
+      work is authorized, the browser is the right browser, the observed surface
+      is the right surface, and the runtime is left in a known state.</p>
+    <p>Each name points to a different failure, safe stop, or piece of proof a
+      maintainer can review later. That is more useful than treating every
+      surprise as browser flakiness.</p>
+    <ul class="principles">
+      <li><strong>Judgment.</strong> A Webflow user decides whether the task is
+        observation or change, whether a live state must be preserved, and what
+        authorization the action needs.</li>
+      <li><strong>Proof.</strong> The workflow checks target identity, runtime
+        ownership, service readiness, surface identity, evidence scope, and
+        cleanup.</li>
+      <li><strong>Handoff.</strong> The browser caller receives a bounded plan
+        and executes it in order. It does not improvise a second browser or
+        silently skip a check.</li>
+    </ul>
+    <div class="callout">
+      <strong>Core idea.</strong> A reusable workflow should make the safe path
+      easy to repeat and the unsafe path easy to name. It should not make a
+      decision on the user’s behalf merely because a command is available.
+    </div>
+  </section>
 
-            <text x="30" y="354" class="svg-micro">AFTER / DEEP CORE SEAM</text>
-            <rect x="30" y="370" width="160" height="44" rx="4" class="box well"/>
-            <text x="110" y="397" text-anchor="middle" class="svg-title">SKILL.md</text>
-            <rect x="235" y="370" width="160" height="44" rx="4" class="box"/>
-            <text x="315" y="397" text-anchor="middle" class="svg-title">Pi adapter</text>
-            <rect x="440" y="370" width="210" height="44" rx="4" class="box seam"/>
-            <text x="545" y="397" text-anchor="middle" class="svg-title">lib/webflow_browser</text>
-            <rect x="695" y="370" width="160" height="44" rx="4" class="box"/>
-            <text x="775" y="397" text-anchor="middle" class="svg-title">Lifecycle scripts</text>
-            <rect x="30" y="304" width="160" height="44" rx="4" class="box well"/>
-            <text x="110" y="331" text-anchor="middle" class="svg-title">Shell / CI</text>
-            <rect x="235" y="304" width="160" height="44" rx="4" class="box"/>
-            <text x="315" y="331" text-anchor="middle" class="svg-title">bin/webflow-browser</text>
-            <path d="M190 392 H235" class="edge seam" marker-end="url(#arrow-new)"/>
-            <path d="M395 392 H440" class="edge seam" marker-end="url(#arrow-new)"/>
-            <path d="M650 392 H695" class="edge seam" marker-end="url(#arrow-new)"/>
-            <path d="M190 326 H235" class="edge seam" marker-end="url(#arrow-new)"/>
-            <path d="M395 326 H545 V370" class="edge seam" marker-end="url(#arrow-new)"/>
-          </svg>
-        </div>
-        <figcaption>The adapter is a seam, not a second implementation. Callers know the JSON interface; the core hides runtime identity, lease state, readiness, and cleanup sequencing.</figcaption>
-      </figure>
-      <div class="notes">
-        <div class="note"><div class="label">Interface</div><p>Versioned JSON in, sanitized JSON out, plus a process exit code.</p></div>
-        <div class="note"><div class="label">Depth</div><p>Prepare, verify, status, and finish keep lifecycle rules behind one module.</p></div>
-        <div class="note"><div class="label">Locality</div><p>Pi policy stays in <code>SKILL.md</code>; mechanics change in one core.</p></div>
+  <section class="guide-section" id="terms">
+    <div class="section-kicker">02 / terms</div>
+    <h2>Four terms make the rest easier to read</h2>
+    <ul class="principles">
+      <li><strong>Target.</strong> The exact Webflow URL and document the task
+        names. Preserve meaningful query values such as <code>pageId</code> and
+        <code>simulateRole</code>.</li>
+      <li><strong>Surface.</strong> What the browser actually shows: its URL and
+        title, document type, authentication state, and the frame or feature
+        area being inspected.</li>
+      <li><strong>Runtime and lease.</strong> The managed Chrome for Testing
+        process and the exclusive record that says which transaction owns it.</li>
+      <li><strong>Transport.</strong> The way the caller controls the browser.
+        The workflow supports native <code>agent_browser</code> or the explicit
+        CLI fallback, but the choice stays fixed for the run.</li>
+    </ul>
+  </section>
+
+  <section class="guide-section" id="boundary">
+    <div class="section-kicker">03 / shape</div>
+    <h2>The useful boundary is between judgment and proof</h2>
+    <p>The workflow has a judgment side and a repeatable side. The judgment side
+      supplies intent and authorization. The repeatable side checks the declared
+      conditions, keeps one owner on the managed runtime, and returns a result
+      that can be inspected without exposing browser state.</p>
+    <p>Pi, a shell, and CI can carry the request. The lifecycle should answer the
+      same safety question consistently for each one.</p>
+  </section>
+
+  <div class="diagram-slot"><div class="wfviz" data-wfviz="webflow-browser-architecture-contract" data-breakout data-wfviz-interval="780">
+ <div class="wfviz-shell">
+  <div class="wfviz-head">
+   <h3>One safe Designer run has two responsibilities</h3>
+   <p>Judgment sets the boundary; the lifecycle proves the handoff.</p>
+  </div>
+
+  <svg class="wfviz-stage" viewBox="0 0 1120 500" preserveAspectRatio="xMidYMid meet" role="img"
+       aria-label="A Webflow Designer run separates judgment about allowed work from a shared proof of target, ownership, readiness, and cleanup. Pi and shell callers cross the same contract; the result is either authorized work or a named blocker.">
+   <text class="viz-sec" x="48" y="28">JUDGMENT</text>
+   <text class="viz-sec" x="440" y="28">CONTRACT</text>
+   <text class="viz-sec" x="720" y="28">PROOF</text>
+
+   <g data-node="callers" data-tone="neutral" data-state="idle" class="viz-row">
+    <g class="viz-chip">
+     <rect x="48" y="44" width="84" height="28" rx="4"/>
+     <text x="90" y="62" text-anchor="middle">Pi</text>
+    </g>
+    <g class="viz-chip">
+     <rect x="142" y="44" width="108" height="28" rx="4"/>
+     <text x="196" y="62" text-anchor="middle">shell / CI</text>
+    </g>
+   </g>
+
+   <g data-node="judgment" data-tone="live" data-state="idle" class="viz-row">
+    <rect class="viz-band" x="48" y="88" width="300" height="242" rx="4"/>
+    <rect class="viz-panel" x="48" y="88" width="300" height="242" rx="4"/>
+    <text class="viz-key" x="72" y="124">what is allowed</text>
+    <text class="viz-sub" x="72" y="145">human-facing judgment</text>
+    <line class="viz-rule" x1="72" y1="164" x2="324" y2="164"/>
+    <line class="viz-tick" x1="72" y1="190" x2="72" y2="210"/>
+    <text class="viz-sig-name" x="86" y="205">task intent</text>
+    <text class="viz-sig-src" x="324" y="205" text-anchor="end">inspect or change?</text>
+    <line class="viz-tick" x1="72" y1="232" x2="72" y2="252"/>
+    <text class="viz-sig-name" x="86" y="247">authorization</text>
+    <text class="viz-sig-src" x="324" y="247" text-anchor="end">what may happen?</text>
+    <line class="viz-tick" x1="72" y1="274" x2="72" y2="294"/>
+    <text class="viz-sig-name" x="86" y="289">interaction lane</text>
+    <text class="viz-sig-src" x="324" y="289" text-anchor="end">fast or guarded</text>
+    <text class="viz-foot" x="72" y="314">policy stays here</text>
+   </g>
+
+   <g data-node="to-contract" data-tone="live" data-state="idle" class="viz-row">
+    <path class="viz-edge" d="M348 210 L410 210"/>
+    <polygon class="viz-arrow" points="0,0 7,3.5 0,7" transform="translate(410,206.5)"/>
+   </g>
+
+   <g data-node="contract" data-tone="live" data-state="idle" class="viz-row">
+    <rect class="viz-band" x="410" y="142" width="252" height="136" rx="4"/>
+    <rect class="viz-panel" x="410" y="142" width="252" height="136" rx="4"/>
+    <text class="viz-key" x="434" y="178">safe-run contract</text>
+    <text class="viz-sub" x="434" y="199">the handoff boundary</text>
+    <line class="viz-rule" x1="434" y1="216" x2="638" y2="216"/>
+    <text class="viz-sig-name" x="434" y="239">exact target</text>
+    <text class="viz-sig-name" x="434" y="258">mode · transport</text>
+    <text class="viz-sig-name" x="434" y="277">evidence · budget</text>
+   </g>
+
+   <g data-node="to-proof" data-tone="live" data-state="idle" class="viz-row">
+    <path class="viz-edge" d="M662 210 L714 210"/>
+    <polygon class="viz-arrow" points="0,0 7,3.5 0,7" transform="translate(714,206.5)"/>
+   </g>
+
+   <line class="viz-lane" x1="690" y1="48" x2="690" y2="344"/>
+   <text class="viz-sec" x="692" y="366">SAME RULES, DIFFERENT CALLER</text>
+
+   <g data-node="proof" data-tone="live" data-state="idle" class="viz-row">
+    <rect class="viz-band" x="714" y="88" width="358" height="242" rx="4"/>
+    <rect class="viz-panel" x="714" y="88" width="358" height="242" rx="4"/>
+    <text class="viz-key" x="738" y="124">what must be proven</text>
+    <text class="viz-sub" x="738" y="145">deterministic lifecycle mechanics</text>
+    <line class="viz-rule" x1="738" y1="164" x2="1048" y2="164"/>
+    <line class="viz-tick" x1="738" y1="190" x2="738" y2="210"/>
+    <text class="viz-sig-name" x="752" y="205">runtime + lease</text>
+    <text class="viz-sig-src" x="1048" y="205" text-anchor="end">one owner</text>
+    <line class="viz-tick" x1="738" y1="232" x2="738" y2="252"/>
+    <text class="viz-sig-name" x="752" y="247">five readiness checks</text>
+    <text class="viz-sig-src" x="1048" y="247" text-anchor="end">all agree</text>
+    <line class="viz-tick" x1="738" y1="274" x2="738" y2="294"/>
+    <text class="viz-sig-name" x="752" y="289">surface + evidence</text>
+    <text class="viz-sig-src" x="1048" y="289" text-anchor="end">bounded proof</text>
+    <text class="viz-foot" x="738" y="314">cleanup proves stopped</text>
+   </g>
+
+   <g data-node="to-results" data-tone="live" data-state="idle" class="viz-row">
+    <path class="viz-edge" d="M893 330 L893 382"/>
+    <polygon class="viz-arrow" points="0,0 7,3.5 0,7" transform="translate(889.5,382) rotate(90)"/>
+   </g>
+
+   <g data-node="allowed" data-tone="ok" data-state="idle" class="viz-row">
+    <g class="viz-chip">
+     <rect x="714" y="392" width="170" height="38" rx="4"/>
+     <text x="799" y="416" text-anchor="middle">authorized work</text>
+    </g>
+   </g>
+   <g data-node="blocked" data-tone="warn" data-state="idle" class="viz-row">
+    <g class="viz-chip">
+     <rect x="902" y="392" width="170" height="38" rx="4"/>
+     <text x="987" y="416" text-anchor="middle">named blocker</text>
+    </g>
+   </g>
+   <path class="viz-lane" d="M893 382 L799 382 L799 392"/>
+   <path class="viz-lane" d="M893 382 L987 382 L987 392"/>
+   <text class="viz-foot" x="48" y="466" data-role="counter">scope comes first</text>
+   <text class="viz-foot" x="1072" y="466" text-anchor="end">the caller never skips proof</text>
+  </svg>
+
+  <div class="wfviz-phases" role="tablist" aria-label="Stages">
+   <button class="wfviz-phase" type="button" data-phase="0">Judgment</button>
+   <button class="wfviz-phase" type="button" data-phase="1">Contract</button>
+   <button class="wfviz-phase" type="button" data-phase="2">Proof</button>
+   <button class="wfviz-phase" type="button" data-phase="3">Result</button>
+  </div>
+  <div class="wfviz-transport">
+   <button class="wfviz-btn" type="button" data-act="prev" aria-label="Previous step"><span class="wfviz-arrow" aria-hidden="true">&#8592;</span>Back</button>
+   <button class="wfviz-btn" type="button" data-act="play" data-primary>Play</button>
+   <button class="wfviz-btn" type="button" data-act="next" aria-label="Next step">Next<span class="wfviz-arrow" aria-hidden="true">&#8594;</span></button>
+  </div>
+  <div class="wfviz-caption">
+   <p>The boundary does not remove judgment. It keeps judgment where a Webflow
+      user can see it, while the proof rules remain the same for every caller.</p>
+  </div>
+  <script type="application/json" class="wfviz-steps">
+  [
+   { "phase": 0, "on": ["callers", "judgment"], "readout": { "counter": "scope comes first" } },
+   { "phase": 1, "on": ["to-contract", "contract"], "readout": { "counter": "make the handoff explicit" } },
+   { "phase": 2, "on": ["to-proof", "proof"], "readout": { "counter": "prove before work" } },
+   { "phase": 3, "on": ["to-results", "allowed", "blocked"], "readout": { "counter": "work or stop, never guess" } },
+   { "phase": 3, "on": [] }
+  ]
+  </script>
+ </div>
+</div>
+
+<div class="wfviz" data-wfviz="webflow-browser-lanes" data-breakout data-wfviz-interval="780">
+ <div class="wfviz-shell">
+  <div class="wfviz-head">
+   <h3>The lane follows the effect, not the transport</h3>
+   <p>Read-only observation is fast; stateful or uncertain work is guarded.</p>
+  </div>
+  <svg class="wfviz-stage" viewBox="0 0 1120 430" preserveAspectRatio="xMidYMid meet" role="img"
+       aria-label="The fast and guarded interaction lanes share the same target, ownership, privacy, and cleanup conditions. Fast is for read-only observation; guarded is for navigation, selection, edits, publish, or uncertain effects.">
+   <text class="viz-sec" x="48" y="28">SHARED CONDITIONS</text>
+   <g data-node="shared" data-tone="live" data-state="idle" class="viz-row">
+    <rect class="viz-band" x="48" y="46" width="1024" height="64" rx="4"/>
+    <rect class="viz-panel" x="48" y="46" width="1024" height="64" rx="4"/>
+    <text class="viz-key" x="72" y="76">same safety contract</text>
+    <text class="viz-sub" x="72" y="96">exact target · ownership · privacy · cleanup</text>
+   </g>
+   <line class="viz-lane" x1="560" y1="136" x2="560" y2="344"/>
+   <text class="viz-sec" x="48" y="140">FAST LANE</text>
+   <text class="viz-sec" x="612" y="140">GUARDED LANE</text>
+
+   <g data-node="fast" data-tone="live" data-state="idle" class="viz-row">
+    <rect class="viz-panel" x="48" y="158" width="460" height="164" rx="4"/>
+    <line class="viz-tick" x1="72" y1="184" x2="72" y2="204"/>
+    <text class="viz-sig-name" x="86" y="199">observation only</text>
+    <text class="viz-sig-src" x="484" y="199" text-anchor="end">no state change</text>
+    <line class="viz-rule" x1="72" y1="216" x2="484" y2="216"/>
+    <line class="viz-tick" x1="72" y1="238" x2="72" y2="258"/>
+    <text class="viz-sig-name" x="86" y="253">scoped snapshot</text>
+    <text class="viz-sig-src" x="484" y="253" text-anchor="end">after verify</text>
+    <line class="viz-tick" x1="72" y1="280" x2="72" y2="300"/>
+    <text class="viz-sig-name" x="86" y="295">bounded diagnostics</text>
+    <text class="viz-sig-src" x="484" y="295" text-anchor="end">semantic + visual</text>
+   </g>
+
+   <g data-node="guarded" data-tone="live" data-state="idle" class="viz-row">
+    <rect class="viz-panel" x="612" y="158" width="460" height="164" rx="4"/>
+    <line class="viz-tick" x1="636" y1="184" x2="636" y2="204"/>
+    <text class="viz-sig-name" x="650" y="199">stateful action</text>
+    <text class="viz-sig-src" x="1048" y="199" text-anchor="end">authorization</text>
+    <line class="viz-rule" x1="636" y1="216" x2="1048" y2="216"/>
+    <line class="viz-tick" x1="636" y1="238" x2="636" y2="258"/>
+    <text class="viz-sig-name" x="650" y="253">small baseline</text>
+    <text class="viz-sig-src" x="1048" y="253" text-anchor="end">before mutation</text>
+    <line class="viz-tick" x1="636" y1="280" x2="636" y2="300"/>
+    <text class="viz-sig-name" x="650" y="295">postcondition</text>
+    <text class="viz-sig-src" x="1048" y="295" text-anchor="end">unrelated state</text>
+   </g>
+
+   <g data-node="lane-outcomes" data-tone="neutral" data-state="idle" class="viz-row">
+    <path class="viz-edge" d="M278 322 L278 360"/>
+    <polygon class="viz-arrow" points="0,0 7,3.5 0,7" transform="translate(274.5,360) rotate(90)"/>
+    <path class="viz-edge" d="M842 322 L842 360"/>
+    <polygon class="viz-arrow" points="0,0 7,3.5 0,7" transform="translate(838.5,360) rotate(90)"/>
+    <text class="viz-foot" x="278" y="382" text-anchor="middle">read, then finish</text>
+    <text class="viz-foot" x="842" y="382" text-anchor="middle">authorize, then finish</text>
+   </g>
+   <text class="viz-foot" x="48" y="414" data-role="counter">choose by effect</text>
+   <text class="viz-foot" x="1072" y="414" text-anchor="end">never downgrade to avoid authorization</text>
+  </svg>
+  <div class="wfviz-phases" role="tablist" aria-label="Stages">
+   <button class="wfviz-phase" type="button" data-phase="0">Shared</button>
+   <button class="wfviz-phase" type="button" data-phase="1">Fast</button>
+   <button class="wfviz-phase" type="button" data-phase="2">Guarded</button>
+   <button class="wfviz-phase" type="button" data-phase="3">Finish</button>
+  </div>
+  <div class="wfviz-transport">
+   <button class="wfviz-btn" type="button" data-act="prev" aria-label="Previous step"><span class="wfviz-arrow" aria-hidden="true">&#8592;</span>Back</button>
+   <button class="wfviz-btn" type="button" data-act="play" data-primary>Play</button>
+   <button class="wfviz-btn" type="button" data-act="next" aria-label="Next step">Next<span class="wfviz-arrow" aria-hidden="true">&#8594;</span></button>
+  </div>
+  <div class="wfviz-caption">
+   <p>Attached versus isolated chooses where state comes from; fast versus
+      guarded chooses what the work may change. They are separate decisions.</p>
+  </div>
+  <script type="application/json" class="wfviz-steps">
+  [
+   { "phase": 0, "on": ["shared"], "readout": { "counter": "choose by effect" } },
+   { "phase": 1, "on": ["fast"], "readout": { "counter": "observe without changing state" } },
+   { "phase": 2, "on": ["guarded"], "readout": { "counter": "authorize before changing state" } },
+   { "phase": 3, "on": ["lane-outcomes"], "readout": { "counter": "finish either lane" } },
+   { "phase": 3, "on": [] }
+  ]
+  </script>
+ </div>
+</div></div>
+
+  <section class="guide-section" id="responsibilities">
+    <div class="section-kicker">04 / reasons</div>
+    <h2>What each responsibility protects</h2>
+    <p>Each responsibility has a concrete job: it names a failure, stops unsafe
+      work, or leaves proof a maintainer can review.</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Responsibility</th><th>What it covers</th><th>Why it exists</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">Task judgment</th>
+            <td>Intent, authorization, attached versus isolated mode, and the
+              fast or guarded lane.</td>
+            <td>A tool cannot infer whether a visible state may be changed or
+              whether another person is relying on it.</td>
+          </tr>
+          <tr>
+            <th scope="row">Target and surface</th>
+            <td>The exact URL, title, document type, approved origin, and
+              selected frame or feature surface.</td>
+            <td>A successful navigation can still land on login, an error
+              document, an empty shell, or the wrong iframe.</td>
+          </tr>
+          <tr>
+            <th scope="row">Runtime ownership</th>
+            <td>Managed Chrome for Testing identity, generation, process, and
+              exclusive lease.</td>
+            <td>The transaction must never reuse or close another task’s
+              browser, even when a port happens to answer.</td>
+          </tr>
+          <tr>
+            <th scope="row">Readiness</th>
+            <td>The HUD, Designer service, exact target HTTP response,
+              browser profile, and Designer surface.</td>
+            <td>Named checks turn an environment gap into a blocker instead of
+              letting a later page failure look like product behavior.</td>
+          </tr>
+          <tr>
+            <th scope="row">Evidence and privacy</th>
+            <td>Compact semantic observations, scoped screenshots, and filtered
+              diagnostics.</td>
+            <td>Review needs enough proof to decide; it does not need cookies,
+              storage, tokens, raw DOM, or a full Designer model.</td>
+          </tr>
+          <tr>
+            <th scope="row">Cleanup</th>
+            <td>Lease release, runtime stop, no consumer, and a public stopped
+              receipt.</td>
+            <td>A test that leaves a browser behind has not finished, even if
+              its page assertion passed.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="guide-section" id="paths">
+    <div class="section-kicker">05 / paths</div>
+    <h2>Two ways to carry the same promise</h2>
+    <p>Pi is the natural home for judgment: the skill asks for the exact target,
+      decides whether an action is fast or guarded, and coordinates the browser
+      interaction. A non-Pi caller may need the same lifecycle from a shell or
+      CI. It should not get a weaker version of ownership or cleanup just
+      because its entrypoint is different.</p>
+    <p>The standalone command carries the same workflow to another host. It
+      accepts a small request, returns a bounded plan or classification, and
+      leaves page interaction to the selected browser transport. The Pi adapter
+      uses the same lifecycle rules.</p>
+    <p>For maintainers, this boundary has a few useful names. The lifecycle is
+      the core <strong>module</strong>; the JSON commands are its small
+      <strong>interface</strong>; and the Pi compatibility layer is a thin
+      <strong>adapter</strong> at the <strong>seam</strong>. That depth gives both callers leverage from one
+      ownership or cleanup fix, while locality keeps task judgment close to the
+      Webflow user.</p>
+    <div class="two-col">
+      <div>
+        <h3>Pi path</h3>
+        <p>The skill owns authorization, judgment, lane selection, and
+          orchestration. Its compatibility adapter uses the shared lifecycle
+          and returns the same kinds of readiness and cleanup decisions.</p>
       </div>
-    </section>
+      <div>
+        <h3>Standalone path</h3>
+        <p><code>bin/webflow-browser</code> serves shell automation, CI, and
+          other hosts. Its JSON protocol makes the handoff inspectable without
+          putting credentials or raw browser state on stdout.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="guide-section" id="lanes">
+    <div class="section-kicker">06 / effect</div>
+    <h2>Choose the lane by what the work can change</h2>
+    <p>Attached versus isolated answers where the state comes from. Fast versus
+      guarded answers what the action may affect. They are separate decisions,
+      and neither transport choice settles them.</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Lane</th><th>Use it for</th><th>Extra proof</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">Fast</th>
+            <td>Read-only observation after target, ownership, and all five
+              readiness checks are verified.</td>
+            <td>Keep snapshots and diagnostics scoped. Do not navigate,
+              select, edit, publish, or trigger an app action.</td>
+          </tr>
+          <tr>
+            <th scope="row">Guarded</th>
+            <td>Navigation, reload, selection changes, canvas edits, undo,
+              redo, publish, connected-app actions, or uncertain effects.</td>
+            <td>Capture a small baseline, obtain authorization, perform one
+              bounded action, then verify its postcondition and unrelated state.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="small-note">A fast lane is not a shortcut around the lifecycle.
+      It still needs the exact target, the ownership boundary, privacy limits,
+      readiness, and stopped-runtime proof. An unclassified action is guarded
+      or blocked.</p>
+  </section>
+
+  <section class="guide-section" id="interface">
+    <div class="section-kicker">07 / how</div>
+    <h2>The CLI is small on purpose</h2>
+    <p>The mechanics fit in a short section. The CLI does not replace the
+      workflow judgment above; it makes the repeatable parts available to another host.
+      Each command reads at most one versioned JSON request and writes one
+      sanitized JSON result.</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Command</th><th>What it does</th><th>What it does not do</th></tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row"><code>prepare</code></th><td>Validates the
+            declaration, runs service preflight, starts and claims the managed
+            runtime, and returns ordered browser actions.</td><td>It does not
+            open the page or take a snapshot.</td></tr>
+          <tr><th scope="row"><code>verify</code></th><td>Rechecks services and
+            runtime identity, then classifies compact surface evidence.</td><td>
+            It does not authorize a mutation.</td></tr>
+          <tr><th scope="row"><code>status</code></th><td>Classifies the current
+            transaction, runtime, and lease without changing them.</td><td>It
+            does not infer that an unknown owner is safe.</td></tr>
+          <tr><th scope="row"><code>reconcile</code></th><td>Recovers only a
+            stale state that <code>status</code> marks safe.</td><td>It does
+            not take ownership of an active or unknown runtime.</td></tr>
+          <tr><th scope="row"><code>finish</code></th><td>Releases the exact
+            transaction and proves the runtime stopped.</td><td>It does not
+            sign out, clear cookies, or reset authentication.</td></tr>
+          <tr><th scope="row"><code>cleanup</code></th><td>Alias for
+            <code>finish</code>.</td><td>It does not change the cleanup order.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>One request in, one bounded result out</h3>
+    <p>A native request names the target, mode, transport, surface, and readiness
+      selector. It omits the CLI-only <code>session</code> field. A CLI transport
+      request requires a task-owned named session. An <code>authProfile</code>
+      is allowed only for an explicitly identified dedicated Webflow profile in
+      isolated mode; it is not a credential.</p>
+    <pre><code>CLI="$SKILL_DIR/bin/webflow-browser"
+printf '%s\n' '{"version":1,"operation":"status"}' \
+  | "$CLI" status
+
+cat &lt;&lt;'JSON' | "$CLI" prepare
+{
+  "version": 1,
+  "operation": "prepare",
+  "transport": "native",
+  "mode": "isolated",
+  "target": "https://design.webflow.com/?pageId=synthetic-page",
+  "surface": "body",
+  "readySelector": "body"
+}
+JSON</code></pre>
+    <p>The prepare result contains a transaction ID and an ordered handoff:
+      connect, optional Auth Vault login, exact-target open, and wait. The caller
+      executes those actions without substitutions, then sends compact evidence
+      to <code>verify</code>. The result never contains credentials, cookies,
+      raw DOM, customer data, or full browser state.</p>
+
+    <h3>Read the result, not just the exit code</h3>
+    <p>Exit codes are a stable shell summary. The JSON classification explains
+      what happened and what a human should do next.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Code</th><th>Meaning</th><th>Typical response</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">0</th><td>Command completed</td><td>Inspect the
+            JSON; a prepared transaction still requires verify and finish.</td></tr>
+          <tr><th scope="row">1</th><td>Lifecycle or cleanup failure</td><td>
+            Stop and inspect the named failure; cleanup is not inferred.</td></tr>
+          <tr><th scope="row">2</th><td>Invalid command or request</td><td>Fix
+            the protocol input before trying again.</td></tr>
+          <tr><th scope="row">3</th><td>Readiness or authentication blocker</td>
+            <td>Resolve the named blocker or stop.</td></tr>
+          <tr><th scope="row">4</th><td>Ownership or transaction conflict</td>
+            <td>Do not reuse a runtime; inspect status and reconcile only when
+              it says recovery is safe.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>A successful <code>status: "reconciled"</code> means the classified stale
+      state was safely converged. A successful <code>prepare</code> means the
+      handoff is ready, not that QA may begin; <code>verify</code> must still
+      report a verified Designer surface.</p>
+  </section>
+
+  <section class="guide-section" id="checklist">
+    <div class="section-kicker">08 / practice</div>
+    <h2>Use this checklist before calling a run reliable</h2>
+    <ol class="checklist">
+      <li>Is the exact target supplied, including the meaningful query
+        parameters, host, and port?</li>
+      <li>Is the selected mode attached or isolated, and is the chosen transport
+        available for the entire run?</li>
+      <li>Is the work read-only, or has guarded authorization and a mutation
+        baseline been obtained?</li>
+      <li>Did the workflow name the five readiness checks instead of relying on
+        one familiar Designer control?</li>
+      <li>Will evidence be compact, scoped, temporary, and free of credentials,
+        cookies, tokens, raw DOM, and customer data?</li>
+      <li>Will the caller finish the transaction, inspect the stopped proof, and
+        only then close its automation session?</li>
+    </ol>
+    <div class="callout">
+      <strong>Current boundary.</strong> The managed Designer profile available
+      is currently unauthenticated, so live Designer
+      inspection is blocked at the authentication gate. The guides and figures
+      were checked offline; they are not a substitute for a live authenticated
+      surface.
+    </div>
+  </section>
+
+  <footer class="guide-footer">
+    <p>Figures use the self-contained <a href="https://github.com/webflow/wf-viz">Webflow wf-viz</a>
+      kit: the repository’s template, tokens, timeline runtime, and hostile-host
+      verification. The pages make no network request to render.</p>
+    <p>Source of workflow rules: this skill’s <code>SKILL.md</code>,
+      <code>references/designer-workflows.md</code>, and the standalone CLI
+      contract.</p>
+  </footer>
+
   </main>
+  <script id="wf-viz-runtime">
+/* ============================================================
+   wf-viz runtime — generic. You should never need to edit this
+   file to add a diagram.
+
+   It boots every `.wfviz[data-wfviz]` on the page, reads that
+   diagram's timeline from a JSON block inside it, and drives the
+   whole thing by writing `data-state` attributes. All appearance
+   lives in wf-viz.css.
+
+   Markup contract
+   ---------------
+   <div class="wfviz" data-wfviz="my-diagram" data-wfviz-interval="780">
+     <svg class="wfviz-stage"> ... groups with data-node="x" ... </svg>
+     <button class="wfviz-phase" data-phase="0">…</button>
+     <button class="wfviz-btn" data-act="prev|play|next">…</button>
+     <script type="application/json" class="wfviz-steps">[ … ]<\/script>
+   </div>
+
+   Timeline shape
+   --------------
+   [
+     { "phase": 0,
+       "on": ["hdr"],                       // data-node values going active
+       "readout": { "counter": "Turn 1/6" } // sets [data-role=counter] text
+     },
+     …
+   ]
+
+   Everything activated on an earlier step falls back to "done".
+   Make the LAST step activate nothing (`"on": []`) so the frame the
+   reader is left staring at after autoplay is the calm one.
+   ============================================================ */
+(function () {
+  "use strict";
+
+  var DEFAULT_INTERVAL = 780;
+
+  function parseSteps(host) {
+    var el = host.querySelector("script.wfviz-steps");
+    if (!el) { return null; }
+    try {
+      var steps = JSON.parse(el.textContent);
+      return Array.isArray(steps) && steps.length ? steps : null;
+    } catch (err) {
+      if (window.console) { console.error("[wf-viz] bad steps JSON in", host.dataset.wfviz, err); }
+      return null;
+    }
+  }
+
+  function init(host) {
+    var steps = parseSteps(host);
+    if (!steps) { return; }
+
+    var svg = host.querySelector(".wfviz-stage");
+    if (!svg) { return; }
+
+    var interval  = parseInt(host.getAttribute("data-wfviz-interval"), 10) || DEFAULT_INTERVAL;
+    var phaseBtns = Array.prototype.slice.call(host.querySelectorAll(".wfviz-phase"));
+    var playBtn   = host.querySelector('[data-act="play"]');
+    var prevBtn   = host.querySelector('[data-act="prev"]');
+    var nextBtn   = host.querySelector('[data-act="next"]');
+
+    /* index every addressable group and every text readout once */
+    var nodes = {}, readouts = {};
+    Array.prototype.forEach.call(svg.querySelectorAll("[data-node]"), function (el) {
+      nodes[el.getAttribute("data-node")] = el;
+    });
+    Array.prototype.forEach.call(host.querySelectorAll("[data-role]"), function (el) {
+      readouts[el.getAttribute("data-role")] = el;
+    });
+
+    var cursor = -1;
+    var timer  = null;
+    var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    function render(i) {
+      cursor = i;
+
+      Object.keys(nodes).forEach(function (k) { nodes[k].setAttribute("data-state", "idle"); });
+
+      var phase = -1, readout = {};
+      for (var s = 0; s <= i; s++) {
+        var state = (s === i) ? "active" : "done";
+        (steps[s].on || []).forEach(function (k) {
+          if (nodes[k]) { nodes[k].setAttribute("data-state", state); }
+        });
+        if (typeof steps[s].phase === "number") { phase = steps[s].phase; }
+        if (steps[s].readout) {
+          Object.keys(steps[s].readout).forEach(function (k) { readout[k] = steps[s].readout[k]; });
+        }
+      }
+
+      /* step 0 of the timeline defines the resting text for every readout */
+      var base = (steps[0] && steps[0].readout) || {};
+      Object.keys(readouts).forEach(function (k) {
+        if (i < 0) {
+          if (Object.prototype.hasOwnProperty.call(base, k)) { readouts[k].textContent = base[k]; }
+        } else if (Object.prototype.hasOwnProperty.call(readout, k)) {
+          readouts[k].textContent = readout[k];
+        }
+      });
+
+      phaseBtns.forEach(function (b, bi) {
+        if (i >= 0 && bi === phase) { b.setAttribute("data-active", ""); }
+        else { b.removeAttribute("data-active"); }
+      });
+    }
+
+    function stop() {
+      if (timer) { clearTimeout(timer); timer = null; }
+      if (playBtn) { playBtn.textContent = "Play"; }
+    }
+    function tick() {
+      if (cursor >= steps.length - 1) { stop(); return; }
+      render(cursor + 1);
+      timer = setTimeout(tick, interval);
+    }
+    function play() {
+      if (timer) { stop(); return; }
+      if (cursor >= steps.length - 1) { render(-1); }
+      if (playBtn) { playBtn.textContent = "Pause"; }
+      timer = setTimeout(tick, 120);
+    }
+
+    if (nextBtn) {
+      nextBtn.addEventListener("click", function () { stop(); render(Math.min(cursor + 1, steps.length - 1)); });
+    }
+    if (prevBtn) {
+      prevBtn.addEventListener("click", function () { stop(); render(Math.max(cursor - 1, -1)); });
+    }
+    if (playBtn) { playBtn.addEventListener("click", play); }
+
+    phaseBtns.forEach(function (b) {
+      b.addEventListener("click", function () {
+        stop();
+        var target = parseInt(b.getAttribute("data-phase"), 10);
+        for (var s = 0; s < steps.length; s++) {
+          if (steps[s].phase === target) { render(s); return; }
+        }
+      });
+    });
+
+    /* Reduced motion: show the finished frame, never animate. Controls still work. */
+    if (reduced) { render(steps.length - 1); return; }
+
+    render(-1);
+    if ("IntersectionObserver" in window) {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) { if (e.isIntersecting) { io.disconnect(); play(); } });
+      }, { threshold: 0.35 });
+      io.observe(svg);
+    } else {
+      play();
+    }
+  }
+
+  function boot() {
+    Array.prototype.forEach.call(document.querySelectorAll(".wfviz[data-wfviz]"), function (host) {
+      if (host.getAttribute("data-wfviz-ready")) { return; }
+      host.setAttribute("data-wfviz-ready", "1");
+      init(host);
+    });
+  }
+
+  if (document.readyState === "loading") { document.addEventListener("DOMContentLoaded", boot); }
+  else { boot(); }
+
+  /* Re-scan after dynamic insertion (Webflow CMS, tabs, sliders). */
+  window.wfviz = { boot: boot };
+})();
+  </script>
 </body>
 </html>

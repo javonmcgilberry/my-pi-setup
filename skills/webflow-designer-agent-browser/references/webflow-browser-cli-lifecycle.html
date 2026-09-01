@@ -3,156 +3,1294 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Webflow browser CLI lifecycle</title>
-  <style>
-    :root {
-      --paper: rgb(255 255 255);
-      --well: rgb(240 240 240);
-      --ink: rgb(8 8 8);
-      --muted: rgb(90 90 90);
-      --quiet: rgb(171 171 171);
-      --line: rgb(224 224 224);
-      --blue: rgb(20 110 245);
-      --orange: rgb(255 107 0);
-      --sans: "WF Visual Sans", "WF Visual Sans Variable", Arial, sans-serif;
-      --mono: "WF Visual Sans Mono", "SF Mono", ui-monospace, monospace;
-    }
-    * { box-sizing: border-box; }
-    body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--sans); }
-    .shell { max-width: 1180px; margin: 0 auto; padding: 48px 28px 64px; }
-    .eyebrow, .label {
-      color: var(--muted); font-family: var(--mono); font-size: .8rem;
-      font-weight: 550; letter-spacing: 0; line-height: 1.2; text-transform: uppercase;
-    }
-    h1, h2 { font-weight: 600; letter-spacing: 0; line-height: 1.3; }
-    h1 { max-width: 760px; margin: 12px 0; font-size: 2rem; }
-    h2 { margin: 0; font-size: 1.25rem; }
-    p { max-width: 760px; margin: 0; font-size: 1rem; line-height: 1.6; }
-    .standfirst { color: var(--muted); max-width: 700px; }
-    .section { margin-top: 42px; }
-    .section-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 14px; }
-    .section-head .label { color: var(--blue); }
-    figure { margin: 0; }
-    .stage { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); padding: 18px; }
-    svg { display: block; width: 100%; min-width: 840px; height: auto; }
-    .box { fill: var(--paper); stroke: var(--line); stroke-width: 2; }
-    .box.well { fill: var(--well); }
-    .box.focus { stroke: var(--ink); stroke-width: 3; }
-    .box.warn { stroke: var(--orange); stroke-width: 3; }
-    .edge { fill: none; stroke: var(--muted); stroke-width: 2; }
-    .edge.return { stroke: var(--ink); stroke-width: 3; }
-    .svg-title { fill: var(--ink); font-family: var(--sans); font-size: 20px; font-weight: 600; }
-    .svg-copy { fill: var(--muted); font-family: var(--mono); font-size: 14px; }
-    .svg-micro { fill: var(--quiet); font-family: var(--mono); font-size: 12px; letter-spacing: 1px; }
-    figcaption { margin: 12px 0 0; color: var(--muted); font-size: .875rem; line-height: 1.6; }
-    .notes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
-    .note { border-top: 1px solid var(--line); padding-top: 12px; }
-    .note p { margin-top: 6px; color: var(--muted); font-size: .875rem; }
-    code { font-family: var(--mono); font-size: .9em; }
-    @media (max-width: 720px) { .shell { padding: 32px 16px 48px; } .notes { grid-template-columns: 1fr; } }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --paper: rgb(8 8 8); --well: rgb(23 23 23); --ink: rgb(255 255 255);
-        --muted: rgb(171 171 171); --quiet: rgb(90 90 90); --line: rgb(54 54 54);
-        --blue: rgb(59 137 255); --orange: rgb(255 107 0);
-      }
-    }
+  <meta name="description" content="How a Webflow Designer browser transaction prepares, verifies, acts, finishes, and recovers.">
+  <title>A safe Designer run begins before the browser | Webflow browser lifecycle</title>
+  <style id="guide-style">
+:root {
+  --page-paper: #fff;
+  --page-well: #f0f0f0;
+  --page-ink: #080808;
+  --page-muted: #5a5a5a;
+  --page-quiet: #898989;
+  --page-line: #e0e0e0;
+  --page-blue: #146ef5;
+  --page-sans: "WF Visual Sans", "WF Visual Sans Variable", Arial, sans-serif;
+  --page-mono: "WF Visual Sans Mono", "SF Mono", ui-monospace, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--page-paper);
+  color: var(--page-ink);
+  font-family: var(--page-sans);
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+}
+.guide {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 28px 72px;
+}
+.guide-header {
+  padding: 56px 0 34px;
+  border-bottom: 1px solid var(--page-line);
+}
+.eyebrow {
+  margin: 0 0 14px;
+  color: var(--page-muted);
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.2;
+}
+h1, h2, h3 {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+h1 {
+  max-width: 780px;
+  font-size: 2rem;
+  line-height: 1.2;
+}
+h2 {
+  max-width: 780px;
+  font-size: 1.5rem;
+  line-height: 1.3;
+}
+h3 {
+  max-width: 780px;
+  font-size: 1.25rem;
+  line-height: 1.4;
+}
+p, li {
+  max-width: 760px;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+p { margin: 0 0 16px; }
+.lede {
+  max-width: 760px;
+  margin-top: 18px;
+  color: var(--page-muted);
+  font-size: 1rem;
+}
+.guide-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin-top: 24px;
+  color: var(--page-quiet);
+  font-family: var(--page-mono);
+  font-size: .8rem;
+  line-height: 1.6;
+  text-transform: uppercase;
+}
+.contents {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 20px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--page-line);
+  color: var(--page-muted);
+  font-size: .875rem;
+  line-height: 1.6;
+}
+.contents strong {
+  color: var(--page-ink);
+  font-weight: 600;
+}
+a {
+  color: var(--page-blue);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.guide-section {
+  margin-top: 52px;
+}
+.section-kicker {
+  margin-bottom: 10px;
+  color: var(--page-blue);
+  font-family: var(--page-mono);
+  font-size: .8rem;
+  font-weight: 550;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+.guide-section > h2 { margin-bottom: 16px; }
+.guide-section > h3 { margin: 30px 0 12px; }
+.principles, .sequence, .checklist {
+  max-width: 760px;
+  margin: 18px 0 20px;
+  padding-left: 24px;
+}
+.principles li, .sequence li, .checklist li {
+  margin: 8px 0;
+  padding-left: 4px;
+}
+.callout {
+  max-width: 760px;
+  margin: 22px 0;
+  padding: 16px 18px;
+  border: 1px solid var(--page-line);
+  background: var(--page-well);
+}
+.callout strong { font-weight: 600; }
+.diagram-slot {
+  display: grid;
+  gap: 38px;
+  margin-top: 42px;
+}
+.diagram-slot .wfviz { width: 100%; }
+.table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 20px 0;
+}
+table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-size: .875rem;
+  line-height: 1.55;
+}
+th, td {
+  padding: 12px 14px;
+  border-top: 1px solid var(--page-line);
+  text-align: left;
+  vertical-align: top;
+}
+thead th {
+  color: var(--page-muted);
+  font-family: var(--page-mono);
+  font-size: .8rem;
+  font-weight: 550;
+  text-transform: uppercase;
+}
+tbody th {
+  width: 20%;
+  font-weight: 600;
+}
+tbody td { color: var(--page-muted); }
+.two-col {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px;
+  max-width: 900px;
+  margin-top: 22px;
+}
+.two-col > div {
+  padding-top: 14px;
+  border-top: 1px solid var(--page-line);
+}
+.two-col h3 { margin-bottom: 8px; }
+.two-col p { color: var(--page-muted); }
+.small-note {
+  color: var(--page-muted);
+  font-size: .875rem;
+}
+.action-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 760px;
+  margin: 20px 0;
+}
+.action-strip span {
+  padding: 8px 11px;
+  border: 1px solid var(--page-line);
+  color: var(--page-ink);
+  font-family: var(--page-mono);
+  font-size: .8rem;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+.five-checks {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin: 22px 0;
+}
+.five-checks > div {
+  padding-top: 12px;
+  border-top: 1px solid var(--page-line);
+}
+.five-checks strong {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+.five-checks span {
+  display: block;
+  color: var(--page-muted);
+  font-size: .875rem;
+  line-height: 1.6;
+}
+pre {
+  max-width: 900px;
+  overflow-x: auto;
+  margin: 20px 0;
+  padding: 18px 20px;
+  border: 1px solid var(--page-line);
+  border-radius: 4px;
+  background: #171717;
+  color: #fff;
+  font-family: var(--page-mono);
+  font-size: .8rem;
+  line-height: 1.6;
+  white-space: pre;
+}
+pre code {
+  font: inherit;
+  color: inherit;
+}
+.guide-footer {
+  margin-top: 64px;
+  padding-top: 20px;
+  border-top: 1px solid var(--page-line);
+  color: var(--page-muted);
+  font-size: .875rem;
+}
+.guide-footer p { font-size: .875rem; }
+@media (max-width: 800px) {
+  .guide { padding: 0 16px 52px; }
+  .guide-header { padding-top: 36px; }
+  .two-col, .five-checks { grid-template-columns: 1fr; }
+  .five-checks { gap: 0; }
+  .five-checks > div { padding: 12px 0; }
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page-paper: #080808;
+    --page-well: #171717;
+    --page-ink: #fff;
+    --page-muted: #ababab;
+    --page-quiet: #898989;
+    --page-line: #363636;
+    --page-blue: #3b89ff;
+  }
+}
+  </style>
+  <style id="wf-viz-style">
+/* ---------- 0. DEFENSIVE RESET ---------------------------------------
+   This lands inside someone else's stylesheet. A host page's element
+   selectors -- div{border}, h3{text-transform}, p{font-size},
+   button{padding}, svg{border} -- all out-specify inheritance and will
+   wreck the chrome. Verified against a hostile-host fixture.
+
+   Specificity is the whole trick. The reset must BEAT the host's element
+   selectors (0,0,1) but LOSE to our own component classes (0,1,0).
+   `.wfviz :where(p)` scores exactly (0,1,0): the class counts, :where()
+   contributes nothing. It therefore outranks any bare `p{}` on the host
+   page, and ties with our classes -- which win because they come later.
+   (A `:where(.wfviz)` prefix would score 0 and lose to the host. Don't.)
+   -------------------------------------------------------------------- */
+.wfviz, .wfviz *, .wfviz *::before, .wfviz *::after{ box-sizing:border-box }
+
+/* the root element itself -- host `div{}` rules reach it too */
+.wfviz{
+  margin:0; padding:0; border:0; background:none;
+  float:none; max-width:none; box-shadow:none; text-align:left;
+}
+
+.wfviz :where(div,p,h1,h2,h3,h4,h5,h6,span,button,figure,ul,ol,li){
+  margin:0; padding:0; border:0; background:none;
+  font:inherit; color:inherit;
+  letter-spacing:normal; text-transform:none; text-align:left;
+  text-decoration:none; box-shadow:none; float:none; max-width:none;
+  list-style:none;
+}
+.wfviz :where(svg){
+  margin:0; padding:0; border:0; background:none;
+  width:auto; height:auto; max-width:none; float:none; vertical-align:baseline;
+}
+.wfviz :where(button){ appearance:none; -webkit-appearance:none; cursor:pointer }
+
+/* ---------- 1. TOKENS ------------------------------------------------ */
+.wfviz{
+  /* Webflow brand palette (developers.webflow.com) */
+  --wf-blue:#146ef5;   --wf-blue-400:#3b89ff; --wf-blue-600:#0055d4;
+  --wf-green:#00d722;  --wf-orange:#ff6b00;   --wf-red:#ee1d36;
+  --wf-black:#080808;  --wf-g900:#171717;     --wf-g700:#363636;
+  --wf-g600:#5a5a5a;   --wf-g400:#898989;     --wf-g300:#ababab;
+  --wf-border:#e0e0e0;   --wf-g200:#d8d8d8;   --wf-g100:#f0f0f0;     --wf-white:#fff;
+
+  /* Surfaces — the only tokens dark mode reassigns */
+  --viz-bg:var(--wf-white);
+  --viz-paper:var(--wf-white);
+  --viz-ink:var(--wf-black);
+  --viz-ink-soft:var(--wf-g600);
+  --viz-line:var(--wf-border);
+  --viz-line-strong:var(--wf-g300);
+  --viz-faint:var(--wf-g100);
+  --viz-muted:var(--wf-g600);
+  --viz-accent:var(--wf-blue);
+
+  /* Verdict tones. Brand green/orange are too light for hairlines on
+     white, so line work deepens them; dark mode restores brand values. */
+  --viz-tone-ok:color-mix(in srgb,var(--wf-green) 78%,var(--wf-black));
+  --viz-tone-warn:color-mix(in srgb,var(--wf-orange) 88%,var(--wf-black));
+  --viz-tone-live:var(--wf-blue);
+  --viz-tone-neutral:var(--wf-g400);
+  --viz-tone:var(--viz-accent);
+
+  --viz-mono:"WF Visual Sans Mono","SF Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --viz-sans:"WF Visual Sans","WF Visual Sans Variable",Arial,sans-serif;
+  /* Motion. Curves are sanctioned values, not hand-rolled — the strong
+     ease-out is the standard UI curve, and every enter/exit uses it.
+     Durations split by job: chrome answers a pointer (fast), the stage
+     explains (slower, but still inside the 780ms autoplay beat). */
+  --viz-ease-out:cubic-bezier(.23,1,.32,1);
+  --viz-dur:240ms;       /* stage state changes */
+  --viz-dur-fast:150ms;  /* chrome: hover, press, focus */
+  --viz-dur-bar:420ms;   /* the one bar-growth beat -- explanatory, not UI */
+
+  color:var(--viz-ink);
+  font-family:var(--viz-sans);
+  font-synthesis:none;
+  -webkit-font-smoothing:antialiased;
+}
+@media (prefers-color-scheme:dark){
+  .wfviz:not([data-theme="light"]){
+    --viz-bg:var(--wf-black); --viz-paper:var(--wf-g900);
+    --viz-ink:var(--wf-white); --viz-ink-soft:var(--wf-g300);
+    --viz-line:var(--wf-g700); --viz-line-strong:var(--wf-g600);
+    --viz-faint:var(--wf-g700); --viz-muted:var(--wf-g300);
+    --viz-accent:var(--wf-blue-400);
+    --viz-tone-ok:var(--wf-green);
+    --viz-tone-warn:var(--wf-orange);
+    --viz-tone-live:var(--wf-blue-400);
+  }
+}
+.wfviz[data-theme="dark"]{
+  --viz-bg:var(--wf-black); --viz-paper:var(--wf-g900);
+  --viz-ink:var(--wf-white); --viz-ink-soft:var(--wf-g300);
+  --viz-line:var(--wf-g700); --viz-line-strong:var(--wf-g600);
+  --viz-faint:var(--wf-g700); --viz-muted:var(--wf-g300);
+  --viz-accent:var(--wf-blue-400);
+  --viz-tone-ok:var(--wf-green);
+  --viz-tone-warn:var(--wf-orange);
+  --viz-tone-live:var(--wf-blue-400);
+}
+
+.wfviz [data-tone=ok]     {--viz-tone:var(--viz-tone-ok)}
+.wfviz [data-tone=warn]   {--viz-tone:var(--viz-tone-warn)}
+.wfviz [data-tone=live]   {--viz-tone:var(--viz-tone-live)}
+.wfviz [data-tone=neutral]{--viz-tone:var(--viz-tone-neutral)}
+
+/* ---------- 2. SHELL ------------------------------------------------- */
+/* Stage type is specified in viewBox UNITS, which scale with the container.
+   A 1120-unit viewBox dropped in a ~740px blog column renders at 0.66x, so a
+   9-unit label lands near 6px -- well under the 11px floor. Breaking the figure
+   out of the text column fixes that without a redraw. The reference diagrams do
+   exactly this: Cursor ships --git-breakout-width: min(150%, calc(100vw - 3rem)).
+   Opt in per instance with data-breakout. */
+@media (min-width:1280px){
+  .wfviz[data-breakout]{
+    --wfviz-breakout:min(150%, calc(100vw - 3rem));
+    width:var(--wfviz-breakout);
+    margin-left:calc((100% - var(--wfviz-breakout)) / 2);
+  }
+}
+
+.wfviz-shell{
+  border:1px solid var(--viz-line); border-radius:8px;
+  background:var(--viz-paper); overflow:hidden;
+}
+.wfviz-head{padding:18px 20px 16px; border-bottom:1px solid var(--viz-line); background:var(--viz-bg)}
+.wfviz-head h3{margin:0 0 5px; font-size:1.25rem; font-weight:600; line-height:1.4; letter-spacing:0; color:var(--viz-ink)}
+.wfviz-head p{margin:0; font-size:.875rem; line-height:1.6; color:var(--viz-muted)}
+
+.wfviz-stage{display:block; width:100%; height:auto; background:var(--viz-bg); user-select:none; -webkit-user-select:none}
+.wfviz-stage *{pointer-events:none}
+
+/* ---------- 3. TYPE -------------------------------------------------- */
+.viz-sec{fill:var(--viz-muted); font-family:var(--viz-mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase}
+
+/* Section headings double as the stage indicator. The tab strip used to say
+   "there are four parts to this"; four evenly-sized tabs also said "and they
+   happen in order", which is false -- the signals fan out and the repeats are
+   a loop over the whole thing. The label does the honest version: it names its
+   region, sits where that region actually is, and goes from grey to ink when
+   the region fills. Naming and progress in one mark, no extra ink. */
+.viz-seclabel{transition:fill var(--viz-dur) var(--viz-ease-out)}
+[data-state=active] .viz-seclabel,[data-state=done] .viz-seclabel{fill:var(--viz-ink)}
+.viz-secrule{stroke:var(--viz-ink); stroke-width:2; opacity:0; transition:opacity var(--viz-dur) var(--viz-ease-out)}
+[data-state=active] .viz-secrule,[data-state=done] .viz-secrule{opacity:1}
+.viz-key{fill:var(--viz-ink); font-family:var(--viz-mono); font-size:14px; font-weight:700; letter-spacing:.02em}
+.viz-sub{fill:var(--viz-muted); font-family:var(--viz-mono); font-size:11px; letter-spacing:.06em; text-transform:uppercase}
+.viz-num{fill:var(--viz-muted); font-family:var(--viz-mono); font-size:11px; letter-spacing:.02em}
+.viz-foot{fill:var(--viz-muted); font-family:var(--viz-mono); font-size:11px; letter-spacing:.09em; text-transform:uppercase}
+
+/* ---------- 4. PRIMITIVES -------------------------------------------- */
+.viz-panel{fill:none; stroke:var(--viz-line); stroke-width:1}
+.viz-rule{stroke:var(--viz-faint); stroke-width:1}
+.viz-lane{fill:none; stroke:var(--viz-line-strong); stroke-width:1; stroke-dasharray:3 5}
+.viz-spine{stroke:var(--viz-line); stroke-width:1}
+
+.viz-edge{fill:none; stroke:var(--viz-line-strong); stroke-width:1; transition:stroke var(--viz-dur) var(--viz-ease-out)}
+.viz-arrow{fill:var(--viz-line-strong); transition:fill var(--viz-dur) var(--viz-ease-out)}
+[data-state=active] .viz-edge,[data-state=done] .viz-edge{stroke:var(--viz-tone)}
+[data-state=active] .viz-arrow,[data-state=done] .viz-arrow{fill:var(--viz-tone)}
+
+/* Rows fade in as the run progresses. Neutral even when done. */
+.viz-row{opacity:0; transition:opacity var(--viz-dur) var(--viz-ease-out)}
+.viz-row[data-state=done],.viz-row[data-state=active]{opacity:1}
+
+.viz-band{fill:var(--viz-tone); opacity:0; transition:opacity var(--viz-dur) var(--viz-ease-out)}
+[data-state=active] .viz-band{opacity:.09}
+
+/* Timeline dots and status glyphs stay neutral when they pass. Colour
+   appears exactly once in the run — on the turn that needs attention. */
+.viz-dot{fill:var(--viz-line-strong); transition:fill var(--viz-dur) var(--viz-ease-out)}
+[data-state=active] .viz-dot,
+[data-tone=warn][data-state=done] .viz-dot{fill:var(--viz-tone)}
+
+.viz-glyph{fill:none; stroke:var(--viz-line-strong); stroke-width:1.4; stroke-linecap:round; stroke-linejoin:round; transition:stroke var(--viz-dur) var(--viz-ease-out)}
+[data-state=active] .viz-glyph,
+[data-tone=warn][data-state=done] .viz-glyph{stroke:var(--viz-tone)}
+.viz-tool{fill:var(--viz-ink-soft); font-family:var(--viz-mono); font-size:13px; letter-spacing:.01em; transition:fill var(--viz-dur) var(--viz-ease-out)}
+[data-state=active] .viz-tool,[data-state=done] .viz-tool{fill:var(--viz-ink)}
+.viz-note{fill:var(--viz-tone); font-family:var(--viz-mono); font-size:11px; letter-spacing:.05em; text-transform:uppercase; font-weight:700}
+
+/* Chips (artifacts) */
+.viz-chip rect{fill:none; stroke:var(--viz-line); stroke-width:1; transition:stroke var(--viz-dur) var(--viz-ease-out), fill var(--viz-dur) var(--viz-ease-out)}
+.viz-chip text{fill:var(--viz-muted); font-family:var(--viz-mono); font-size:11px; letter-spacing:.04em; transition:fill var(--viz-dur) var(--viz-ease-out)}
+[data-state=active] .viz-chip rect{fill:color-mix(in srgb,var(--viz-tone) 10%,transparent); stroke:var(--viz-tone)}
+[data-state=active] .viz-chip text,[data-state=done] .viz-chip text{fill:var(--viz-ink)}
+
+/* Signal rows */
+.viz-sig-name{fill:var(--viz-ink-soft); font-family:var(--viz-mono); font-size:13px; letter-spacing:.01em; transition:fill var(--viz-dur) var(--viz-ease-out)}
+[data-state=active] .viz-sig-name,[data-state=done] .viz-sig-name{fill:var(--viz-ink)}
+.viz-sig-src{fill:var(--viz-muted); font-family:var(--viz-mono); font-size:11px; letter-spacing:.05em; text-transform:uppercase}
+.viz-tick{stroke:var(--viz-line-strong); stroke-width:2; transition:stroke var(--viz-dur) var(--viz-ease-out)}
+[data-state=active] .viz-tick{stroke:var(--viz-tone)}
+
+/* Repeat bars — scaleY so height animates without CSS geometry props */
+.viz-track{fill:var(--viz-faint)}
+.viz-fill{
+  /* full-strength brand blue reads as a shout at this size — pull it back
+     toward paper so the bar shape carries the message, not the saturation */
+  fill:color-mix(in srgb,var(--viz-tone) 68%,var(--viz-paper));
+  transform:scaleY(0); transform-box:fill-box; transform-origin:50% 100%;
+  transition:transform var(--viz-dur-bar) var(--viz-ease-out);
+}
+[data-state=done] .viz-fill,[data-state=active] .viz-fill{transform:scaleY(1)}
+.viz-base{stroke:var(--viz-line-strong); stroke-width:1}
+.viz-stat{fill:var(--viz-ink); font-family:var(--viz-mono); font-size:13px; font-weight:700; letter-spacing:.02em}
+.viz-dev{fill:var(--viz-muted); font-family:var(--viz-mono); font-size:11px; letter-spacing:.03em}
+.viz-dev[data-tone=warn]{fill:var(--viz-tone-warn); font-weight:700}
+
+/* ---------- 5. CHROME ------------------------------------------------ */
+.wfviz-phases{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); border-top:1px solid var(--viz-line); background:var(--viz-bg)}
+.wfviz-phase{
+  appearance:none; border:0; border-right:1px solid var(--viz-line); background:transparent;
+  cursor:pointer; padding:11px 8px; min-height:40px;
+  font-family:var(--viz-mono); font-size:.8rem; font-weight:550; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--viz-muted);
+  transition:background var(--viz-dur-fast) ease, color var(--viz-dur-fast) ease, transform var(--viz-dur-fast) ease;
+}
+.wfviz-phase:last-child{border-right:0}
+/* Touch fires a false :hover on tap and leaves the control lit. Gate it. */
+@media (hover:hover) and (pointer:fine){
+  .wfviz-phase:hover{background:color-mix(in srgb,var(--viz-accent) 9%,transparent); color:var(--viz-ink)}
+}
+.wfviz-phase:active{transform:scale(.99)}
+.wfviz-phase[data-active]{
+  box-shadow:inset 0 0 0 1px var(--viz-accent);
+  background:color-mix(in srgb,var(--viz-accent) 11%,transparent);
+  color:var(--viz-ink); font-weight:700;
+}
+.wfviz-phase:focus-visible{box-shadow:inset 0 0 0 2px var(--viz-accent); outline:none}
+
+.wfviz-transport{display:flex; align-items:center; justify-content:center; gap:8px; padding:11px; border-top:1px solid var(--viz-line); background:var(--viz-bg)}
+.wfviz-btn{
+  appearance:none; cursor:pointer; min-height:30px; padding:0 13px;
+  border:1px solid var(--viz-line); border-radius:4px;
+  background:var(--viz-paper); color:var(--viz-ink);
+  font-family:var(--viz-sans); font-size:.875rem; font-weight:500;
+  transition:background var(--viz-dur-fast) ease, border-color var(--viz-dur-fast) ease, transform var(--viz-dur-fast) ease;
+  /* flex-centred so the caret sits on the optical centre of the label.
+     Unicode ◀ / ▶ were used here originally: neither WF Visual Sans nor
+     Arial carries them, so they fell back to a symbol font whose metrics
+     put the glyph on a different baseline than the text -- visibly high,
+     and inconsistent across platforms. Inline SVG instead. */
+  display:inline-flex; align-items:center; justify-content:center; gap:7px;
+  line-height:1;
+}
+.wfviz-arrow{
+  /* Arrows are typeset glyphs, not icons -- brand notes/type.md. U+2190/2192
+     exist in WF Visual Sans and in every fallback, so they sit on the text
+     baseline. The earlier U+25C0/25B6 triangles did not exist in the sans and
+     fell through to a symbol font with different metrics: visibly misaligned,
+     and different again on Windows. */
+  font-family:inherit; line-height:1; opacity:.75;
+}
+@media (hover:hover) and (pointer:fine){
+  .wfviz-btn:hover{border-color:var(--viz-line-strong); background:var(--viz-faint)}
+  .wfviz-btn[data-primary]:hover{background:color-mix(in srgb,var(--viz-accent) 86%,#000)}
+}
+/* Press feedback: the control acknowledges the pointer before the stage does. */
+.wfviz-btn:active{transform:scale(.97)}
+.wfviz-btn:focus-visible{outline:none; box-shadow:0 0 0 2px var(--viz-paper),0 0 0 4px var(--viz-accent)}
+.wfviz-btn[data-primary]{border-color:var(--viz-accent); background:var(--viz-accent); color:#fff; min-width:76px}
+
+.wfviz-caption{padding:14px 20px; border-top:1px solid var(--viz-line); background:var(--viz-bg); color:var(--viz-muted); font-size:.875rem; line-height:1.6}
+.wfviz-caption p{margin:0}
+
+@media (max-width:600px){
+  .wfviz-phases{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .wfviz-phase:nth-child(2n){border-right:0}
+  .wfviz-phase:nth-child(-n+2){border-bottom:1px solid var(--viz-line)}
+}
+@media (prefers-reduced-motion:reduce){
+  /* Gentler, not zero. The crossfades carry meaning -- which node is live,
+     which turn went warn -- so they stay, just short. What goes is the
+     movement: the bars snap to height instead of growing, and the 0/80/160ms
+     stagger (an inline transition-delay, hence !important) collapses. */
+  .wfviz{--viz-dur:120ms; --viz-dur-fast:100ms}
+  .viz-fill{transition:none !important}
+  .wfviz-btn:active,.wfviz-phase:active{transform:none}
+}
   </style>
 </head>
 <body>
-  <main class="shell">
-    <header>
-      <div class="eyebrow">Webflow browser / lifecycle map</div>
-      <h1>One request crosses the seam; cleanup closes the lease</h1>
-      <p class="standfirst">The caller chooses the target and executes returned browser actions. The core owns the repeatable proof: service readiness, runtime identity, exclusive ownership, surface verification, and stopped-runtime cleanup.</p>
-    </header>
+  <main class="guide">
+  <header class="guide-header">
+    <p class="eyebrow">Webflow browser / lifecycle guide</p>
+    <h1>A safe Designer run begins before the browser and ends after it.</h1>
+    <p class="lede">The lifecycle is a transaction with a declared target, an
+      owned runtime, readiness evidence, a bounded browser handoff, and a
+      cleanup proof. A page load is only one observation; this guide follows
+      the full prepare-to-finish contract, including what happens when a step
+      blocks.</p>
+    <p class="lede">Use it to understand when work may begin, what evidence is
+      enough, and why cleanup is an assertion rather than a courtesy.</p>
+    <div class="guide-meta">
+      <span>Audience: Webflow users and maintainers</span>
+      <span>Default: isolated managed profile</span>
+      <span>Outcome: proceed, block, or recover safely</span>
+    </div>
+  </header>
 
-    <section class="section" aria-labelledby="lifecycle-title">
-      <div class="section-head"><span class="label">01</span><h2 id="lifecycle-title">Command lifecycle</h2></div>
-      <figure>
-        <div class="stage">
-          <svg viewBox="0 0 1180 510" role="img" aria-labelledby="lifecycle-svg-title lifecycle-svg-desc">
-            <title id="lifecycle-svg-title">Webflow browser CLI command lifecycle</title>
-            <desc id="lifecycle-svg-desc">A prepare request is validated, preflighted, and claimed. The caller executes connect, optional Auth Vault login, exact-target open, and wait. Verify checks the target surface and all five readiness checks. Finish releases ownership and proves the runtime stopped before the caller closes its automation session.</desc>
-            <defs>
-              <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8" fill="none" stroke="rgb(90 90 90)" stroke-width="1.5"/></marker>
-              <marker id="arrow-return" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8" fill="none" stroke="rgb(8 8 8)" stroke-width="1.5"/></marker>
-            </defs>
+  <nav class="contents" aria-label="On this page">
+    <strong>On this page</strong>
+    <a href="#contract">The contract</a>
+    <a href="#prepare">Prepare</a>
+    <a href="#readiness">Readiness</a>
+    <a href="#verify">Verify</a>
+    <a href="#act">Act</a>
+    <a href="#finish">Finish</a>
+    <a href="#recover">Recover</a>
+    <a href="#runbook">Runbook</a>
+  </nav>
 
-            <text x="28" y="28" class="svg-micro">CALLER / CLI INTERFACE</text>
-            <rect x="28" y="52" width="160" height="62" rx="4" class="box well"/>
-            <text x="108" y="79" text-anchor="middle" class="svg-title">prepare</text>
-            <text x="108" y="100" text-anchor="middle" class="svg-copy">JSON request</text>
-            <rect x="230" y="52" width="160" height="62" rx="4" class="box"/>
-            <text x="310" y="79" text-anchor="middle" class="svg-title">verify</text>
-            <text x="310" y="100" text-anchor="middle" class="svg-copy">surface evidence</text>
-            <rect x="432" y="52" width="160" height="62" rx="4" class="box"/>
-            <text x="512" y="79" text-anchor="middle" class="svg-title">finish</text>
-            <text x="512" y="100" text-anchor="middle" class="svg-copy">cleanup request</text>
-            <path d="M188 83 H230" class="edge" marker-end="url(#arrow)"/>
-            <path d="M390 83 H432" class="edge" marker-end="url(#arrow)"/>
+  <section class="guide-section" id="contract">
+    <div class="section-kicker">01 / promise</div>
+    <h2>What one transaction promises</h2>
+    <p>A transaction gives one caller a defined turn with a managed browser. It
+      names the target before launch, proves that the runtime is the one it
+      owns, checks the conditions that make Designer work meaningful, and
+      records enough evidence to make a decision without copying the browser’s
+      private state.</p>
+    <p>The normal shape is:</p>
+    <ol class="sequence">
+      <li><strong>Prepare.</strong> Validate the declaration, check services,
+        start the managed runtime only when it is unowned, and claim its
+        exclusive lease.</li>
+      <li><strong>Handoff.</strong> Connect the selected transport, perform the
+        explicitly requested Auth Vault login if applicable, open the exact
+        target, and wait for the declared selector.</li>
+      <li><strong>Verify.</strong> Classify URL and title evidence, surface
+        identity, runtime identity, and all five readiness checks.</li>
+      <li><strong>Act.</strong> Choose fast or guarded work only after verify
+        permits it.</li>
+      <li><strong>Finish.</strong> Release ownership, stop only the owned
+        runtime, prove the stopped state, and then retire the automation
+        session.</li>
+    </ol>
+    <div class="callout">
+      <strong>Important boundary.</strong> The browser transport executes the
+      returned plan. It does not get to replace an exact URL, invent a selector,
+      change transports, or decide that a blocker is harmless.
+    </div>
+  </section>
 
-            <text x="28" y="160" class="svg-micro">CORE / DETERMINISTIC PROOF</text>
-            <rect x="28" y="184" width="160" height="74" rx="4" class="box focus"/>
-            <text x="108" y="213" text-anchor="middle" class="svg-title">validate</text>
-            <text x="108" y="236" text-anchor="middle" class="svg-copy">target + mode</text>
-            <text x="108" y="253" text-anchor="middle" class="svg-copy">transport + profile</text>
-            <rect x="230" y="184" width="160" height="74" rx="4" class="box"/>
-            <text x="310" y="213" text-anchor="middle" class="svg-title">preflight</text>
-            <text x="310" y="236" text-anchor="middle" class="svg-copy">hud + Designer</text>
-            <text x="310" y="253" text-anchor="middle" class="svg-copy">exact target HTTP</text>
-            <rect x="432" y="184" width="160" height="74" rx="4" class="box"/>
-            <text x="512" y="213" text-anchor="middle" class="svg-title">claim</text>
-            <text x="512" y="236" text-anchor="middle" class="svg-copy">runtime identity</text>
-            <text x="512" y="253" text-anchor="middle" class="svg-copy">exclusive lease</text>
-            <path d="M108 114 V184" class="edge" marker-end="url(#arrow)"/>
-            <path d="M188 221 H230" class="edge" marker-end="url(#arrow)"/>
-            <path d="M390 221 H432" class="edge" marker-end="url(#arrow)"/>
+  <div class="diagram-slot"><div class="wfviz" data-wfviz="webflow-browser-lifecycle" data-breakout data-wfviz-interval="780">
+ <div class="wfviz-shell">
+  <div class="wfviz-head">
+   <h3>The run closes only when the runtime is proved stopped</h3>
+   <p>Prepare creates a bounded handoff; verify earns work; finish retires ownership.</p>
+  </div>
+  <svg class="wfviz-stage" viewBox="0 0 1120 520" preserveAspectRatio="xMidYMid meet" role="img"
+       aria-label="A Webflow Designer transaction declares its target, prepares and claims a runtime, hands browser actions to the caller, verifies the surface and readiness, performs authorized work, then releases the lease and proves the runtime stopped. A named blocker exits before work.">
+   <text class="viz-sec" x="48" y="28">DECLARE</text>
+   <text class="viz-sec" x="316" y="28">HANDOFF</text>
+   <text class="viz-sec" x="852" y="28">PROVE</text>
+   <text class="viz-sec" x="584" y="300">CLOSE</text>
 
-            <text x="28" y="306" class="svg-micro">BROWSER HANDOFF / CALLER EXECUTES THE PLAN</text>
-            <rect x="28" y="330" width="160" height="62" rx="4" class="box well"/>
-            <text x="108" y="357" text-anchor="middle" class="svg-title">connect</text>
-            <text x="108" y="378" text-anchor="middle" class="svg-copy">owned CDP</text>
-            <rect x="230" y="330" width="160" height="62" rx="4" class="box"/>
-            <text x="310" y="357" text-anchor="middle" class="svg-title">auth login</text>
-            <text x="310" y="378" text-anchor="middle" class="svg-copy">optional profile</text>
-            <rect x="432" y="330" width="160" height="62" rx="4" class="box"/>
-            <text x="512" y="357" text-anchor="middle" class="svg-title">open</text>
-            <text x="512" y="378" text-anchor="middle" class="svg-copy">exact target</text>
-            <rect x="634" y="330" width="160" height="62" rx="4" class="box"/>
-            <text x="714" y="357" text-anchor="middle" class="svg-title">wait</text>
-            <text x="714" y="378" text-anchor="middle" class="svg-copy">ready selector</text>
-            <path d="M512 258 V300 H108 V330" class="edge" marker-end="url(#arrow)"/>
-            <path d="M188 361 H230" class="edge" marker-end="url(#arrow)"/>
-            <path d="M390 361 H432" class="edge" marker-end="url(#arrow)"/>
-            <path d="M592 361 H634" class="edge" marker-end="url(#arrow)"/>
+   <g data-node="declare" data-tone="live" data-state="idle" class="viz-row">
+    <rect class="viz-band" x="48" y="52" width="224" height="92" rx="4"/>
+    <rect class="viz-panel" x="48" y="52" width="224" height="92" rx="4"/>
+    <text class="viz-key" x="72" y="86">exact request</text>
+    <text class="viz-sub" x="72" y="108">target · mode · transport</text>
+    <text class="viz-sub" x="72" y="128">surface · selector</text>
+   </g>
 
-            <rect x="836" y="184" width="160" height="74" rx="4" class="box focus"/>
-            <text x="916" y="213" text-anchor="middle" class="svg-title">verify</text>
-            <text x="916" y="236" text-anchor="middle" class="svg-copy">URL + title</text>
-            <text x="916" y="253" text-anchor="middle" class="svg-copy">five checks</text>
-            <path d="M794 361 H836 V258" class="edge" marker-end="url(#arrow)"/>
+   <g data-node="prepare" data-tone="live" data-state="idle" class="viz-row">
+    <rect class="viz-band" x="316" y="52" width="224" height="92" rx="4"/>
+    <rect class="viz-panel" x="316" y="52" width="224" height="92" rx="4"/>
+    <text class="viz-key" x="340" y="86">prepare</text>
+    <text class="viz-sub" x="340" y="108">validate · preflight</text>
+    <text class="viz-sub" x="340" y="128">claim exclusive lease</text>
+   </g>
 
-            <rect x="1038" y="184" width="114" height="74" rx="4" class="box warn"/>
-            <text x="1095" y="213" text-anchor="middle" class="svg-title">stop</text>
-            <text x="1095" y="236" text-anchor="middle" class="svg-copy">blocker</text>
-            <text x="1095" y="253" text-anchor="middle" class="svg-copy">exit 3</text>
-            <path d="M996 221 H1038" class="edge" marker-end="url(#arrow)"/>
+   <g data-node="handoff" data-tone="live" data-state="idle" class="viz-row">
+    <rect class="viz-band" x="584" y="52" width="224" height="92" rx="4"/>
+    <rect class="viz-panel" x="584" y="52" width="224" height="92" rx="4"/>
+    <text class="viz-key" x="608" y="86">browser handoff</text>
+    <text class="viz-sub" x="608" y="108">connect · auth login</text>
+    <text class="viz-sub" x="608" y="128">exact open · wait</text>
+   </g>
 
-            <path d="M916 258 V438 H512 V392" class="edge return" marker-end="url(#arrow-return)"/>
-            <rect x="432" y="438" width="160" height="52" rx="4" class="box focus"/>
-            <text x="512" y="460" text-anchor="middle" class="svg-title">release</text>
-            <text x="512" y="480" text-anchor="middle" class="svg-copy">prove stopped</text>
-          </svg>
-        </div>
-        <figcaption>The core returns actions but does not perform page interaction. A blocker stops before authorized work; a successful finish releases the lease before the caller retires its automation session.</figcaption>
-      </figure>
-      <div class="notes">
-        <div class="note"><div class="label">Ownership</div><p>The runtime and lease stay with the transaction that claimed them.</p></div>
-        <div class="note"><div class="label">Auth</div><p>Auth Vault login is optional, isolated-only, and never proof of Designer access.</p></div>
-        <div class="note"><div class="label">Cleanup</div><p>Finish must prove stopped runtime, absent lease, and no remaining consumer.</p></div>
-      </div>
-    </section>
+   <g data-node="verify" data-tone="live" data-state="idle" class="viz-row">
+    <rect class="viz-band" x="852" y="52" width="220" height="92" rx="4"/>
+    <rect class="viz-panel" x="852" y="52" width="220" height="92" rx="4"/>
+    <text class="viz-key" x="876" y="86">verify</text>
+    <text class="viz-sub" x="876" y="108">surface + five checks</text>
+    <text class="viz-sub" x="876" y="128">work may proceed</text>
+   </g>
+
+   <g data-node="edge-declare" data-tone="live" data-state="idle" class="viz-row">
+    <path class="viz-edge" d="M272 98 L316 98"/>
+    <polygon class="viz-arrow" points="0,0 7,3.5 0,7" transform="translate(316,94.5)"/>
+   </g>
+   <g data-node="edge-prepare" data-tone="live" data-state="idle" class="viz-row">
+    <path class="viz-edge" d="M540 98 L584 98"/>
+    <polygon class="viz-arrow" points="0,0 7,3.5 0,7" transform="translate(584,94.5)"/>
+   </g>
+   <g data-node="edge-handoff" data-tone="live" data-state="idle" class="viz-row">
+    <path class="viz-edge" d="M808 98 L852 98"/>
+    <polygon class="viz-arrow" points="0,0 7,3.5 0,7" transform="translate(852,94.5)"/>
+   </g>
+
+   <g data-node="blocker" data-tone="warn" data-state="idle" class="viz-row">
+    <rect class="viz-band" x="584" y="190" width="224" height="74" rx="4"/>
+    <rect class="viz-panel" x="584" y="190" width="224" height="74" rx="4"/>
+    <text class="viz-key" x="608" y="220">named blocker</text>
+    <text class="viz-sub" x="608" y="242">stop before authorized work</text>
+    <text class="viz-sub" x="608" y="258">auth · service · surface</text>
+   </g>
+   <g data-node="edge-blocker" data-tone="warn" data-state="idle" class="viz-row">
+    <path class="viz-edge" d="M962 144 L962 190 L808 190"/>
+    <polygon class="viz-arrow" points="0,0 7,3.5 0,7" transform="translate(808,186.5) rotate(180)"/>
+   </g>
+
+   <g data-node="work" data-tone="live" data-state="idle" class="viz-row">
+    <rect class="viz-band" x="852" y="190" width="220" height="74" rx="4"/>
+    <rect class="viz-panel" x="852" y="190" width="220" height="74" rx="4"/>
+    <text class="viz-key" x="876" y="220">authorized work</text>
+    <text class="viz-sub" x="876" y="242">fast or guarded lane</text>
+    <text class="viz-sub" x="876" y="258">semantic before visual</text>
+   </g>
+   <g data-node="edge-work" data-tone="live" data-state="idle" class="viz-row">
+    <path class="viz-edge" d="M962 264 L962 332 L808 332"/>
+    <polygon class="viz-arrow" points="0,0 7,3.5 0,7" transform="translate(808,328.5) rotate(180)"/>
+   </g>
+
+   <g data-node="finish" data-tone="live" data-state="idle" class="viz-row">
+    <rect class="viz-band" x="584" y="314" width="224" height="92" rx="4"/>
+    <rect class="viz-panel" x="584" y="314" width="224" height="92" rx="4"/>
+    <text class="viz-key" x="608" y="348">finish</text>
+    <text class="viz-sub" x="608" y="370">release · stop</text>
+    <text class="viz-sub" x="608" y="390">prove cleanup</text>
+   </g>
+   <g data-node="edge-blocker-finish" data-tone="warn" data-state="idle" class="viz-row">
+    <path class="viz-edge" d="M696 264 L696 314"/>
+    <polygon class="viz-arrow" points="0,0 7,3.5 0,7" transform="translate(692.5,314) rotate(90)"/>
+   </g>
+
+   <g data-node="stopped" data-tone="ok" data-state="idle" class="viz-row">
+    <rect class="viz-band" x="316" y="314" width="224" height="92" rx="4"/>
+    <rect class="viz-panel" x="316" y="314" width="224" height="92" rx="4"/>
+    <text class="viz-key" x="340" y="348">stopped proof</text>
+    <text class="viz-sub" x="340" y="370">runtimeOwned false</text>
+    <text class="viz-sub" x="340" y="390">leasePresent false</text>
+   </g>
+   <g data-node="edge-finish" data-tone="live" data-state="idle" class="viz-row">
+    <path class="viz-edge" d="M584 360 L540 360"/>
+    <polygon class="viz-arrow" points="0,0 7,3.5 0,7" transform="translate(540,356.5) rotate(180)"/>
+   </g>
+
+   <g data-node="status" data-tone="neutral" data-state="idle" class="viz-row">
+    <rect class="viz-panel" x="48" y="314" width="224" height="92" rx="4"/>
+    <text class="viz-key" x="72" y="348">interruption</text>
+    <text class="viz-sub" x="72" y="370">status → classify</text>
+    <text class="viz-sub" x="72" y="390">reconcile only if safe</text>
+   </g>
+   <g data-node="edge-status" data-tone="neutral" data-state="idle" class="viz-row">
+    <path class="viz-edge" d="M316 360 L272 360"/>
+    <polygon class="viz-arrow" points="0,0 7,3.5 0,7" transform="translate(272,356.5) rotate(180)"/>
+   </g>
+   <path class="viz-lane" d="M160 314 L160 174 L48 174 L48 144"/>
+
+   <text class="viz-foot" x="48" y="454" data-role="counter">before work: prove the handoff</text>
+   <text class="viz-foot" x="1072" y="454" text-anchor="end">after work: prove the stop</text>
+   <text class="viz-foot" x="560" y="492" text-anchor="middle">a failed action never proves cleanup</text>
+  </svg>
+
+  <div class="wfviz-phases" role="tablist" aria-label="Stages">
+   <button class="wfviz-phase" type="button" data-phase="0">Prepare</button>
+   <button class="wfviz-phase" type="button" data-phase="1">Verify</button>
+   <button class="wfviz-phase" type="button" data-phase="2">Act</button>
+   <button class="wfviz-phase" type="button" data-phase="3">Finish</button>
+  </div>
+  <div class="wfviz-transport">
+   <button class="wfviz-btn" type="button" data-act="prev" aria-label="Previous step"><span class="wfviz-arrow" aria-hidden="true">&#8592;</span>Back</button>
+   <button class="wfviz-btn" type="button" data-act="play" data-primary>Play</button>
+   <button class="wfviz-btn" type="button" data-act="next" aria-label="Next step">Next<span class="wfviz-arrow" aria-hidden="true">&#8594;</span></button>
+  </div>
+  <div class="wfviz-caption">
+   <p>Finish is not a courtesy after the test. It is the final assertion about
+      who owned the browser and whether that ownership is gone.</p>
+  </div>
+  <script type="application/json" class="wfviz-steps">
+  [
+   { "phase": 0, "on": ["declare", "prepare", "edge-declare"], "readout": { "counter": "before work: prove the handoff" } },
+   { "phase": 0, "on": ["handoff", "edge-prepare"], "readout": { "counter": "connect, authenticate, open, wait" } },
+   { "phase": 1, "on": ["verify", "edge-handoff", "blocker", "edge-blocker"], "readout": { "counter": "verify the surface and five checks" } },
+   { "phase": 2, "on": ["work", "edge-work"], "readout": { "counter": "perform only authorized work" } },
+   { "phase": 3, "on": ["finish", "edge-blocker-finish", "stopped", "edge-finish", "status", "edge-status"], "readout": { "counter": "after work: prove the stop" } },
+   { "phase": 3, "on": [] }
+  ]
+  </script>
+ </div>
+</div>
+
+<div class="wfviz" data-wfviz="webflow-browser-readiness" data-breakout data-wfviz-interval="780">
+ <div class="wfviz-shell">
+  <div class="wfviz-head">
+   <h3>Five checks must agree before QA is allowed</h3>
+   <p>Readiness is a conjunction, not the presence of one familiar control.</p>
+  </div>
+  <svg class="wfviz-stage" viewBox="0 0 1120 470" preserveAspectRatio="xMidYMid meet" role="img"
+       aria-label="The HUD, Designer service, exact target HTTP response, managed browser profile, and Designer surface independently feed one readiness gate. Only all five ready checks permit QA; authentication, unavailable, and error states are blockers.">
+   <text class="viz-sec" x="48" y="28">INDEPENDENT SIGNALS</text>
+   <text class="viz-sec" x="694" y="28">GATE</text>
+   <text class="viz-sec" x="934" y="28">OUTCOME</text>
+
+   <g data-node="hud" data-tone="live" data-state="idle" class="viz-row">
+    <line class="viz-tick" x1="48" y1="66" x2="48" y2="88"/>
+    <text class="viz-sig-name" x="66" y="83">hud</text>
+    <text class="viz-sig-src" x="560" y="83" text-anchor="end">declared service responds</text>
+    <line class="viz-rule" x1="48" y1="100" x2="560" y2="100"/>
+   </g>
+   <g data-node="designer-service" data-tone="live" data-state="idle" class="viz-row">
+    <line class="viz-tick" x1="48" y1="126" x2="48" y2="148"/>
+    <text class="viz-sig-name" x="66" y="143">designer_service</text>
+    <text class="viz-sig-src" x="560" y="143" text-anchor="end">required service responds</text>
+    <line class="viz-rule" x1="48" y1="160" x2="560" y2="160"/>
+   </g>
+   <g data-node="target-http" data-tone="live" data-state="idle" class="viz-row">
+    <line class="viz-tick" x1="48" y1="186" x2="48" y2="208"/>
+    <text class="viz-sig-name" x="66" y="203">target_http</text>
+    <text class="viz-sig-src" x="560" y="203" text-anchor="end">exact target responds</text>
+    <line class="viz-rule" x1="48" y1="220" x2="560" y2="220"/>
+   </g>
+   <g data-node="browser-profile" data-tone="live" data-state="idle" class="viz-row">
+    <line class="viz-tick" x1="48" y1="286" x2="48" y2="308"/>
+    <text class="viz-sig-name" x="66" y="303">browser_profile</text>
+    <text class="viz-sig-src" x="560" y="303" text-anchor="end">managed profile ready</text>
+    <line class="viz-rule" x1="48" y1="320" x2="560" y2="320"/>
+   </g>
+   <g data-node="designer-surface" data-tone="live" data-state="idle" class="viz-row">
+    <line class="viz-tick" x1="48" y1="346" x2="48" y2="368"/>
+    <text class="viz-sig-name" x="66" y="363">designer_surface</text>
+    <text class="viz-sig-src" x="560" y="363" text-anchor="end">approved document is present</text>
+    <line class="viz-rule" x1="48" y1="380" x2="560" y2="380"/>
+   </g>
+
+   <g data-node="check-edges" data-tone="live" data-state="idle" class="viz-row">
+    <path class="viz-edge" d="M560 82 L640 82 L640 190 L694 190"/>
+    <polygon class="viz-arrow" points="0,0 7,3.5 0,7" transform="translate(694,186.5)"/>
+    <path class="viz-edge" d="M560 142 L640 142 L640 190 L694 190"/>
+    <polygon class="viz-arrow" points="0,0 7,3.5 0,7" transform="translate(694,186.5)"/>
+    <path class="viz-edge" d="M560 202 L640 202 L640 190 L694 190"/>
+    <polygon class="viz-arrow" points="0,0 7,3.5 0,7" transform="translate(694,186.5)"/>
+    <path class="viz-edge" d="M560 302 L640 302 L640 190 L694 190"/>
+    <polygon class="viz-arrow" points="0,0 7,3.5 0,7" transform="translate(694,186.5)"/>
+    <path class="viz-edge" d="M560 362 L640 362 L640 190 L694 190"/>
+    <polygon class="viz-arrow" points="0,0 7,3.5 0,7" transform="translate(694,186.5)"/>
+   </g>
+
+   <g data-node="gate" data-tone="ok" data-state="idle" class="viz-row">
+    <rect class="viz-band" x="694" y="136" width="190" height="108" rx="4"/>
+    <rect class="viz-panel" x="694" y="136" width="190" height="108" rx="4"/>
+    <text class="viz-key" x="718" y="172">readiness gate</text>
+    <text class="viz-sub" x="718" y="194">all five = ready</text>
+    <text class="viz-sub" x="718" y="216">qaLaunchAllowed</text>
+   </g>
+
+   <g data-node="allowed" data-tone="ok" data-state="idle" class="viz-row">
+    <g class="viz-chip">
+     <rect x="934" y="136" width="138" height="48" rx="4"/>
+     <text x="1003" y="165" text-anchor="middle">proceed</text>
+    </g>
+   </g>
+   <g data-node="blocked" data-tone="warn" data-state="idle" class="viz-row">
+    <g class="viz-chip">
+     <rect x="934" y="260" width="138" height="78" rx="4"/>
+     <text x="1003" y="288" text-anchor="middle">block</text>
+     <text class="viz-sub" x="1003" y="310" text-anchor="middle">auth_required</text>
+     <text class="viz-sub" x="1003" y="328" text-anchor="middle">unavailable · error</text>
+    </g>
+   </g>
+   <g data-node="outcome-edges" data-tone="neutral" data-state="idle" class="viz-row">
+    <path class="viz-edge" d="M884 190 L934 160"/>
+    <polygon class="viz-arrow" points="0,0 7,3.5 0,7" transform="translate(934,156.5) rotate(-31)"/>
+    <path class="viz-edge" d="M790 244 L790 300 L934 300"/>
+    <polygon class="viz-arrow" points="0,0 7,3.5 0,7" transform="translate(934,296.5)"/>
+   </g>
+
+   <text class="viz-foot" x="48" y="438" data-role="counter">preflight names the signals</text>
+   <text class="viz-foot" x="1072" y="438" text-anchor="end">a fixed control is not proof</text>
+  </svg>
+  <div class="wfviz-phases" role="tablist" aria-label="Stages">
+   <button class="wfviz-phase" type="button" data-phase="0">Services</button>
+   <button class="wfviz-phase" type="button" data-phase="1">Browser</button>
+   <button class="wfviz-phase" type="button" data-phase="2">Gate</button>
+   <button class="wfviz-phase" type="button" data-phase="3">Decision</button>
+  </div>
+  <div class="wfviz-transport">
+   <button class="wfviz-btn" type="button" data-act="prev" aria-label="Previous step"><span class="wfviz-arrow" aria-hidden="true">&#8592;</span>Back</button>
+   <button class="wfviz-btn" type="button" data-act="play" data-primary>Play</button>
+   <button class="wfviz-btn" type="button" data-act="next" aria-label="Next step">Next<span class="wfviz-arrow" aria-hidden="true">&#8594;</span></button>
+  </div>
+  <div class="wfviz-caption">
+   <p>The five names make a failure actionable. A missing HUD, an expired
+      profile, and a wrong document are different blockers with different fixes.</p>
+  </div>
+  <script type="application/json" class="wfviz-steps">
+  [
+   { "phase": 0, "on": ["hud", "designer-service", "target-http", "check-edges"], "readout": { "counter": "preflight names the signals" } },
+   { "phase": 1, "on": ["browser-profile", "designer-surface"], "readout": { "counter": "the handoff supplies browser proof" } },
+   { "phase": 2, "on": ["gate"], "readout": { "counter": "all five must agree" } },
+   { "phase": 3, "on": ["outcome-edges", "allowed", "blocked"], "readout": { "counter": "proceed or stop with a name" } },
+   { "phase": 3, "on": [] }
+  ]
+  </script>
+ </div>
+</div></div>
+
+  <section class="guide-section" id="prepare">
+    <div class="section-kicker">02 / handoff</div>
+    <h2>Prepare is a gate, not a browser shortcut</h2>
+    <p>Preparation accepts the exact target, surface selector, readiness
+      selector, mode, and transport. The target is preserved as supplied,
+      including meaningful <code>pageId</code>, <code>simulateRole</code>, host,
+      and port values. Credentials and sensitive query parameters are rejected.</p>
+    <p>If <code>checks</code> is omitted, the lifecycle uses the documented
+      service defaults: <code>https://wfdev.io:8443/</code> for both
+      <code>hud</code> and <code>designer_service</code>, plus
+      <code>target_http</code> for the exact target. A failed default probe is a
+      named blocker. It is not permission to guess another port or endpoint.</p>
+    <p>For isolated work, check the sessionless Auth Vault list first. Use
+      <code>authProfile</code> only for an exact, dedicated Webflow profile that
+      the user or private setup identified. A saved Vault name is an
+      authentication attempt, not proof that the requested Designer document is
+      available. If there is no identified profile, stop for the headed
+      authentication gate unless the user authorizes it.</p>
+    <p>Once service preflight passes, preparation proves that no live runtime
+      owner is present, starts Chrome for Testing, waits for a local direct
+      browser-control endpoint (CDP), claims the exclusive
+      <code>agent_browser</code> lease, and
+      records a private receipt. The returned actions are ordered:</p>
+    <div class="action-strip">
+      <span>connect</span><span>auth login</span><span>exact open</span><span>wait</span>
+    </div>
+    <p>The login action appears only when the exact profile was requested.
+      Preparation never takes a snapshot. The surface remains pending until
+      <code>verify</code> observes it.</p>
+  </section>
+
+  <section class="guide-section" id="readiness">
+    <div class="section-kicker">03 / signals</div>
+    <h2>Readiness means all five checks pass</h2>
+    <p>The five checks answer different questions. Together they say that the
+      environment, the browser, and the document are all ready enough for the
+      requested work.</p>
+    <div class="five-checks">
+      <div><strong><code>hud</code></strong><span>The declared HUD service responds.</span></div>
+      <div><strong><code>designer_service</code></strong><span>The required Designer service responds.</span></div>
+      <div><strong><code>target_http</code></strong><span>The exact target responds without connection refusal or a gateway failure.</span></div>
+      <div><strong><code>browser_profile</code></strong><span>The managed Chrome for Testing profile is ready.</span></div>
+      <div><strong><code>designer_surface</code></strong><span>The approved Designer document is authenticated, not a login document, and not a Chrome error page.</span></div>
+    </div>
+    <p><code>auth_required</code>, <code>unavailable</code>, and
+      <code>error</code> are blockers. A fixed sidebar control is not a
+      readiness check: Designer shells vary by role, and a control can exist
+      while the target document is wrong.</p>
+  </section>
+
+  <section class="guide-section" id="verify">
+    <div class="section-kicker">04 / proof</div>
+    <h2>Verify the surface before you inspect it</h2>
+    <p>After the handoff, classify the compact URL and title result before
+      capturing page content. The proof needs the exact URL, a Webflow Designer
+      title on an approved origin, a non-login document, no Chrome error page,
+      and an observed scoped surface. Only then may a snapshot or screenshot
+      support the authorized task.</p>
+    <p>For an iframe or extension, verify the expected origin and route, then
+      inspect the matching frame. The canvas commonly lives in an iframe while
+      panels and selection UI remain in the parent. Duplicate frames can appear;
+      choose by URL, geometry, and target signal. Do not treat a broad first
+      match as proof.</p>
+    <p>Evidence should be semantic first: text, counts, roles, data attributes,
+      component IDs, field names, and selection state. Use a screenshot for
+      layout, spacing, color, or transformed canvas content. Filter diagnostics
+      before opening request details, use metadata-only HAR capture by default,
+      and return only a small sanitized object from evaluation.</p>
+    <div class="callout">
+      <strong>Privacy rule.</strong> Never return cookies, storage values,
+      tokens, credentials, raw DOM dumps, the complete Designer API model, or
+      customer data. Keep screenshots, JSON, HAR files, traces, and profiles
+      outside the repository.
+    </div>
+  </section>
+
+  <section class="guide-section" id="act">
+    <div class="section-kicker">05 / effect</div>
+    <h2>Act only in the lane the effect permits</h2>
+    <p>The fast lane is read-only observation after the complete proof. It can
+      inspect visible text, layout, spacing, color, scoped screenshots, and
+      bounded diagnostics. It cannot navigate, reload, select, edit, publish,
+      or invoke a connected app.</p>
+    <p>The guarded lane covers every stateful or uncertain action: navigation,
+      reload, selection changes, canvas edits, undo, redo, publish, connected
+      apps, and account, security, or privacy changes. Capture a small baseline,
+      obtain the required authorization, perform one bounded action, and verify
+      the postcondition plus unrelated state.</p>
+    <p>If the action does not fit the current transaction’s approved scope,
+      finish it cleanly and prepare a new guarded transaction. Do not downgrade
+      the lane to avoid authorization.</p>
+  </section>
+
+  <section class="guide-section" id="finish">
+    <div class="section-kicker">06 / closure</div>
+    <h2>Finish is the final proof</h2>
+    <p>Put cleanup in a <code>finally</code> path, including after a failed
+      browser action. Keep the order exact:</p>
+    <ol class="sequence">
+      <li>Call <code>finish</code> with the transaction ID and same transport,
+        or release the exact standalone lease.</li>
+      <li>Confirm <code>runtimeOwned: false</code>,
+        <code>cdpReady: false</code>, <code>consumer: null</code>,
+        <code>leasePresent: false</code>, and <code>status: "stopped"</code>.</li>
+      <li>Only after that proof, close the selected native or CLI automation
+        session.</li>
+    </ol>
+    <p>Finish never signs out, clears cookies, or resets the dedicated profile.
+      For an already-finished transaction, the lifecycle still returns the
+      public stopped-runtime fields. That makes cleanup idempotent and keeps
+      “nothing is running” observable rather than inferred.</p>
+  </section>
+
+  <section class="guide-section" id="recover">
+    <div class="section-kicker">07 / interruption</div>
+    <h2>Recover by classification, never by guess</h2>
+    <p>After an interruption, call <code>status</code> without changing the
+      runtime. It classifies the transaction, runtime, lease, and whether a
+      recovery action is safe. <code>reconcile</code> is deliberately narrow:
+      it converges only the stale state that the classifier marks safe.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Status classification</th><th>Meaning</th><th>Response</th></tr></thead>
+        <tbody>
+          <tr><th scope="row"><code>stale_lease</code></th><td>The runtime is
+            stopped and a stale lease remains.</td><td>Reconcile when the
+            classifier says safe; successful reconciliation exits 0.</td></tr>
+          <tr><th scope="row"><code>stale_transaction</code> or
+            <code>stale_transaction_lease</code></th><td>State remains after
+            the runtime has stopped or lost the active lease.</td><td>Use only
+            the classified finish/reconcile path.</td></tr>
+          <tr><th scope="row"><code>transaction_active</code></th><td>The
+            transaction and owner are still live.</td><td>Continue or finish
+            that transaction; do not start another.</td></tr>
+          <tr><th scope="row"><code>active_unknown_owner</code>,
+            <code>unverified_listener</code>, <code>owned_runtime_without_lease</code>,
+            or <code>replacement_runtime</code></th><td>Ownership or runtime
+            identity is not safe to infer.</td><td>Fail closed. Do not terminate
+            or adopt the runtime.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>A missing receipt does not prove that a lease is stale. A port that
+      answers does not prove that it belongs to this transaction. The absence of
+      identity is itself a blocker.</p>
+  </section>
+
+  <section class="guide-section" id="runbook">
+    <div class="section-kicker">08 / mechanics</div>
+    <h2>A minimal standalone runbook</h2>
+    <p>The following is the mechanical shape; authorization and lane choice
+      still come from the workflow above. Replace the synthetic target with the
+      exact approved target. Use a real Auth Vault profile only when it has been
+      identified outside the report.</p>
+    <pre><code>SKILL_DIR=/path/to/webflow-designer-agent-browser
+CLI="$SKILL_DIR/bin/webflow-browser"
+TARGET='https://design.webflow.com/?pageId=synthetic-page'
+
+printf '%s\n' '{"version":1,"operation":"status"}' \
+  | "$CLI" status
+
+cat &lt;&lt;JSON | "$CLI" prepare
+{
+  "version": 1,
+  "operation": "prepare",
+  "transport": "native",
+  "mode": "isolated",
+  "target": "$TARGET",
+  "surface": "body",
+  "readySelector": "body"
+}
+JSON
+
+# Execute the returned actions exactly. Then classify compact evidence:
+cat &lt;&lt;'JSON' | "$CLI" verify
+{
+  "version": 1,
+  "operation": "verify",
+  "transactionId": "&lt;transaction-id-from-prepare&gt;",
+  "transport": "native",
+  "surface": {
+    "url": "https://design.webflow.com/?pageId=synthetic-page",
+    "title": "Webflow - Example site",
+    "document": "designer",
+    "authenticated": true,
+    "errorPage": false,
+    "scope": "body",
+    "scopeObserved": true
+  }
+}
+JSON</code></pre>
+    <p>Proceed only when verify reports a ready Designer surface and permits
+      the requested work. Always finish:</p>
+    <pre><code>cat &lt;&lt;'JSON' | "$CLI" finish
+{
+  "version": 1,
+  "operation": "finish",
+  "transactionId": "&lt;transaction-id-from-prepare&gt;",
+  "transport": "native"
+}
+JSON</code></pre>
+    <p>Inspect the finish JSON for the five stopped-runtime fields before
+      running the returned <code>retireAfterFinish</code> action. Native
+      requests omit <code>session</code>; CLI requests require a named session
+      and use it consistently through close.</p>
+  </section>
+
+  <section class="guide-section" id="evidence">
+    <div class="section-kicker">09 / record</div>
+    <h2>Record enough to make the result useful</h2>
+    <p>A recorded result should include the exact sanitized URL, ownership
+      boundary, mode, transport, target frame, readiness checks, before and
+      after semantic observations, authorized actions, relevant diagnostics,
+      blockers, assumptions, and stopped-runtime proof.</p>
+    <p>Use the mode-specific report template from
+      <code>scripts/automation-evidence.py</code> and validate the sanitized
+      report. Keep temporary reports outside the repository and remove them
+      after review. A report that omits cleanup is incomplete even when its
+      assertion passed.</p>
+    <div class="callout">
+      <strong>Current boundary.</strong> The managed Designer profile available
+      is currently unauthenticated, so live Designer inspection is blocked at
+      the authentication gate. No live customer surface or private browser
+      evidence is represented in these pages.
+    </div>
+  </section>
+
+  <footer class="guide-footer">
+    <p>Figures use the self-contained <a href="https://github.com/webflow/wf-viz">Webflow wf-viz</a>
+      kit: the repository’s template, tokens, timeline runtime, and hostile-host
+      verification. The pages make no network request to render.</p>
+    <p>Source of lifecycle rules: this skill’s <code>SKILL.md</code>,
+      <code>references/designer-workflows.md</code>, and the standalone CLI
+      contract.</p>
+  </footer>
+
   </main>
+  <script id="wf-viz-runtime">
+/* ============================================================
+   wf-viz runtime — generic. You should never need to edit this
+   file to add a diagram.
+
+   It boots every `.wfviz[data-wfviz]` on the page, reads that
+   diagram's timeline from a JSON block inside it, and drives the
+   whole thing by writing `data-state` attributes. All appearance
+   lives in wf-viz.css.
+
+   Markup contract
+   ---------------
+   <div class="wfviz" data-wfviz="my-diagram" data-wfviz-interval="780">
+     <svg class="wfviz-stage"> ... groups with data-node="x" ... </svg>
+     <button class="wfviz-phase" data-phase="0">…</button>
+     <button class="wfviz-btn" data-act="prev|play|next">…</button>
+     <script type="application/json" class="wfviz-steps">[ … ]<\/script>
+   </div>
+
+   Timeline shape
+   --------------
+   [
+     { "phase": 0,
+       "on": ["hdr"],                       // data-node values going active
+       "readout": { "counter": "Turn 1/6" } // sets [data-role=counter] text
+     },
+     …
+   ]
+
+   Everything activated on an earlier step falls back to "done".
+   Make the LAST step activate nothing (`"on": []`) so the frame the
+   reader is left staring at after autoplay is the calm one.
+   ============================================================ */
+(function () {
+  "use strict";
+
+  var DEFAULT_INTERVAL = 780;
+
+  function parseSteps(host) {
+    var el = host.querySelector("script.wfviz-steps");
+    if (!el) { return null; }
+    try {
+      var steps = JSON.parse(el.textContent);
+      return Array.isArray(steps) && steps.length ? steps : null;
+    } catch (err) {
+      if (window.console) { console.error("[wf-viz] bad steps JSON in", host.dataset.wfviz, err); }
+      return null;
+    }
+  }
+
+  function init(host) {
+    var steps = parseSteps(host);
+    if (!steps) { return; }
+
+    var svg = host.querySelector(".wfviz-stage");
+    if (!svg) { return; }
+
+    var interval  = parseInt(host.getAttribute("data-wfviz-interval"), 10) || DEFAULT_INTERVAL;
+    var phaseBtns = Array.prototype.slice.call(host.querySelectorAll(".wfviz-phase"));
+    var playBtn   = host.querySelector('[data-act="play"]');
+    var prevBtn   = host.querySelector('[data-act="prev"]');
+    var nextBtn   = host.querySelector('[data-act="next"]');
+
+    /* index every addressable group and every text readout once */
+    var nodes = {}, readouts = {};
+    Array.prototype.forEach.call(svg.querySelectorAll("[data-node]"), function (el) {
+      nodes[el.getAttribute("data-node")] = el;
+    });
+    Array.prototype.forEach.call(host.querySelectorAll("[data-role]"), function (el) {
+      readouts[el.getAttribute("data-role")] = el;
+    });
+
+    var cursor = -1;
+    var timer  = null;
+    var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    function render(i) {
+      cursor = i;
+
+      Object.keys(nodes).forEach(function (k) { nodes[k].setAttribute("data-state", "idle"); });
+
+      var phase = -1, readout = {};
+      for (var s = 0; s <= i; s++) {
+        var state = (s === i) ? "active" : "done";
+        (steps[s].on || []).forEach(function (k) {
+          if (nodes[k]) { nodes[k].setAttribute("data-state", state); }
+        });
+        if (typeof steps[s].phase === "number") { phase = steps[s].phase; }
+        if (steps[s].readout) {
+          Object.keys(steps[s].readout).forEach(function (k) { readout[k] = steps[s].readout[k]; });
+        }
+      }
+
+      /* step 0 of the timeline defines the resting text for every readout */
+      var base = (steps[0] && steps[0].readout) || {};
+      Object.keys(readouts).forEach(function (k) {
+        if (i < 0) {
+          if (Object.prototype.hasOwnProperty.call(base, k)) { readouts[k].textContent = base[k]; }
+        } else if (Object.prototype.hasOwnProperty.call(readout, k)) {
+          readouts[k].textContent = readout[k];
+        }
+      });
+
+      phaseBtns.forEach(function (b, bi) {
+        if (i >= 0 && bi === phase) { b.setAttribute("data-active", ""); }
+        else { b.removeAttribute("data-active"); }
+      });
+    }
+
+    function stop() {
+      if (timer) { clearTimeout(timer); timer = null; }
+      if (playBtn) { playBtn.textContent = "Play"; }
+    }
+    function tick() {
+      if (cursor >= steps.length - 1) { stop(); return; }
+      render(cursor + 1);
+      timer = setTimeout(tick, interval);
+    }
+    function play() {
+      if (timer) { stop(); return; }
+      if (cursor >= steps.length - 1) { render(-1); }
+      if (playBtn) { playBtn.textContent = "Pause"; }
+      timer = setTimeout(tick, 120);
+    }
+
+    if (nextBtn) {
+      nextBtn.addEventListener("click", function () { stop(); render(Math.min(cursor + 1, steps.length - 1)); });
+    }
+    if (prevBtn) {
+      prevBtn.addEventListener("click", function () { stop(); render(Math.max(cursor - 1, -1)); });
+    }
+    if (playBtn) { playBtn.addEventListener("click", play); }
+
+    phaseBtns.forEach(function (b) {
+      b.addEventListener("click", function () {
+        stop();
+        var target = parseInt(b.getAttribute("data-phase"), 10);
+        for (var s = 0; s < steps.length; s++) {
+          if (steps[s].phase === target) { render(s); return; }
+        }
+      });
+    });
+
+    /* Reduced motion: show the finished frame, never animate. Controls still work. */
+    if (reduced) { render(steps.length - 1); return; }
+
+    render(-1);
+    if ("IntersectionObserver" in window) {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) { if (e.isIntersecting) { io.disconnect(); play(); } });
+      }, { threshold: 0.35 });
+      io.observe(svg);
+    } else {
+      play();
+    }
+  }
+
+  function boot() {
+    Array.prototype.forEach.call(document.querySelectorAll(".wfviz[data-wfviz]"), function (host) {
+      if (host.getAttribute("data-wfviz-ready")) { return; }
+      host.setAttribute("data-wfviz-ready", "1");
+      init(host);
+    });
+  }
+
+  if (document.readyState === "loading") { document.addEventListener("DOMContentLoaded", boot); }
+  else { boot(); }
+
+  /* Re-scan after dynamic insertion (Webflow CMS, tabs, sliders). */
+  window.wfviz = { boot: boot };
+})();
+  </script>
 </body>
 </html>
