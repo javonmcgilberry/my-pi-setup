@@ -488,175 +488,41 @@ a review checklist, and links to the UX and Pi sources behind the guidance.
 
 ### Webflow browser
 
-The tracked [`skills/webflow-designer-agent-browser`](skills/webflow-designer-agent-browser)
-directory provides the shared Webflow Designer browser workflow. It exists to
-separate a real Designer surface from login pages, error documents, empty local
-shells, and the wrong iframe before any QA action changes state.
+The tracked
+[`skills/webflow-designer-agent-browser`](skills/webflow-designer-agent-browser)
+skill provides a verified lifecycle for authenticated Webflow Designer work. Its
+[reader guide](skills/webflow-designer-agent-browser/README.md) explains the
+problem, ownership model, end-to-end journey, responsibility split, practical
+JSON flow, privacy limits, and stopped-runtime proof.
 
-The configured lifecycle facade owns the transaction
-`prepare` -> browser interaction -> `verify` -> authorized work -> `finish`.
-The private receipt binds the transaction to the runtime identity and lease.
-After verification, observational work can use a fast lane for scoped
-snapshots, screenshots, visual checks, and bounded diagnostics. Any navigation,
-selection change, edit, undo, redo, publish, connected-app action, or uncertain
-operation uses the guarded lane with a baseline, explicit authorization, and a
-verified postcondition. Both lanes keep the same target, authentication,
-ownership, privacy, and cleanup checks. An unclassified action is guarded or
-blocked.
+The lifecycle is `prepare` -> browser actions -> `verify` -> authorized work ->
+`finish`. It preserves the exact target, uses one transport, keeps isolated and
+attached ownership explicit, checks the dedicated Auth Vault profile without
+reporting private state, and requires all five readiness checks before QA. A
+fast lane covers verified read-only observation. Navigation, selection, edits,
+undo, redo, publish, connected-app actions, and uncertain work use the guarded
+lane with a baseline, authorization, and a verified postcondition.
 
-`finish` must prove `runtimeOwned: false`, `cdpReady: false`, `consumer: null`,
-`leasePresent: false`, and `status: stopped`. After an interruption, use
-`browser-runtime.py status` for the managed runtime and
-`reconcile-chrome-profile.py` only for an exact dedicated profile whose
-classifier reports an orphaned Chrome for Testing process. The shared skill
-also provides `ensure-hud-tasks.py`, which restarts only configured unhealthy
-HUD tasks and waits for their final healthy state; it does not start an
-umbrella preset.
-
-#### Validate current Webflow changes
-
-Run this near the end of a focused Designer change, before the PR handoff:
-
-1. Start Pi with this setup loaded. Pi is the recommended host because it can
-   show candidate approval in its UI. Open it from the Webflow checkout, or
-   give Pi the checkout path.
-2. Ask: "Validate my current Webflow changes."
-3. Pi reads the staged, unstaged, and bounded untracked files. The tracked
-   exclusion list removes lockfiles, TypeScript config, and lint config from
-   Designer behavioral routing. Normal repository checks still own those
-   files. A trusted route runs the smallest reviewed Playwright set, including
-   AWS preflight when the runner requires it.
-4. Read the final receipt. Only `passed` means validation completed. `ready`
-   means Pi found a trusted route but has not run it. A failed run never proves
-   cleanup: `not_proved` means completion was not established, while `failed`
-   names a teardown failure when one was detected.
-5. Add the sanitized status, contracts, tests, and any `failureClass` to the PR
-   handoff.
-
-Every non-ignored file participates in routing. An unmapped file moves the
-whole change set out of the trusted path. Pi then returns
-`insufficient_evidence`, `routing_ambiguous`, or evidence for one candidate
-proposal. Before a candidate runs, Pi shows its actions, evidence, target,
-semantic oracle, cleanup, and budget. Approval covers that candidate and
-change set once. The host then issues a short-lived one-time confirmation
-token; Code Mode consumes it with the approval digest, so a caller cannot
-authorize execution by setting a boolean in its own request. The run remains
-untrusted and cannot modify the corpus or policy.
-
-Only these changes can run without a proposal today:
-
-- Pages panel files under
-  `public/js/designer-flux/components/PagesPanel/**`
-- Add panel files matching
-  `public/js/designer-flux/components/AddTab*.tsx`
-- the reviewed Playwright spec for either surface
-
-A mixed change set that contains an unmapped, non-ignored file needs separate
-validation and should report the coverage gap. The tracked
-[`test-corpus-policy.json`](skills/webflow-designer-agent-browser/test-corpus-policy.json)
-is the source of truth for exclusions, mappings, and fixed runners.
-
-The [standalone CLI reference](skills/webflow-designer-agent-browser/references/standalone-cli.md#change-validation)
-covers the same workflow outside Pi. Its candidate path requires an interactive
-terminal and the full approval digest before one run.
-
-The Webflow skill also ships a standalone lifecycle CLI at
-`skills/webflow-designer-agent-browser/bin/webflow-browser`. It reads one
-versioned JSON request for `prepare`, `verify`, `status`, `reconcile`, `finish`,
-or the `cleanup` alias and returns sanitized JSON with exit codes for input errors,
-readiness blockers, ownership conflicts, and lifecycle failures. The shared
-`lib/webflow_browser` module keeps runtime, lease, readiness, Auth Vault, and
-cleanup details behind that interface; Pi-specific judgment and authorization
-remain in `SKILL.md`.
-The skill includes self-contained offline [architecture](skills/webflow-designer-agent-browser/references/webflow-browser-cli-architecture.html)
+The shared `lib/webflow_browser` module exposes the lifecycle through the
+versioned `bin/webflow-browser` JSON interface. Pi keeps judgment,
+authorization, lane selection, and orchestration in `SKILL.md`; the
+`scripts/designer-code-mode.py` adapter reaches the same module. The
+[standalone CLI reference](skills/webflow-designer-agent-browser/references/standalone-cli.md)
+has exact requests, exit codes, direct helpers, and recovery rules. The
+self-contained [architecture](skills/webflow-designer-agent-browser/references/webflow-browser-cli-architecture.html)
 and [lifecycle](skills/webflow-designer-agent-browser/references/webflow-browser-cli-lifecycle.html)
-guides explaining the workflow’s responsibilities, interaction lanes, lifecycle
-proof, recovery, and standalone interface.
+guides provide the corresponding `wf-viz` diagrams.
 
-For compact native browser results, the recommended host integration is
-[`pi-agent-browser-native`](https://pi.dev/packages/pi-agent-browser-native?name=agent-browser-native).
-The [standalone CLI reference](skills/webflow-designer-agent-browser/references/standalone-cli.md#managed-transaction)
-documents direct JSON use with `agent-browser`. A Playwright or Selenium
-adapter is not included. All paths use a dedicated Chrome for Testing profile
-and keep it separate from normal Chrome. The skill never stores credentials,
-cookies, tokens, raw DOM, or customer data in the repository.
-
-Before an isolated run, the workflow checks the sessionless Auth Vault list and
-uses only an explicitly identified dedicated Webflow profile. Pass that exact
-name as `authProfile`; Code Mode then runs `auth login` after connecting to the
-owned runtime and before opening the exact Designer URL. A Vault login is only
-an authentication attempt, so URL/title classification and `verify` must still
-prove a non-login Designer surface. If no suitable Vault entry exists, Chrome
-for Testing opens visibly so the user can sign in with a dedicated Webflow test
-user that has only the access needed for QA. Its profile keeps the login for
-later runs. If an account must remain active in another browser, the workflow
-asks to attach to that tab instead. Auth checks never return credentials or a
-login-page snapshot; keep transient profile metadata out of reports.
-`browser-runtime.py` owns normal managed-runtime starts and stops. The profile
-reconciler may terminate a separately detected orphan only after it has proved
-the exact Chrome for Testing process and dedicated profile. The runtime
-helper gives an owned runtime one second to stop cleanly before forcing it to
-stop, then verifies that its process group and CDP listener are gone. The
-automation client closes its session only after the runtime reports that Chrome
-has stopped. Cleanup never signs out or clears cookies. When `checks` is omitted
-from Code Mode, `https://wfdev.io:8443/` is the default probe for both `hud` and
-`designer_service`, and the exact target is the `target_http` probe; failed
-probes stop the run. Preparation emits no snapshot. A scoped snapshot is
-allowed only after URL/title classification and successful verification (the
-direct helper requires explicit `--include-snapshot`).
-
-The dedicated-profile reconciler is a separate fail-closed recovery path for
-agent-browser or Auth Vault failures. It accepts only a profile below the
-managed profile root, recognizes only verified Chrome for Testing bundles,
-leaves an active browser owner alone, and removes stale singleton symlinks only
-after the matching orphan process tree has stopped. It never falls back to or
-terminates normal Chrome.
-
-For a recorded result, generate and validate a mode-specific report with
-`skills/webflow-designer-agent-browser/scripts/automation-evidence.py`. The
-report includes the five readiness checks, independently checked sanitized
-semantic evidence, the ownership boundary, and stopped-runtime proof.
-
-The skill also has a maintenance-only, evidence-backed test-knowledge path.
-Its [test knowledge maintenance reference](skills/webflow-designer-agent-browser/references/test-knowledge-maintenance.md)
-contains the corpus and scenario-planning branch used during skill maintenance.
-Its [change validation guide](skills/webflow-designer-agent-browser/references/change-validation-guide.md)
-explains the normal end-of-work path and receipt meanings. Its
+For the separate end-of-work request, "Validate my current Webflow changes," use
+the [change validation guide](skills/webflow-designer-agent-browser/references/change-validation-guide.md).
+It routes the complete changed-file set to reviewed fixed runners or one bounded
+candidate that requires exact interactive approval. Only a `passed` receipt is
+a successful validation. The
 [evidence compiler architecture](skills/webflow-designer-agent-browser/references/evidence-compiler-architecture.md)
-explains the offline compiler, typed contract boundary, semantic receipts, and
-PICO-inspired design choices.
-`skills/webflow-designer-agent-browser/test-corpus-policy.json` selects a
-small set of operation sources from the Webflow monorepo. Its disposable
-`test-corpus-index.py discover` command structurally inventories bounded test
-and helper fragments, reports subsystem coverage, and separates holdouts by
-helper/scenario lineage; it cannot promote behavior. The narrower `build`
-command extracts commit-bound operation cards with bounded provenance,
-confidence, holdouts, and negative evidence. The identity compiler
-canonicalizes only bounded literal selector forms; dynamic
-or unanchored fragments remain non-corroborating. Neither command copies test
-bodies, accepts runtime learning, or adds a Playwright runtime transport. The
-`webflow-hardening-benchmark.py --repo . --format verify` command runs the
-synthetic hardening oracle offline. Its fixtures cover identity, provenance,
-tamper resistance, routing, runner failures, lifecycle leases, privacy
-canaries, and bounded scale; it never uses a browser, credential, customer
-data, or live Webflow session. A separate isolated campaign ran exactly 100
-bounded experiments (12 identity/parser, then 88 hardening, lifecycle,
-privacy, performance, and simplification trials). No candidate was
-auto-promoted; the only research optimization adopted was independently
-retested bounded method-scan consolidation, with the safety oracle unchanged.
-The companion
-`ensure-test-aws.py` command validates the local AWS profile and the temporary
-credentials inherited by `wf-app`, refreshing SSO and restarting only the stale
-`server` HUD task, which owns `entrypoints/server`. It verifies the replacement
-process, starts the task when it is missing, and keeps a credential-free PID
-and expiration receipt in the private runtime directory. The companion
-`test-scenario-eval.py` command validates a declared scenario contract and
-emits a plan-only external setup/browser/assertion/teardown handoff. Existing
-Webflow Playwright scenario helpers still own their browser contexts, so a
-scenario cannot be treated as an agent-browser handoff until an explicitly
-reviewed adapter provides a sanitized target and teardown artifact. The corpus
-`evaluate` command checks held-out semantic evidence and overlap without
-promoting a candidate.
+explains the offline compiler, typed contracts, semantic receipts, and
+non-promotion rules; the
+[test knowledge maintenance reference](skills/webflow-designer-agent-browser/references/test-knowledge-maintenance.md)
+contains the maintenance-only corpus and scenario-planning path.
 
 ## Cache, sessions, compaction, and retention
 

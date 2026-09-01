@@ -2,6 +2,7 @@
 
 Use this reference when repeated browser work or a candidate validation receipt
 needs a maintenance decision. Start after live execution and cleanup. The
+[reader guide](../README.md) explains the browser lifecycle; the
 [daily validation workflow](../SKILL.md#validate-current-webflow-changes) owns
 routing and one-run approval; this loop decides whether accumulated evidence
 supports a durable helper, mapping, or operation card.

@@ -4,7 +4,11 @@ title: "Webflow Designer change validation guide"
 
 # Webflow Designer change validation guide
 
-Use this guide when a Webflow Designer change is ready to check. It explains the normal path. Read the [architecture reference](evidence-compiler-architecture.md) for the compiler, contracts, receipts, and PICO rationale.
+Use this guide when a Webflow Designer code change is ready to check. It covers
+the separate change-validation path, not the managed browser lifecycle in the
+[`README`](../README.md). Read the
+[architecture reference](evidence-compiler-architecture.md) for the compiler,
+contracts, receipts, and PICO rationale.
 
 ## What this validator does
 

@@ -5,6 +5,11 @@ description: Webflow Designer browser work. Use for change validation, exact Des
 
 # Webflow Designer browser workflow
 
+This file is the operational policy for agents. For the problem, reader journey,
+architecture, and practical walkthrough, read [`README.md`](README.md). For exact
+standalone JSON and exit behavior, read
+[`references/standalone-cli.md`](references/standalone-cli.md).
+
 Designer can show a login page, an error document, an empty shell, or the
 wrong iframe while a browser command succeeds. Local extensions also depend on
 their exact origin and running services. A live tab may contain unsaved or

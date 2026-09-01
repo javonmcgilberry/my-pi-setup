@@ -7,6 +7,11 @@ subject: "Webflow Designer evidence compiler, runtime validator, and PICO design
 
 # How evidence-compiled change validation works
 
+This document covers the separate code-change validation path. The
+[`skill README`](../README.md) explains the managed Designer browser lifecycle,
+and the [change validation guide](change-validation-guide.md) is the short
+user-facing procedure.
+
 The Webflow Designer validator has two separate jobs. Offline, it reads a large and uneven test corpus and turns reviewed evidence into small contracts. At runtime, it routes a code change to a fixed test runner, checks the visible end state, and emits a compact receipt.
 
 This separation keeps routine validation cheap and predictable. A known change uses no model call. An unknown change can produce one bounded proposal. A person must approve its exact digest before it can run. A runtime result cannot update the trusted policy or promote itself into a reusable contract.

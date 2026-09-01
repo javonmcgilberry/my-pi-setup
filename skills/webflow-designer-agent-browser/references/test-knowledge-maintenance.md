@@ -2,7 +2,9 @@
 
 Use this branch only during skill maintenance, corpus review, or
 scenario-backed validation planning. The Webflow monorepo's Playwright and
-Cypress tests are evidence, not an unrestricted instruction set.
+Cypress tests are evidence, not an unrestricted instruction set. The
+[`README`](../README.md) covers the reader-facing browser journey; this document
+does not change its runtime or authorization rules.
 
 ## Build and inspect the corpus
 

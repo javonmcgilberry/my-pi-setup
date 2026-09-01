@@ -1,5 +1,10 @@
 # Standalone CLI
 
+This is the exact shell and JSON reference. Start with the
+[`README`](../README.md) for the problem, end-to-end journey, ownership model,
+and responsibility split. Use [`SKILL.md`](../SKILL.md) for Pi's operational
+policy.
+
 The standalone path exposes change-validation diagnostics and the managed
 browser lifecycle. The deterministic lifecycle lives in the local
 `lib/webflow_browser` package and is exposed through `bin/webflow-browser`.

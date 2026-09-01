@@ -1,7 +1,9 @@
 # Designer workflows
 
-Read this reference after the main workflow when the task involves local
-services, iframes, canvas assertions, screenshots, or diagnostics.
+Read the [`README`](../README.md) first for the full browser journey. Use this
+reference when the task involves local services, iframes, canvas assertions,
+screenshots, or diagnostics. Agent routing and authorization remain in
+[`SKILL.md`](../SKILL.md).
 
 The standalone lifecycle interface is `bin/webflow-browser`, backed by the
 `lib/webflow_browser` module. It exposes versioned JSON and process exit codes

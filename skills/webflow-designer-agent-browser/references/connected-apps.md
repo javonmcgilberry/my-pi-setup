@@ -1,8 +1,8 @@
 # Connected-app workflows
 
-Read this reference only when a Designer extension reads or changes connected
-application state, provider configuration, component definitions, or site
-authorization.
+Read the [`README`](../README.md) for the browser lifecycle. Use this reference
+only when a Designer extension reads or changes connected application state,
+provider configuration, component definitions, or site authorization.
 
 ## Confirm the running app
 
