@@ -591,6 +591,8 @@ report includes the five readiness checks, independently checked sanitized
 semantic evidence, the ownership boundary, and stopped-runtime proof.
 
 The skill also has a maintenance-only, evidence-backed test-knowledge path.
+Its [test knowledge maintenance reference](skills/webflow-designer-agent-browser/references/test-knowledge-maintenance.md)
+contains the corpus and scenario-planning branch used during skill maintenance.
 Its [change validation guide](skills/webflow-designer-agent-browser/references/change-validation-guide.md)
 explains the normal end-of-work path and receipt meanings. Its
 [evidence compiler architecture](skills/webflow-designer-agent-browser/references/evidence-compiler-architecture.md)

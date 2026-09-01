@@ -1,6 +1,6 @@
 ---
 name: webflow-designer-agent-browser
-description: Validate current Webflow Designer changes or inspect authenticated Designer sessions, local Designer apps, extension iframes, and canvas state. Use for end-of-work change validation, Designer URLs, unsaved or collaborative tabs, iframe and canvas debugging, visual QA, CDP, and agent-browser workflows. Prefer Pi's native agent_browser integration; use the standalone CLI when Pi is unavailable or the user chooses another host.
+description: Webflow Designer browser work. Use for change validation, exact Designer URLs, authenticated or collaborative tabs, local app, iframe, or canvas debugging, visual QA, and agent-browser or CDP sessions.
 ---
 
 # Webflow Designer browser workflow
@@ -20,8 +20,8 @@ captured data, and proves cleanup.
    target from a default host or an unrelated open tab.
 4. Complete the [authentication gate](#authenticate-the-dedicated-profile)
    before the first isolated run.
-5. Recover only the declared local HUD tasks and reconcile any stale dedicated
-   Chrome process before retrying the browser operation.
+5. For local runs, recover only the declared HUD tasks and reconcile any stale
+   dedicated Chrome process before retrying the browser operation.
 6. Prepare the runtime and declare the target and service checks.
 7. Open or connect to the exact Designer URL, then inspect a narrow surface.
 8. Verify the Designer document and all readiness checks.
@@ -301,88 +301,7 @@ approval digest in an interactive terminal.
 
 ## Use curated test knowledge
 
-The Webflow monorepo's Playwright and Cypress tests are evidence, not an
-unrestricted instruction set. During skill maintenance, build a disposable,
-commit-bound corpus index from the tracked policy:
-
-```sh
-tmp="$(mktemp -d)"
-python3 scripts/test-corpus-index.py discover \
-  --repo /path/to/webflow \
-  --output "$tmp/designer-discovery.json"
-python3 scripts/test-corpus-index.py validate-discovery \
-  --repo /path/to/webflow \
-  --discovery "$tmp/designer-discovery.json"
-python3 scripts/test-corpus-index.py build \
-  --repo /path/to/webflow \
-  --output "$tmp/designer-corpus.json"
-python3 scripts/test-corpus-index.py validate \
-  --repo /path/to/webflow \
-  --index "$tmp/designer-corpus.json"
-python3 scripts/test-corpus-index.py lookup \
-  --repo /path/to/webflow \
-  --index "$tmp/designer-corpus.json" \
-  --operation designer.page.switch
-python3 scripts/test-corpus-index.py evaluate \
-  --repo /path/to/webflow \
-  --index "$tmp/designer-corpus.json"
-```
-
-`discover` is the offline compiler's broad inventory pass. It uses a
-brace-aware structural extractor to bound evidence to individual test or
-helper bodies, records only non-sensitive action/selector classes and source
-ranges, and clusters fragments only when a hashed behavior anchor matches.
-Generic actions without an anchor stay isolated and cannot establish
-corroboration or a holdout. Holdouts also require independent helper or
-scenario lineage. It never creates executable cards or promotes a candidate.
-The generated discovery report must be treated as a review input and checked
-with `validate-discovery` before review.
-
-`build` remains the narrower curation pass. It extracts operation-level
-evidence and retains bounded provenance, selectors, context, postconditions,
-confidence, utility, novelty, holdouts, and negative evidence. Quarantined,
-skipped, stale, unsafe, or fixed-duration-wait evidence cannot silently become
-positive executable knowledge. The `evaluate` report checks held-out semantic
-assertions and positive/holdout path separation without promoting a candidate.
-The source commit and a source-file manifest must still match before lookup.
-
-Discovery and promotion are offline maintenance work. The runtime can emit a
-sanitized drift or failure receipt, but the maintenance process owns every
-policy, selector, and promotion change.
-
-The same validated index is available through the `webflow_designer` Code Mode
-operation `test_knowledge`: use `view:"status"` for compact freshness and
-portfolio counts, or pass one `operationId` or capability `category` for a
-bounded card lookup.
-
-Scenario contracts are plan-only handoffs between an external test-data
-adapter and the managed browser lifecycle:
-
-```sh
-python3 scripts/ensure-test-aws.py --repo /path/to/webflow
-python3 scripts/test-scenario-eval.py plan \
-  --scenario /path/to/scenario.json \
-  --operation /path/to/operation-card.json \
-  --dry-run
-```
-
-Run `ensure-test-aws.py` before scenario-backed local tests. It validates the
-`dev-publish-only` profile without trusting inherited AWS variables, performs
-`aws sso login --sso-session wf-session` only when required, checks the exact
-temporary credentials held by every running `wf-app`, and restarts only the
-`server` HUD task, which owns `entrypoints/server`, when those credentials are
-missing or stale. If the server is not running, the preflight starts it.
-Because `wf-app` hides its environment when it replaces its visible command
-line, the check follows the process ancestry. The JSON output never includes
-credential values. After a repair, the command stores only the server PID and
-credential expiration in the private runtime directory. Later checks use that
-receipt to avoid restarting a server that already has fresh credentials. Run
-this preflight instead of researching the local AWS setup or starting a second
-server.
-
-This command does not run Playwright, create accounts, open a browser, or
-execute generated shell text. Existing Webflow Playwright scenario helpers
-own their browser contexts, so a future external adapter must explicitly
-provide a sanitized Designer-target handoff and teardown artifact before a
-managed `prepare -> interaction -> verify -> finish` run can use it. Do not
-use a scenario plan as authorization to mutate a shared or customer surface.
+During skill maintenance, corpus discovery, operation-card lookup, or
+scenario-backed validation planning, read
+[Test knowledge maintenance](references/test-knowledge-maintenance.md).
+Normal browser work and end-of-work change validation do not use this branch.

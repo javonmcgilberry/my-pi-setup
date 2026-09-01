@@ -37,30 +37,6 @@ The service probe request normally contains `hud`, `designer_service`, and
 `target_http`. The runtime and surface checks are produced during the browser
 handoff. `auth_required`, `unavailable`, and `error` block QA.
 
-## Interaction lanes
-
-Choose the lane only after `verify` permits work. The lane controls the browser
-interaction, not the transaction's attached/isolated mode or native/CLI
-transport.
-
-The fast lane is read-only. Use it for scoped snapshots, screenshots, visible
-text, layout, spacing, color, and bounded diagnostics. It still requires the
-exact target, authenticated Designer surface, clear ownership, all five ready
-checks, sanitized evidence, and normal cleanup. Observing an attached tab also
-requires explicit attachment authorization and a paused user.
-
-The guarded lane covers navigation, reload, selection changes, canvas edits,
-undo, redo, publish, connected-app actions, and account, security, or privacy
-changes. Use it for shared or customer surfaces and for any action whose target,
-owner, effect, or ability to change state is uncertain. Capture the baseline
-before authorization, perform only the approved bounded action, and verify the
-postcondition and unrelated state.
-
-Escalate before the first state-changing action. Keep the current transport and
-owned transaction if the new work fits their approved scope. Otherwise finish
-the transaction and prepare another one. Guarded work cannot be downgraded to
-avoid authorization, and an unclassified action is guarded or blocked.
-
 ## URL and environment
 
 - Preserve the exact URL, including `pageId`, `simulateRole`, host, and port.
