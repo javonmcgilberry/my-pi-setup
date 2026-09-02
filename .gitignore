@@ -24,7 +24,6 @@ settings.local.json
 upstream/
 worktrees/
 .pi-subagents/
-.scratch/
 *.db
 *.sqlite*
 *.log
