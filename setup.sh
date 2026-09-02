@@ -223,6 +223,17 @@ if [[ -e "$prewalk_checkout" ]]; then
   fi
   render_settings_args+=(--prewalk-source "$prewalk_checkout")
 fi
+while IFS=$'\t' read -r package_source repository; do
+  checkout="${HOME}/Developer/${repository}"
+  if [[ ! -e "$checkout" ]]; then
+    continue
+  fi
+  if ! git -C "$checkout" rev-parse --show-toplevel >/dev/null 2>&1; then
+    echo "Canonical package checkout is not a Git working tree: $checkout" >&2
+    exit 1
+  fi
+  render_settings_args+=(--package-source "$package_source" "$checkout")
+done < <(manifest list localPackages)
 if [[ -f "$settings_target" && ! -L "$settings_target" ]]; then
   render_settings_args+=(--existing-settings "$settings_target")
 fi

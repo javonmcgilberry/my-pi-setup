@@ -75,6 +75,16 @@ describe("managed install manifest", () => {
         backup: "external-agents-skills-webflow-designer-agent-browser",
       },
     ]);
+    assert.deepEqual(entriesFor(manifest, "localPackages"), [
+      {
+        source: "git:git@github.com:javonmcgilberry/javon-pi-extensions.git",
+        target: "javon-pi-extensions",
+      },
+      {
+        source: "git:git@github.com:javonmcgilberry/webflow-designer-agent-browser.git",
+        target: "webflow-designer-agent-browser",
+      },
+    ]);
     assert.equal(manifest.macosLaunchAgents.length, 1);
     assert.deepEqual(manifest.macosLaunchAgents[0], {
       root: "macosLaunchAgents",
@@ -180,6 +190,14 @@ describe("managed install manifest", () => {
     assert.throws(
       () => normalizeManifest({ ...base, localOverrides: ["settings.local.json", "settings.local.json"] }),
       /localOverrides contains duplicate paths/,
+    );
+    assert.throws(
+      () => normalizeManifest({ ...base, localPackageSources: { "bad/name": "git:example" } }),
+      /checkout name/,
+    );
+    assert.throws(
+      () => normalizeManifest({ ...base, localPackageSources: { example: "npm:example" } }),
+      /Git package source/,
     );
   });
 

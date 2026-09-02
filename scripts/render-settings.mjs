@@ -38,10 +38,14 @@ let localFile;
 if (args[0] && !args[0].startsWith("--")) localFile = args.shift();
 let prewalkSource;
 let existingFile;
+const packageSources = [];
 const managedKeys = new Set();
 while (args.length > 0) {
   const option = args.shift();
   if (option === "--prewalk-source") prewalkSource = args.shift();
+  else if (option === "--package-source") {
+    packageSources.push({ tracked: args.shift(), local: args.shift() });
+  }
   else if (option === "--existing-settings") existingFile = args.shift();
   else if (option === "--managed-key") managedKeys.add(args.shift());
   else throw new Error(`Unknown option: ${option}`);
@@ -49,11 +53,12 @@ while (args.length > 0) {
 if (
   !baseFile ||
   (process.argv.includes("--prewalk-source") && !prewalkSource) ||
+  packageSources.some(({ tracked, local }) => !tracked || !local) ||
   (process.argv.includes("--existing-settings") && !existingFile) ||
   [...managedKeys].some((key) => !key)
 ) {
   throw new Error(
-    "Usage: render-settings.mjs <settings.json> [settings.local.json] [--existing-settings <path>] [--managed-key <key>]... [--prewalk-source <path>]",
+    "Usage: render-settings.mjs <settings.json> [settings.local.json] [--existing-settings <path>] [--managed-key <key>]... [--prewalk-source <path>] [--package-source <tracked> <local>]...",
   );
 }
 
@@ -94,6 +99,17 @@ if (prewalkSource) {
   const index = packages.indexOf(trackedPrewalk);
   if (index === -1) throw new Error(`Cannot select local Prewalk without ${trackedPrewalk}`);
   packages[index] = prewalkSource;
+  rendered = { ...rendered, packages };
+}
+
+for (const { tracked, local } of packageSources) {
+  if (!Array.isArray(rendered.packages)) {
+    throw new Error("Tracked settings must contain a packages array before selecting local packages");
+  }
+  const packages = [...rendered.packages];
+  const index = packages.indexOf(tracked);
+  if (index === -1) throw new Error(`Cannot select local package without ${tracked}`);
+  packages[index] = local;
   rendered = { ...rendered, packages };
 }
 

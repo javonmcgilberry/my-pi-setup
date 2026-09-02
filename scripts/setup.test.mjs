@@ -62,6 +62,18 @@ async function installWebflowFixture(target) {
   return skill;
 }
 
+async function installLocalPackageFixtures(target) {
+  const developer = path.join(target.root, "Developer");
+  const personal = path.join(developer, "javon-pi-extensions");
+  const webflow = path.join(developer, "webflow-designer-agent-browser");
+  for (const checkout of [personal, webflow]) {
+    await mkdir(checkout, { recursive: true });
+    await execFileAsync("git", ["init", "-q", checkout]);
+  }
+  await mkdir(path.join(webflow, "skills/webflow-designer-agent-browser"), { recursive: true });
+  return { personal, webflow };
+}
+
 describe("setup bootstrap", () => {
   it("is idempotent and produces a clean drift result", async () => {
     const target = await tempTarget();
@@ -133,6 +145,41 @@ describe("setup bootstrap", () => {
     assert.equal(
       settings.packages.includes("git:github.com/javonmcgilberry/pi-prewalk"),
       false,
+    );
+  });
+
+  it("loads personal products from canonical development checkouts when they exist", async () => {
+    const target = await tempTarget();
+    const { personal, webflow } = await installLocalPackageFixtures(target);
+
+    await run(setupScript, [], target);
+
+    const settings = JSON.parse(
+      await readFile(path.join(target.agentDir, "settings.json"), "utf8"),
+    );
+    assert.equal(settings.packages.includes(personal), true);
+    assert.equal(settings.packages.includes(webflow), true);
+    assert.equal(
+      settings.packages.includes("git:git@github.com:javonmcgilberry/javon-pi-extensions.git"),
+      false,
+    );
+    assert.equal(
+      settings.packages.includes("git:git@github.com:javonmcgilberry/webflow-designer-agent-browser.git"),
+      false,
+    );
+    assert.equal(
+      await readlink(path.join(target.skillsDir, "webflow-designer-agent-browser")),
+      path.join(webflow, "skills/webflow-designer-agent-browser"),
+    );
+  });
+
+  it("rejects a non-Git canonical personal package checkout", async () => {
+    const target = await tempTarget();
+    await mkdir(path.join(target.root, "Developer/javon-pi-extensions"), { recursive: true });
+
+    await assert.rejects(
+      run(setupScript, [], target),
+      /Canonical package checkout is not a Git working tree/,
     );
   });
 

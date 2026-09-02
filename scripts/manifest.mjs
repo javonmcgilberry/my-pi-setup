@@ -89,6 +89,24 @@ function normalizeExternalSharedSkills(value) {
   });
 }
 
+function normalizeLocalPackageSources(value) {
+  const map = assertRecord(value ?? {}, "localPackageSources");
+  const entries = Object.entries(map).map(([repositoryValue, sourceValue]) => {
+    const target = assertRelativePath(repositoryValue, "localPackageSources repository");
+    if (target.includes("/")) {
+      throw new Error(`localPackageSources repository must be a checkout name: ${target}`);
+    }
+    if (typeof sourceValue !== "string" || !sourceValue.startsWith("git:")) {
+      throw new Error(`localPackageSources source must be a Git package source: ${sourceValue}`);
+    }
+    return { source: sourceValue, target };
+  });
+  if (new Set(entries.map(({ source }) => source)).size !== entries.length) {
+    throw new Error("localPackageSources contains duplicate package sources");
+  }
+  return entries;
+}
+
 function normalizeCopied(value, repoRoot) {
   if (!Array.isArray(value ?? [])) throw new Error("copied must be an array");
   return value.map((item, index) => {
@@ -190,6 +208,7 @@ export function normalizeManifest(raw, { repoRoot = REPO_ROOT } = {}) {
     "commands",
     "sharedSkills",
     "externalSharedSkills",
+    "localPackageSources",
     "macosLaunchAgents",
     "retired",
     "externalLinks",
@@ -212,6 +231,7 @@ export function normalizeManifest(raw, { repoRoot = REPO_ROOT } = {}) {
   });
   const sharedSkills = normalizeMap(raw.sharedSkills, "sharedSkills", "shared", repoRoot);
   const externalSharedSkills = normalizeExternalSharedSkills(raw.externalSharedSkills);
+  const localPackageSources = normalizeLocalPackageSources(raw.localPackageSources);
   const macosLaunchAgents = normalizeMap(
     raw.macosLaunchAgents,
     "macosLaunchAgents",
@@ -268,6 +288,7 @@ export function normalizeManifest(raw, { repoRoot = REPO_ROOT } = {}) {
     commands,
     sharedSkills,
     externalSharedSkills,
+    localPackageSources,
     macosLaunchAgents,
     retired,
     externalLinks,
@@ -289,6 +310,7 @@ export function loadManifest(manifestPath = resolve(REPO_ROOT, "config/manifest.
 export function entriesFor(manifest, category, root) {
   if (category === "shared") return manifest.sharedSkills;
   if (category === "externalShared") return manifest.externalSharedSkills;
+  if (category === "localPackages") return manifest.localPackageSources;
   if (category === "commands") return manifest.commands;
   if (category === "macosLaunchAgents") return manifest.macosLaunchAgents;
   if (category === "retired") return manifest.retired.filter((entry) => entry.root === root);
@@ -330,6 +352,7 @@ function main(argv) {
         commands: manifest.commands.length,
         sharedSkills: manifest.sharedSkills.length,
         externalSharedSkills: manifest.externalSharedSkills.length,
+        localPackageSources: manifest.localPackageSources.length,
         macosLaunchAgents: manifest.macosLaunchAgents.length,
         retired: manifest.retired.length,
       })}\n`,
@@ -353,7 +376,7 @@ function main(argv) {
     if (violations.length) throw new Error(`repository inventory includes runtime exclusions: ${violations.join(", ")}`);
     return;
   }
-  throw new Error("Usage: manifest.mjs validate | check-inventory | list <rendered|settingsManagedKeys|copied|linked|commands|shared|externalShared|macosLaunchAgents|retired|externalLinks|localOverrides|runtimeExclusions> [root]");
+  throw new Error("Usage: manifest.mjs validate | check-inventory | list <rendered|settingsManagedKeys|copied|linked|commands|shared|externalShared|localPackages|macosLaunchAgents|retired|externalLinks|localOverrides|runtimeExclusions> [root]");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

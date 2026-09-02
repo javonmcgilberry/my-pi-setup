@@ -37,6 +37,10 @@
   "externalSharedSkills": {
     "webflow-designer-agent-browser": "webflow-designer-agent-browser"
   },
+  "localPackageSources": {
+    "javon-pi-extensions": "git:git@github.com:javonmcgilberry/javon-pi-extensions.git",
+    "webflow-designer-agent-browser": "git:git@github.com:javonmcgilberry/webflow-designer-agent-browser.git"
+  },
   "macosLaunchAgents": {
     "com.javonmcgilberry.pi-tmux-gui-server.plist": "config/com.javonmcgilberry.pi-tmux-gui-server.plist"
   },
