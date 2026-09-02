@@ -69,17 +69,24 @@ environment variables and are never copied into this repository.
 
 ## Packages and shared skills
 
-`settings.json` installs personal functionality through private Git Pi packages:
+Tracked settings keep private Git package sources so a clean machine can install
+the personal repositories:
 
 ```text
 git:git@github.com:javonmcgilberry/javon-pi-extensions.git
 git:git@github.com:javonmcgilberry/webflow-designer-agent-browser.git
 ```
 
-The Webflow skill is linked once into `~/.agents/skills`. Setup prefers the
-development checkout at `~/Developer/webflow-designer-agent-browser`; otherwise
-it links the checkout managed by Pi after package installation. This keeps one
-Agent Skills copy visible to Pi and other compatible harnesses.
+On this machine, setup prefers the Git working trees at
+`~/Developer/javon-pi-extensions` and
+`~/Developer/webflow-designer-agent-browser`. Pi reads those directories
+directly when a session starts, so local code does not need to be pushed before
+Pi can use it. If either checkout is missing, setup keeps that repository's
+private Git source and `pi update` refreshes Pi's managed clone.
+
+The Webflow skill is linked once into `~/.agents/skills` using the same local
+checkout first and managed-clone fallback. This keeps one Agent Skills copy
+visible to Pi and other compatible harnesses.
 
 ## Safety and recovery
 

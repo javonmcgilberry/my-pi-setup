@@ -38,6 +38,27 @@ describe("settings renderer", () => {
     assert.deepEqual(rendered.packages, ["/home/example/Developer/pi-prewalk"]);
   });
 
+  it("selects canonical local product packages", async () => {
+    const personal = "git:git@github.com:javonmcgilberry/javon-pi-extensions.git";
+    const webflow = "git:git@github.com:javonmcgilberry/webflow-designer-agent-browser.git";
+    const { baseFile } = await fixture({ packages: [personal, webflow] });
+    const { stdout } = await execFileAsync(process.execPath, [
+      script,
+      baseFile,
+      "--package-source",
+      personal,
+      "/home/example/Developer/javon-pi-extensions",
+      "--package-source",
+      webflow,
+      "/home/example/Developer/webflow-designer-agent-browser",
+    ]);
+    const rendered = JSON.parse(stdout);
+    assert.deepEqual(rendered.packages, [
+      "/home/example/Developer/javon-pi-extensions",
+      "/home/example/Developer/webflow-designer-agent-browser",
+    ]);
+  });
+
   it("rejects arbitrary package replacement paths", async () => {
     const source = "git:github.com/javonmcgilberry/pi-prewalk";
     const { baseFile, localFile } = await fixture(
@@ -96,6 +117,14 @@ describe("settings renderer", () => {
     const { baseFile } = await fixture({ packages: [] });
     await assert.rejects(
       execFileAsync(process.execPath, [script, baseFile, "--prewalk-source"]),
+      /Usage: render-settings\.mjs/,
+    );
+  });
+
+  it("rejects an incomplete local package replacement", async () => {
+    const { baseFile } = await fixture({ packages: [] });
+    await assert.rejects(
+      execFileAsync(process.execPath, [script, baseFile, "--package-source", "git:example"]),
       /Usage: render-settings\.mjs/,
     );
   });
