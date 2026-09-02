@@ -202,22 +202,27 @@ describe("setup bootstrap", () => {
       httpIdleTimeoutMs: 300000,
       modelThinkingLevels: { "openai/example": "high" },
       packages: ["npm:stale"],
+      retry: { enabled: false },
       subagents: { defaultModel: "stale" },
+      transport: "websocket",
       vstack: { stale: true },
     })}\n`);
 
     await run(setupScript, [], target);
     let settings = JSON.parse(await readFile(settingsFile, "utf8"));
     assert.equal(settings.defaultThinkingLevel, "low");
-    assert.equal(settings.httpIdleTimeoutMs, 0);
+    assert.equal(settings.httpIdleTimeoutMs, 300000);
     assert.deepEqual(settings.modelThinkingLevels, { "openai/example": "high" });
     assert.equal(settings.packages.includes("npm:stale"), false);
     assert.equal(settings.packages.includes(repoRoot), false);
     assert.equal(settings.packages.includes("git:git@github.com:javonmcgilberry/javon-pi-extensions.git"), true);
-    assert.notEqual(settings.subagents.defaultModel, "stale");
-    assert.equal(settings.vstack.stale, undefined);
+    assert.deepEqual(settings.retry, { enabled: false });
+    assert.deepEqual(settings.subagents, { defaultModel: "stale" });
+    assert.equal(settings.transport, "websocket");
+    assert.deepEqual(settings.vstack, { stale: true });
 
     settings.defaultThinkingLevel = "high";
+    settings.subagents = { defaultModel: "live" };
     await writeFile(settingsFile, `${JSON.stringify(settings, null, 2)}\n`);
     const preferenceDrift = await run(driftScript, [], target);
     assert.match(preferenceDrift.stdout, /No managed file drift detected\./);

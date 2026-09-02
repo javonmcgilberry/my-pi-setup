@@ -71,7 +71,7 @@ describe("settings renderer", () => {
     );
   });
 
-  it("preserves live Pi preferences while restoring repository-managed settings", async () => {
+  it("preserves complete live top-level values while restoring repository-managed settings", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "render-settings-live-"));
     tempDirs.push(dir);
     const baseFile = path.join(dir, "settings.json");
@@ -107,7 +107,7 @@ describe("settings renderer", () => {
     ]);
     const rendered = JSON.parse(stdout);
     assert.equal(rendered.defaultThinkingLevel, "low");
-    assert.deepEqual(rendered.compaction, { enabled: true, reserveTokens: 2000 });
+    assert.deepEqual(rendered.compaction, { reserveTokens: 2000 });
     assert.deepEqual(rendered.modelThinkingLevels, { "openai/example": "high" });
     assert.deepEqual(rendered.packages, ["npm:managed"]);
     assert.deepEqual(rendered.subagents, { defaultModel: "managed" });

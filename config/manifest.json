@@ -4,12 +4,7 @@
     "settings.json": "settings.json"
   },
   "settingsManagedKeys": [
-    "httpIdleTimeoutMs",
-    "transport",
-    "retry",
-    "packages",
-    "subagents",
-    "vstack"
+    "packages"
   ],
   "copied": [
     "AGENTS.md",

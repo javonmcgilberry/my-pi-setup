@@ -50,27 +50,27 @@ To change configuration, edit this repository and land the change separately:
 The normal configuration check is small. `./scripts/check.sh --full` adds the
 isolated setup matrix when bootstrap behavior itself changes.
 
-## Managed settings
+## Live settings and install defaults
 
-Pi's live `~/.pi/agent/settings.json` remains the source of truth for ordinary
-preferences changed through `/settings`. Setup reapplies only the manifest's
-managed keys:
+Pi reads `~/.pi/agent/settings.json`, and that live file is authoritative for
+user preferences. Setup reads it before rendering and preserves every existing
+top-level setting except `packages`. The package list remains managed because
+setup uses it as the install inventory and swaps package locators for canonical
+local checkouts when they exist.
 
-- `httpIdleTimeoutMs`
-- `transport`
-- `retry`
-- `packages`
-- `subagents`
-- `vstack`
+The tracked `settings.json` is a clean-install starting point. Its transport,
+retry, subagent, model, theme, and other values fill a new settings file, but a
+later setup run does not restore those values over live choices made through
+`/settings`. In a trusted project, `<project>/.pi/settings.json` is merged over
+the global file, so project settings still take precedence for that project.
 
-The portable defaults select SSE, disable provider-level retries, and keep
-agent-level retry enabled. Secrets remain in Pi's local auth files or
-environment variables and are never copied into this repository.
+The clean-install subagent defaults use Luna with role-specific thinking:
+scouts use low, researchers and delegates use medium, workers and reviewers
+use high, and the oracle uses max. Once installed, these are normal live
+preferences and setup leaves them alone.
 
-Subagents use the default Luna model without a global max-thinking suffix.
-Routine scouts run at low thinking, researchers and delegates at medium,
-workers and reviewers at high, and the oracle keeps max thinking. This avoids
-using the slowest reasoning tier for every delegated lookup or review.
+Secrets remain in Pi's local auth files or environment variables and are never
+copied into this repository.
 
 The installed `AGENTS.md` also sets the operating policy for delegated work.
 Ordinary runs use Pi's 30-minute timeout unless a measured task needs an

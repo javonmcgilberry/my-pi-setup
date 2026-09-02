@@ -37,14 +37,7 @@ describe("managed install manifest", () => {
   it("normalizes the checked-in inventory for every consumer", () => {
     const manifest = loadManifest();
     assert.equal(manifest.version, 1);
-    assert.deepEqual(manifest.settingsManagedKeys, [
-      "httpIdleTimeoutMs",
-      "transport",
-      "retry",
-      "packages",
-      "subagents",
-      "vstack",
-    ]);
+    assert.deepEqual(manifest.settingsManagedKeys, ["packages"]);
     assert.equal(manifest.copied.length, 11);
     assert.deepEqual(manifest.linked, [
       {

@@ -87,7 +87,7 @@ if (existingFile) {
   const preferences = Object.fromEntries(
     Object.entries(existing).filter(([key]) => !managedKeys.has(key)),
   );
-  rendered = merge(rendered, preferences);
+  rendered = { ...rendered, ...preferences };
 }
 
 if (prewalkSource) {
