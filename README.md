@@ -67,6 +67,18 @@ The portable defaults select SSE, disable provider-level retries, and keep
 agent-level retry enabled. Secrets remain in Pi's local auth files or
 environment variables and are never copied into this repository.
 
+Subagents use the default Luna model without a global max-thinking suffix.
+Routine scouts run at low thinking, researchers and delegates at medium,
+workers and reviewers at high, and the oracle keeps max thinking. This avoids
+using the slowest reasoning tier for every delegated lookup or review.
+
+The installed `AGENTS.md` also sets the operating policy for delegated work.
+Ordinary runs use Pi's 30-minute timeout unless a measured task needs an
+explicit limit. Tightly scoped read-only reviews use a soft tool limit and the
+string wildcard `block: "*"` so the child must stop inspecting and return a
+verdict. Broad research is split into checkpointed milestones, read-only
+reviews omit acceptance contracts, and report writers receive one output path.
+
 ## Packages and shared skills
 
 Tracked settings keep private Git package sources so a clean machine can install

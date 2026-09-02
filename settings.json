@@ -54,27 +54,34 @@
       "worker": {
         "defaultContext": "fork",
         "acceptanceRole": "writer",
+        "thinking": "high",
         "tools": "inherit"
       },
       "reviewer": {
         "defaultContext": "fresh",
         "acceptanceRole": "read-only",
+        "thinking": "high",
         "tools": "inherit"
       },
       "delegate": {
+        "thinking": "medium",
         "tools": "inherit"
       },
       "oracle": {
+        "thinking": "max",
         "tools": "inherit"
       },
       "researcher": {
+        "thinking": "medium",
         "tools": "inherit"
       },
       "scout": {
+        "thinking": "low",
         "tools": "inherit"
       }
     },
-    "defaultModel": "openai-codex/gpt-5.6-luna:max"
+    "defaultModel": "openai-codex/gpt-5.6-luna",
+    "defaultThinking": "medium"
   },
   "showCacheMissNotices": true,
   "vstack": {
