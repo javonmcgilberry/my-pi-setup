@@ -32,3 +32,21 @@ While Pi is active, use one temporary root for `PI_AGENT_DIR`,
 
 Keep credentials, auth files, sessions, browser profiles, cookies, caches,
 package clones, generated artifacts, and runtime databases out of Git.
+
+## Agent skills
+
+### Issue tracker
+
+This repository uses local Markdown issues under `.scratch/`; no remote issue
+tracker is configured for agent-planned work. See
+`docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Local issue status uses the five canonical triage labels. See
+`docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repository. Read root `CONTEXT.md` and relevant ADRs
+under `docs/adr/`. See `docs/agents/domain.md`.
