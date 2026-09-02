@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+agent_dir="${PI_AGENT_DIR:-${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}}"
+development="$HOME/Developer/webflow-designer-agent-browser"
+managed="$agent_dir/git/github.com/javonmcgilberry/webflow-designer-agent-browser"
+
+if [[ -x "$development/skills/webflow-designer-agent-browser/scripts/designer-code-mode.py" ]]; then
+	exec "$development/skills/webflow-designer-agent-browser/scripts/designer-code-mode.py" "$@"
+fi
+if [[ -x "$managed/skills/webflow-designer-agent-browser/scripts/designer-code-mode.py" ]]; then
+	exec "$managed/skills/webflow-designer-agent-browser/scripts/designer-code-mode.py" "$@"
+fi
+
+echo "Webflow Designer package is not installed. Run pi update --all." >&2
+exit 1

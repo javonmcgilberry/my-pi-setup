@@ -25,18 +25,6 @@ async function fixture(base, local) {
 }
 
 describe("settings renderer", () => {
-  it("adds the local setup package exactly once after its dependencies", async () => {
-    const { baseFile } = await fixture({ packages: ["npm:example@1.2.3"] });
-    const { stdout } = await execFileAsync(process.execPath, [
-      script,
-      baseFile,
-      "--package-source",
-      "/work/my-pi-setup",
-    ]);
-    const rendered = JSON.parse(stdout);
-    assert.deepEqual(rendered.packages, ["npm:example@1.2.3", "/work/my-pi-setup"]);
-  });
-
   it("selects the sole canonical local Prewalk source", async () => {
     const trackedPrewalk = "git:github.com/javonmcgilberry/pi-prewalk";
     const { baseFile } = await fixture({ packages: [trackedPrewalk] });
@@ -45,14 +33,9 @@ describe("settings renderer", () => {
       baseFile,
       "--prewalk-source",
       "/home/example/Developer/pi-prewalk",
-      "--package-source",
-      "/work/my-pi-setup",
     ]);
     const rendered = JSON.parse(stdout);
-    assert.deepEqual(rendered.packages, [
-      "/home/example/Developer/pi-prewalk",
-      "/work/my-pi-setup",
-    ]);
+    assert.deepEqual(rendered.packages, ["/home/example/Developer/pi-prewalk"]);
   });
 
   it("rejects arbitrary package replacement paths", async () => {
@@ -109,10 +92,10 @@ describe("settings renderer", () => {
     assert.deepEqual(rendered.subagents, { defaultModel: "managed" });
   });
 
-  it("rejects a missing package-source value", async () => {
+  it("rejects a missing prewalk-source value", async () => {
     const { baseFile } = await fixture({ packages: [] });
     await assert.rejects(
-      execFileAsync(process.execPath, [script, baseFile, "--package-source"]),
+      execFileAsync(process.execPath, [script, baseFile, "--prewalk-source"]),
       /Usage: render-settings\.mjs/,
     );
   });

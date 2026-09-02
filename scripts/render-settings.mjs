@@ -36,27 +36,24 @@ const args = process.argv.slice(2);
 const baseFile = args.shift();
 let localFile;
 if (args[0] && !args[0].startsWith("--")) localFile = args.shift();
-let packageSource;
 let prewalkSource;
 let existingFile;
 const managedKeys = new Set();
 while (args.length > 0) {
   const option = args.shift();
-  if (option === "--package-source") packageSource = args.shift();
-  else if (option === "--prewalk-source") prewalkSource = args.shift();
+  if (option === "--prewalk-source") prewalkSource = args.shift();
   else if (option === "--existing-settings") existingFile = args.shift();
   else if (option === "--managed-key") managedKeys.add(args.shift());
   else throw new Error(`Unknown option: ${option}`);
 }
 if (
   !baseFile ||
-  (process.argv.includes("--package-source") && !packageSource) ||
   (process.argv.includes("--prewalk-source") && !prewalkSource) ||
   (process.argv.includes("--existing-settings") && !existingFile) ||
   [...managedKeys].some((key) => !key)
 ) {
   throw new Error(
-    "Usage: render-settings.mjs <settings.json> [settings.local.json] [--existing-settings <path>] [--managed-key <key>]... [--prewalk-source <path>] [--package-source <path>]",
+    "Usage: render-settings.mjs <settings.json> [settings.local.json] [--existing-settings <path>] [--managed-key <key>]... [--prewalk-source <path>]",
   );
 }
 
@@ -98,14 +95,6 @@ if (prewalkSource) {
   if (index === -1) throw new Error(`Cannot select local Prewalk without ${trackedPrewalk}`);
   packages[index] = prewalkSource;
   rendered = { ...rendered, packages };
-}
-
-if (packageSource) {
-  if (!Array.isArray(rendered.packages)) {
-    throw new Error("Tracked settings must contain a packages array before adding the local package");
-  }
-  const packages = rendered.packages.filter((source) => source !== packageSource);
-  rendered = { ...rendered, packages: [...packages, packageSource] };
 }
 
 process.stdout.write(`${JSON.stringify(rendered, null, 2)}\n`);

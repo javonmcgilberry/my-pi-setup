@@ -11,9 +11,9 @@ const execFileAsync = promisify(execFile);
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const updater = path.join(repoRoot, "scripts", "pi-update-all");
 
-test("documents that the updater refreshes Pi and its packages", async () => {
+test("documents the configuration-only update boundary", async () => {
 	const { stdout } = await execFileAsync(updater, ["--help"]);
-	assert.match(stdout, /updates the live setup, Pi itself, and every/);
+	assert.match(stdout, /never runs product tests or creates Git commits/);
 });
 
 test("uses Pi's native all-inclusive updater", async () => {
@@ -22,8 +22,9 @@ test("uses Pi's native all-inclusive updater", async () => {
 	assert.doesNotMatch(source, /"\$pi_bin" update --extensions/);
 });
 
-test("uses the normal bounded landing checks", async () => {
+test("does not land changes or invoke product validation", async () => {
 	const source = await readFile(updater, "utf8");
-	assert.match(source, /land_args=\(--push\)/);
-	assert.doesNotMatch(source, /land\.sh" --full|land_args=.*--full/);
+	assert.doesNotMatch(source, /"\$repo_dir\/scripts\/(?:land|check)\.sh"/);
+	assert.match(source, /pull --ff-only/);
+	assert.equal(source.match(/repo_dir\/setup\.sh/g)?.length, 2);
 });

@@ -71,6 +71,9 @@ done < <(node "$manifest_script" list externalLinks)
 while IFS=$'\t' read -r _source target _backup; do
   assert_read_target_parent "$shared_skills_dir" "$target"
 done < <(node "$manifest_script" list shared)
+while IFS=$'\t' read -r _repository target _backup; do
+  assert_read_target_parent "$shared_skills_dir" "$target"
+done < <(node "$manifest_script" list externalShared)
 while IFS=$'\t' read -r target _backup; do
   assert_read_target_parent "$shared_skills_dir" "$target"
 done < <(node "$manifest_script" list retired shared)
@@ -145,6 +148,24 @@ while IFS=$'\t' read -r source relative _backup; do
     echo "different: shared/${relative} -> $(readlink "$target")"; found=true
   fi
 done < <(manifest list shared)
+
+while IFS=$'\t' read -r repository relative _backup; do
+  development="$HOME/Developer/$repository/skills/$relative"
+  managed="$agent_dir/git/github.com/javonmcgilberry/$repository/skills/$relative"
+  if [[ -d "$development" ]]; then
+    source="$development"
+  elif [[ -d "$managed" ]]; then
+    source="$managed"
+  else
+    continue
+  fi
+  target="$shared_skills_dir/$relative"
+  if [[ ! -L "$target" ]]; then
+    echo "different: shared/${relative} (expected external symlink)"; found=true
+  elif [[ "$(readlink "$target")" != "$source" ]]; then
+    echo "different: shared/${relative} -> $(readlink "$target")"; found=true
+  fi
+done < <(manifest list externalShared)
 
 while IFS=$'\t' read -r relative; do
   target="$agent_dir/$relative"

@@ -15,14 +15,13 @@ for argument in "$@"; do
 	esac
 done
 
-bash -n setup.sh scripts/check.sh scripts/drift.sh scripts/restore.sh scripts/land.sh scripts/pi-update-all scripts/push-with-rebase.sh scripts/activate-macos-tmux-gui-server.sh
+bash -n setup.sh scripts/check.sh scripts/drift.sh scripts/restore.sh scripts/land.sh scripts/pi-update-all scripts/push-with-rebase.sh scripts/activate-macos-tmux-gui-server.sh scripts/webflow-designer
 if command -v plutil >/dev/null 2>&1; then
 	plutil -lint config/com.javonmcgilberry.pi-tmux-gui-server.plist >/dev/null
 fi
 node --check scripts/render-settings.mjs
 node --check scripts/json-equal.mjs
 node --check scripts/manifest.mjs
-node --check scripts/session-maintenance.mjs
 
 json_files=(
 	settings.json
@@ -32,49 +31,29 @@ json_files=(
 	pi-codex-conversion.json
 	pi-smart-btw.json
 	prewalk.json
-	package.json
-	package-lock.json
 	settings.local.example.json
 	agent-browser-policy.json
 	config/manifest.json
 	fzf.json
 	session-spend-dashboard.json
-	skills/webflow-designer-agent-browser/capabilities.json
-	skills/webflow-designer-agent-browser/config/attachment.json
-	skills/webflow-designer-agent-browser/schemas/designer-validation-contract.schema.json
-	skills/webflow-designer-agent-browser/schemas/designer-validation-receipt.schema.json
-	skills/webflow-designer-agent-browser/schemas/webflow-browser-cli-request.schema.json
 )
 
 node -e 'for (const file of process.argv.slice(1)) JSON.parse(require("fs").readFileSync(file, "utf8"))' "${json_files[@]}"
 node scripts/render-settings.mjs settings.json settings.local.example.json >/dev/null
 node scripts/manifest.mjs validate >/dev/null
 
-python3 -B -m unittest discover \
-	-s skills/webflow-designer-agent-browser/scripts \
-	-p 'test_*.py'
-python3 -B skills/webflow-designer-agent-browser/scripts/capability-catalog.py validate
-node --test scripts/manifest.test.mjs
-node --test scripts/render-settings.test.mjs
+node --test \
+	scripts/manifest.test.mjs \
+	scripts/render-settings.test.mjs \
+	scripts/macos-tmux-gui-server.test.mjs \
+	scripts/land.test.mjs \
+	scripts/pi-update-all.test.mjs \
+	scripts/push-with-rebase.test.mjs
 if [[ "$fast" -eq 1 ]]; then
 	echo "Fast mode: skipping scripts/setup.test.mjs (the full setup.sh matrix)"
 else
 	node --test scripts/setup.test.mjs
 fi
-node --test scripts/macos-tmux-gui-server.test.mjs
-node --test scripts/session-metadata-backfill.test.mjs
-node --test packages/context-budget/context-budget.test.mjs packages/context-budget/index.test.ts
-node --test extensions/agent-browser-policy.test.mjs
-node --test extensions/webflow-validation-approval.test.mjs
-node --test extensions/pretty-footer.test.ts
-node --test extensions/warp-session-title.test.mjs
-node --test scripts/land.test.mjs
-node --test scripts/pi-update-all.test.mjs
-node --test scripts/push-with-rebase.test.mjs
-node --check skills/webflow-designer-agent-browser/scripts/cdp-frame-eval.mjs
-node --check skills/webflow-designer-agent-browser/scripts/cookie-transfer.mjs
-node --test skills/webflow-designer-agent-browser/scripts/cookie-transfer.test.mjs
-node --test extensions/session-spend-dashboard/test/*.test.ts
 
 file_inventory="$(git ls-files --cached --others --exclude-standard)"
 if ! node scripts/manifest.mjs check-inventory <<<"$file_inventory"; then

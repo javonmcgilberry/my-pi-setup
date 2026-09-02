@@ -23,6 +23,8 @@
     "git:github.com/EveryInc/compound-engineering-plugin",
     "npm:pi-ask-user",
     "git:github.com/javonmcgilberry/pi-prewalk",
+    "git:git@github.com:javonmcgilberry/javon-pi-extensions.git",
+    "git:git@github.com:javonmcgilberry/webflow-designer-agent-browser.git",
     "npm:@vanillagreen/pi-tool-renderer",
     "npm:pi-render-cache",
     "npm:@vanillagreen/pi-extension-manager",
