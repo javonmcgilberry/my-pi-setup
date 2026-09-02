@@ -38,6 +38,8 @@ describe("managed install manifest", () => {
     assert.equal(manifest.version, 1);
     assert.deepEqual(manifest.settingsManagedKeys, [
       "httpIdleTimeoutMs",
+      "transport",
+      "retry",
       "packages",
       "subagents",
       "vstack",

@@ -50,7 +50,8 @@
   "openai": {
     "fast": true,
     "verbosity": "low",
-    "forceCachedWebSockets": true,
+    "forceCachedWebSockets": false,
+    "cacheDiagnostics": "status-and-log",
     "webSearchModel": "gpt-5.6-luna"
   }
 }

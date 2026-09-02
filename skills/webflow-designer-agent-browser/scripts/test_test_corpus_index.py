@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -104,6 +105,16 @@ test('opens pages another way', async () => {
         self.policy_path = self.repo / "policy.json"
         self.policy_path.write_text(json.dumps(self.policy))
         subprocess.run(["git", "init", "-q"], cwd=self.repo, check=True)
+        subprocess.run(
+            ["git", "config", "core.hooksPath", os.devnull],
+            cwd=self.repo,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "commit.gpgSign", "false"],
+            cwd=self.repo,
+            check=True,
+        )
         subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=self.repo, check=True)
         subprocess.run(["git", "config", "user.name", "Corpus Test"], cwd=self.repo, check=True)
         subprocess.run(["git", "add", "."], cwd=self.repo, check=True)

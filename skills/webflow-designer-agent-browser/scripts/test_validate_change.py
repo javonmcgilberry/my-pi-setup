@@ -34,6 +34,8 @@ class ValidationChangeTests(unittest.TestCase):
         self.repo = Path(self.temp.name) / "repo"
         self.repo.mkdir()
         self.git("init")
+        self.git("config", "core.hooksPath", os.devnull)
+        self.git("config", "commit.gpgSign", "false")
         self.git("config", "user.email", "validator@example.test")
         self.git("config", "user.name", "Validator")
         self.write("tracked.txt", "base\n")
@@ -558,7 +560,9 @@ class ValidationChangeTests(unittest.TestCase):
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
             env=environment,
+            timeout=10,
         )
         approval = json.loads(proposed.stdout)["approvalDigest"]
         executed = subprocess.run(
@@ -578,7 +582,9 @@ class ValidationChangeTests(unittest.TestCase):
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
             env=environment,
+            timeout=10,
         )
         self.assertEqual(executed.returncode, 2)
         self.assertIn("interactive terminal", executed.stderr)

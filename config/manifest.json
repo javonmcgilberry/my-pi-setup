@@ -5,6 +5,8 @@
   },
   "settingsManagedKeys": [
     "httpIdleTimeoutMs",
+    "transport",
+    "retry",
     "packages",
     "subagents",
     "vstack"

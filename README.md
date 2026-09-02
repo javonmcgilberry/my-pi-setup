@@ -26,7 +26,8 @@ cd ~/Developer/my-pi-setup
 On a clean install, the installer combines this repository's defaults with the
 optional, ignored `settings.local.json`. If Pi already has a `settings.json`,
 setup keeps normal preferences changed through `/settings` and reapplies only
-the managed `httpIdleTimeoutMs`, `packages`, `subagents`, and `vstack` keys.
+the managed `httpIdleTimeoutMs`, `transport`, `retry`, `packages`, `subagents`,
+and `vstack` keys.
 The manifest records that ownership split.
 
 Setup writes the result to `${PI_AGENT_DIR:-~/.pi/agent}` and links shared skills
@@ -147,8 +148,8 @@ pi-update-all "describe the change"
 ```
 
 With a dirty setup repository, the message is required. The command runs the
-full checks, commits the setup, syncs with the tracked remote, pushes, applies
-the files, runs Pi's native `pi update --all`, and verifies drift. The native
+normal landing checks, commits the setup, syncs with the tracked remote, pushes,
+applies the files, runs Pi's native `pi update --all`, and verifies drift. The native
 update refreshes Pi itself and its packages. The Git sync rebases unpublished
 commits onto remote work, so another checkout can push while this checkout is
 idle. It stops without applying anything if the changes conflict. With a clean
@@ -220,10 +221,11 @@ version change.
 Pi's live `settings.json` is the source of truth for normal preferences. Changes
 made through `/settings`, including the thinking level, survive later setup and
 drift checks. This repository owns only the manifest-declared
-`httpIdleTimeoutMs`, `packages`, `subagents`, and `vstack` keys. It sets
-`httpIdleTimeoutMs` to `0`, which disables Pi's HTTP stream idle timeout so a
-long planner reasoning pass is not aborted after five minutes without receiving
-data.
+`httpIdleTimeoutMs`, `transport`, `retry`, `packages`, `subagents`, and `vstack`
+keys. It disables the HTTP stream idle timeout, selects SSE, and sets provider
+retries to zero. This keeps a failed Codex transport from replacing output that
+has already appeared with a fresh provider attempt. Pi's agent-level retry stays
+enabled for errors that reach Pi.
 
 [`settings.json`](settings.json) supplies these clean-install defaults:
 
@@ -231,12 +233,14 @@ data.
   Fullscreen mode is optional, and interactive transcripts can render Mermaid
   diagrams and LaTeX.
 - HTTP stream idle timeouts are disabled so long reasoning passes can finish.
+- Provider traffic uses SSE, and provider-level retries are disabled so visible
+  partial output is not replaced by a new transport attempt.
 - OpenAI Codex is the default provider and `gpt-5.6-luna` is the default model.
 - `openai-codex/gpt-5.6-luna` is the only model in the model-selection list.
 - The default thinking level is `max`.
 - Auto-compaction is enabled with 32,768 tokens reserved for the response and
   a 20,000-token recent-history target.
-- Automatic retry is enabled.
+- Agent-level automatic retry is enabled.
 - Subagent workers inherit the parent context; reviewers start fresh. The
   default child model is Luna with max reasoning.
 - Cache-miss notices are visible.
@@ -297,12 +301,15 @@ matter.
 
 Pi Codex Conversion has its own tracked config in
 [`pi-codex-conversion.json`](pi-codex-conversion.json). It uses path mode,
-compact tool rendering, Code Mode, fast OpenAI requests, cached WebSockets, and
-low response verbosity. Native Responses API compaction is disabled, so normal
-Pi compaction handles the conversation. Realtime voice seeds its startup context
-from the selected session model and reasoning level. It shows the summary in a
-display-only Voice Context entry and rebuilds it after an explicit voice
-restart. Voice sessions survive a device handoff.
+compact tool rendering, Code Mode, fast OpenAI requests, SSE, and low response
+verbosity. Cached WebSocket upgrades are off. Transport diagnostics are written
+to `~/.pi/agent/pi-codex-logs/` so a retry, fallback, or provider failure can be
+identified. The logs omit prompts and response text. Native Responses
+API compaction is disabled, so normal Pi compaction handles the conversation.
+Realtime voice seeds its startup context from the selected session model and
+reasoning level. It shows the summary in a display-only Voice Context entry and
+rebuilds it after an explicit voice restart. Voice sessions survive a device
+handoff.
 
 The local [`context-budget`](packages/context-budget) package keeps the first
 request smaller without uninstalling anything. Pi still discovers every skill,
@@ -388,7 +395,7 @@ setup.
 
 | File | Role |
 | --- | --- |
-| `settings.json` | Combines clean-install defaults, optional local fallbacks, and existing Pi preferences. Setup owns `httpIdleTimeoutMs`, `packages`, `subagents`, and `vstack`; Pi keeps the other live values. |
+| `settings.json` | Combines clean-install defaults, optional local fallbacks, and existing Pi preferences. Setup owns `httpIdleTimeoutMs`, `transport`, `retry`, `packages`, `subagents`, and `vstack`; Pi keeps the other live values. |
 | `AGENTS.md` | Gives agents the source-ownership, validation, documentation, and publication rules for this setup. |
 | `REALTIME-SYSTEM-PROMPT.md` | Supplies Pi Codex Conversion's realtime conversational prompt. |
 | `agent-browser-policy.json` | Fail-closed model, nested-chat, and cookie-transfer defaults for the native browser extension. |
@@ -537,11 +544,11 @@ supports it: up to 24 hours for OpenAI prompt caching or 1 hour for Anthropic.
 A cache hit can reduce input sent or billed, but it is never a backup and is not
 guaranteed.
 
-For Codex, cached WebSockets can reuse conversation state and send only what
-changed instead of replaying the full chat. A cached connection expires after
-5 minutes idle or 55 minutes total. Pi reconnects or falls back to a regular
-HTTP event stream when reuse is not available. A session ID can help the
-provider route related requests, but that is separate from cache retention.
+This setup sends Codex requests over SSE. Cached WebSockets can reduce replayed
+context, but a retry or WebSocket-to-SSE fallback may replace visible partial
+output in Pi Codex Conversion. SSE plus zero provider retries avoids that
+recovery path. A session ID can still help the provider route related requests,
+but that is separate from cache retention.
 
 Compaction and branch-summary requests intentionally use fresh routing and no
 prompt-cache retention. `pi-render-cache` is different again: it only avoids
@@ -673,7 +680,7 @@ excluded. `setup.sh` does not copy or restore them.
 | Part | Source of truth | Live installation or data |
 | --- | --- | --- |
 | Global Pi preferences | Pi `/settings` and other native settings changes | `~/.pi/agent/settings.json`, preserved across setup runs |
-| Managed global settings | This repo plus ignored `settings.local.json` | The `httpIdleTimeoutMs`, `packages`, `subagents`, and `vstack` keys in `~/.pi/agent/settings.json` |
+| Managed global settings | This repo plus ignored `settings.local.json` | The `httpIdleTimeoutMs`, `transport`, `retry`, `packages`, `subagents`, and `vstack` keys in `~/.pi/agent/settings.json` |
 | Update command | `scripts/pi-update-all` | `~/.local/bin/pi-update-all` |
 | Personal Pi package and extensions | This repo | Loaded from this checkout by the rendered owner settings, or from Pi's managed Git checkout for a public install |
 | Shared agent skills | This repo | `~/.agents/skills/tui-cli-design` and `~/.agents/skills/webflow-designer-agent-browser` |

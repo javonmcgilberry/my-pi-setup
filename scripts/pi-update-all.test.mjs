@@ -21,3 +21,9 @@ test("uses Pi's native all-inclusive updater", async () => {
 	assert.match(source, /"\$pi_bin" update --all/);
 	assert.doesNotMatch(source, /"\$pi_bin" update --extensions/);
 });
+
+test("uses the normal bounded landing checks", async () => {
+	const source = await readFile(updater, "utf8");
+	assert.match(source, /land_args=\(--push\)/);
+	assert.doesNotMatch(source, /land\.sh" --full|land_args=.*--full/);
+});
