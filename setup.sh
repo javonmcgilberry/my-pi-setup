@@ -179,6 +179,9 @@ done < <(manifest list retired pi)
 while IFS=$'\t' read -r _source target _backup; do
   assert_safe_target_parent "$shared_skills_dir" "$target"
 done < <(manifest list shared)
+while IFS=$'\t' read -r _repository target _backup; do
+  assert_safe_target_parent "$shared_skills_dir" "$target"
+done < <(manifest list externalShared)
 while IFS=$'\t' read -r target _backup; do
   assert_safe_target_parent "$shared_skills_dir" "$target"
 done < <(manifest list retired shared)
@@ -226,7 +229,6 @@ fi
 while IFS=$'\t' read -r key; do
   render_settings_args+=(--managed-key "$key")
 done < <(manifest list settingsManagedKeys)
-render_settings_args+=(--package-source "$repo_real_dir")
 rendered_settings="$("${render_settings_args[@]}")"
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)-$$"
@@ -349,6 +351,19 @@ done < <(manifest list commands)
 while IFS=$'\t' read -r source target backup_relative; do
   link_owned "${repo_dir}/${source}" "${shared_skills_dir}/${target}" "${backup_relative}" "shared/${target}"
 done < <(manifest list shared)
+while IFS=$'\t' read -r repository target backup_relative; do
+  development="${HOME}/Developer/${repository}/skills/${target}"
+  managed="${agent_dir}/git/github.com/javonmcgilberry/${repository}/skills/${target}"
+  if [[ -d "$development" ]]; then
+    source_path="$development"
+  elif [[ -d "$managed" ]]; then
+    source_path="$managed"
+  else
+    echo "Deferred shared skill ${target}; package ${repository} is not installed yet."
+    continue
+  fi
+  link_owned "$source_path" "${shared_skills_dir}/${target}" "$backup_relative" "shared/${target}"
+done < <(manifest list externalShared)
 
 echo "Setup complete: Pi at $agent_dir; shared skills at $shared_skills_dir; commands at $commands_dir"
 if "$manage_macos_launch_agents"; then

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Webflow Designer Agent Browser"
-  short_description: "Validate changes and verify Designer state"
-  default_prompt: "Use $webflow-designer-agent-browser for current-change validation and Webflow Designer QA. Route a Git change set through the skill's trusted, approval, or evidence-gap branch. For browser QA, use a dedicated test user and persistent Chrome-for-Testing profile for isolated runs, or attach when another browser must keep the account active. Finish and prove the runtime stopped before retiring the automation session."

@@ -5,17 +5,20 @@ usage() {
 	cat <<'USAGE'
 Usage:
   pi-update-all
-  pi-update-all "commit message"
 
-With a clean setup repository, updates the live setup, Pi itself, and every
-floating Pi package. With uncommitted setup changes, the commit message is
-required; the command validates, commits, and pushes those changes first.
+Pulls a clean configuration repository, applies the live settings, updates Pi
+and every floating Pi package, reapplies links supplied by those packages, and
+verifies drift. It never runs product tests or creates Git commits.
 USAGE
 }
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
 	usage
 	exit 0
+fi
+if [[ $# -gt 0 ]]; then
+	usage >&2
+	exit 2
 fi
 
 source_path="${BASH_SOURCE[0]}"
@@ -37,28 +40,26 @@ if [[ -z "$pi_bin" ]]; then
 	exit 1
 fi
 
-message="$*"
-land_args=(--push)
 if [[ -n "$(git -C "$repo_dir" status --porcelain)" ]]; then
-	if [[ -z "$message" ]]; then
-		echo "The setup repository has uncommitted changes. Pass a commit message:" >&2
-		echo '  pi-update-all "describe the change"' >&2
-		exit 2
-	fi
-	land_args+=(--message "$message")
-elif [[ -n "$message" ]]; then
-	echo "The setup repository is clean; no commit message is needed."
+	echo "The configuration repository has uncommitted changes." >&2
+	echo 'Commit them separately with scripts/land.sh --message "describe the change" --push.' >&2
+	exit 2
 fi
-"$repo_dir/scripts/land.sh" "${land_args[@]}"
+
+if git -C "$repo_dir" rev-parse --abbrev-ref '@{upstream}' >/dev/null 2>&1; then
+	echo "Pulling the configuration repository..."
+	git -C "$repo_dir" pull --ff-only
+fi
 
 clean_env=(env -u PI_AGENT_DIR -u AGENTS_SKILLS_DIR -u PI_CODING_AGENT_DIR -u PI_COMMANDS_DIR)
 
 echo "Applying the live Pi setup..."
 "${clean_env[@]}" "$repo_dir/setup.sh"
-"${clean_env[@]}" "$repo_dir/scripts/drift.sh"
 
 echo "Updating Pi and its packages..."
 "${clean_env[@]}" "$pi_bin" update --all
 
+echo "Reapplying package-backed links..."
+"${clean_env[@]}" "$repo_dir/setup.sh"
 "${clean_env[@]}" "$repo_dir/scripts/drift.sh"
 echo "Pi, its setup, and its packages are current. Start Pi normally."

@@ -26,14 +26,16 @@
   ],
   "linked": {
     "codex-conversion-custom-tools/webflow_designer.toml": "config/codex-conversion-custom-tools/webflow_designer.toml",
-    "codex-conversion-custom-tools/webflow-designer": "skills/webflow-designer-agent-browser/scripts/designer-code-mode.py"
+    "codex-conversion-custom-tools/webflow-designer": "scripts/webflow-designer"
   },
   "commands": {
     "pi-update-all": "scripts/pi-update-all"
   },
   "sharedSkills": {
-    "tui-cli-design": "skills/tui-cli-design",
-    "webflow-designer-agent-browser": "skills/webflow-designer-agent-browser"
+    "tui-cli-design": "skills/tui-cli-design"
+  },
+  "externalSharedSkills": {
+    "webflow-designer-agent-browser": "webflow-designer-agent-browser"
   },
   "macosLaunchAgents": {
     "com.javonmcgilberry.pi-tmux-gui-server.plist": "config/com.javonmcgilberry.pi-tmux-gui-server.plist"

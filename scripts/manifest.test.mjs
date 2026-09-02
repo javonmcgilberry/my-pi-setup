@@ -17,6 +17,7 @@ const base = {
   linked: {},
   commands: {},
   sharedSkills: {},
+  externalSharedSkills: {},
   macosLaunchAgents: {},
   retired: { pi: [], shared: [], commands: [] },
   externalLinks: [],
@@ -54,7 +55,7 @@ describe("managed install manifest", () => {
       },
       {
         root: "pi",
-        source: "skills/webflow-designer-agent-browser/scripts/designer-code-mode.py",
+        source: "scripts/webflow-designer",
         target: "codex-conversion-custom-tools/webflow-designer",
         backup: "codex-conversion-custom-tools/webflow-designer",
       },
@@ -65,7 +66,15 @@ describe("managed install manifest", () => {
       target: "pi-update-all",
       backup: "local-bin-pi-update-all",
     }]);
-    assert.equal(manifest.sharedSkills.length, 2);
+    assert.equal(manifest.sharedSkills.length, 1);
+    assert.deepEqual(entriesFor(manifest, "externalShared"), [
+      {
+        root: "shared",
+        source: "webflow-designer-agent-browser",
+        target: "webflow-designer-agent-browser",
+        backup: "external-agents-skills-webflow-designer-agent-browser",
+      },
+    ]);
     assert.equal(manifest.macosLaunchAgents.length, 1);
     assert.deepEqual(manifest.macosLaunchAgents[0], {
       root: "macosLaunchAgents",
@@ -96,34 +105,14 @@ describe("managed install manifest", () => {
           target: "tui-cli-design",
           backup: "external-agents-skills-tui-cli-design",
         },
-        {
-          target: "webflow-designer-agent-browser",
-          backup: "external-agents-skills-webflow-designer-agent-browser",
-        },
       ],
     );
   });
 
-  it("exposes only the intended personal package resources", () => {
-    const packageJson = JSON.parse(readFileSync(`${REPO_ROOT}/package.json`, "utf8"));
-    assert.equal(packageJson.keywords.includes("pi-package"), true);
-    assert.deepEqual(packageJson.pi.extensions, [
-      "./extensions/agent-browser-policy.ts",
-      "./extensions/webflow-validation-approval.ts",
-      "./extensions/herdr-agent-state.ts",
-      "./extensions/pretty-footer.ts",
-      "./packages/context-budget",
-      "./extensions/session-spend-dashboard",
-      "./extensions/warp-session-title.ts",
-    ]);
-    assert.deepEqual(packageJson.dependencies ?? {}, {});
-    assert.deepEqual(Object.keys(packageJson.peerDependencies).sort(), [
-      "@earendil-works/pi-coding-agent",
-      "@earendil-works/pi-tui",
-    ]);
-    assert.equal(packageJson.files.includes("disabled-extensions/clear-status.ts"), false);
-    assert.equal(packageJson.files.some((entry) => entry.includes("tui-cli-design")), false);
-    assert.equal(packageJson.files.some((entry) => entry.includes("webflow-designer-agent-browser")), false);
+  it("declares the split private packages", () => {
+    const settings = JSON.parse(readFileSync(`${REPO_ROOT}/settings.json`, "utf8"));
+    assert.ok(settings.packages.includes("git:git@github.com:javonmcgilberry/javon-pi-extensions.git"));
+    assert.ok(settings.packages.includes("git:git@github.com:javonmcgilberry/webflow-designer-agent-browser.git"));
   });
 
   it("floats every remote package source", () => {
@@ -142,7 +131,7 @@ describe("managed install manifest", () => {
     const gitPackages = settings.packages.filter((source) => source.startsWith("git:"));
     assert.ok(gitPackages.length > 0, "the setup includes Git packages");
     for (const source of gitPackages) {
-      assert.match(source, /^git:[^@]+$/, `${source} must float`);
+      assert.doesNotMatch(source, /\/[^/]+@[^/]+$/, `${source} must float`);
     }
   });
 

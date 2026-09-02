@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { access, lstat, mkdir, mkdtemp, readFile, readlink, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { access, chmod, lstat, mkdir, mkdtemp, readFile, readlink, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -50,9 +50,22 @@ async function exists(file) {
   }
 }
 
+async function installWebflowFixture(target) {
+  const skill = path.join(
+    target.agentDir,
+    "git/github.com/javonmcgilberry/webflow-designer-agent-browser/skills/webflow-designer-agent-browser",
+  );
+  const launcher = path.join(skill, "scripts/designer-code-mode.py");
+  await mkdir(path.dirname(launcher), { recursive: true });
+  await writeFile(launcher, '#!/usr/bin/env bash\nprintf \'{"operation":"help"}\\n\'\n');
+  await chmod(launcher, 0o755);
+  return skill;
+}
+
 describe("setup bootstrap", () => {
   it("is idempotent and produces a clean drift result", async () => {
     const target = await tempTarget();
+    const webflowSkill = await installWebflowFixture(target);
     await run(setupScript, [], target);
     const second = await run(setupScript, [], target);
     const drift = await run(driftScript, [], target);
@@ -61,8 +74,9 @@ describe("setup bootstrap", () => {
     assert.match(drift.stdout, /No managed file drift detected\./);
 
     const settings = JSON.parse(await readFile(path.join(target.agentDir, "settings.json"), "utf8"));
-    assert.equal(settings.packages.at(-1), repoRoot);
-    assert.equal(settings.packages.filter((source) => source === repoRoot).length, 1);
+    assert.equal(settings.packages.includes(repoRoot), false);
+    assert.equal(settings.packages.includes("git:git@github.com:javonmcgilberry/javon-pi-extensions.git"), true);
+    assert.equal(settings.packages.includes("git:git@github.com:javonmcgilberry/webflow-designer-agent-browser.git"), true);
     assert.equal(
       settings.packages.includes("git:github.com/javonmcgilberry/pi-prewalk"),
       true,
@@ -70,11 +84,12 @@ describe("setup bootstrap", () => {
     assert.equal(await exists(path.join(target.agentDir, "extensions/pretty-footer.ts")), false);
     assert.equal(await exists(path.join(target.agentDir, "packages/prewalk")), false);
 
-    for (const skill of ["tui-cli-design", "webflow-designer-agent-browser"]) {
-      const sharedSkill = path.join(target.skillsDir, skill);
-      assert.equal((await lstat(sharedSkill)).isSymbolicLink(), true);
-      assert.equal(await readlink(sharedSkill), path.join(repoRoot, "skills", skill));
-    }
+    const tuiSkill = path.join(target.skillsDir, "tui-cli-design");
+    assert.equal((await lstat(tuiSkill)).isSymbolicLink(), true);
+    assert.equal(await readlink(tuiSkill), path.join(repoRoot, "skills/tui-cli-design"));
+    const sharedWebflow = path.join(target.skillsDir, "webflow-designer-agent-browser");
+    assert.equal((await lstat(sharedWebflow)).isSymbolicLink(), true);
+    assert.equal(await readlink(sharedWebflow), webflowSkill);
     const command = path.join(target.commandsDir, "pi-update-all");
     assert.equal((await lstat(command)).isSymbolicLink(), true);
     assert.equal(await readlink(command), path.join(repoRoot, "scripts/pi-update-all"));
@@ -90,7 +105,7 @@ describe("setup bootstrap", () => {
     assert.equal((await lstat(launcher)).isSymbolicLink(), true);
     assert.equal(
       await readlink(launcher),
-      path.join(repoRoot, "skills/webflow-designer-agent-browser/scripts/designer-code-mode.py"),
+      path.join(repoRoot, "scripts/webflow-designer"),
     );
     const toolHelp = await execFileAsync(launcher, ["help"], {
       cwd: repoRoot,
@@ -150,7 +165,8 @@ describe("setup bootstrap", () => {
     assert.equal(settings.httpIdleTimeoutMs, 0);
     assert.deepEqual(settings.modelThinkingLevels, { "openai/example": "high" });
     assert.equal(settings.packages.includes("npm:stale"), false);
-    assert.equal(settings.packages.at(-1), repoRoot);
+    assert.equal(settings.packages.includes(repoRoot), false);
+    assert.equal(settings.packages.includes("git:git@github.com:javonmcgilberry/javon-pi-extensions.git"), true);
     assert.notEqual(settings.subagents.defaultModel, "stale");
     assert.equal(settings.vstack.stale, undefined);
 

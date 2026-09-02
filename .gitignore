@@ -14,14 +14,9 @@ generated/
 intercom/
 backups/
 ayu/
-packages/*
-!packages/context-budget/
-!packages/context-budget/**
 prewalk/analytics/
 session-metadata/
 bin/
-!skills/webflow-designer-agent-browser/bin/
-!skills/webflow-designer-agent-browser/bin/**
 git/
 npm/
 node_modules/

@@ -1,20 +1,14 @@
-# Project context
+# Context
 
-## Managed install inventory
+`my-pi-setup` is a private, portable Pi configuration repository. It renders a
+small managed subset of global settings, copies non-secret config files, links
+shared skills and commands, and verifies drift.
 
-The managed install inventory is the authoritative declaration of artifacts
-this setup owns, where each artifact is installed, and which obsolete targets
-must be retired. Installers, drift checks, and validation all interpret the
-same inventory.
+Substantial code lives elsewhere:
 
-## Managed target
+- `javon-pi-extensions` owns personal extensions and the session dashboard.
+- `webflow-designer-agent-browser` owns the Webflow skill and validation suite.
+- `pi-prewalk` owns Prewalk.
 
-A managed target is a filesystem location whose contents or link are owned by
-this setup. A target may belong to the Pi installation or to the shared
-cross-harness skill installation.
-
-## Shared skill installation
-
-A shared skill installation is one harness-discoverable skill location used by
-Pi and other compatible harnesses. Duplicate copies of the same skill are not
-independent installations; they are a collision risk.
+Routine `pi-update-all` runs no tests. Configuration changes use the small local
+check suite; each product runs its own tests only in its own repository.
