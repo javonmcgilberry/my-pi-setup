@@ -1,8 +1,5 @@
 {
   "mcpServers": {
-    "context-mode": {
-      "command": "context-mode"
-    },
     "linear": {
       "url": "https://mcp.linear.app/mcp"
     },
