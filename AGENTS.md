@@ -42,6 +42,16 @@ While Pi is active, use one temporary root for `PI_AGENT_DIR`,
 Keep credentials, auth files, sessions, browser profiles, cookies, caches,
 package clones, generated artifacts, and runtime databases out of Git.
 
+## Slack research
+
+Whenever Slack information is needed, use the globally installed `slack-cli`.
+Never use or configure a Slack MCP server. Confirm access with
+`slack-cli auth status`, then use commands such as
+`slack-cli search messages '<query>' --limit <count>` or
+`slack-cli search all '<query>'`; the CLI returns JSON. Do not start a separate
+OAuth flow unless the CLI reports that its existing Slack desktop credentials
+are unavailable.
+
 ## Subagent execution
 
 - Let ordinary single subagent runs use Pi's 30-minute default. Set an explicit
