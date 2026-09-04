@@ -58,6 +58,9 @@ while IFS=$'\t' read -r _source target _backup; do
 done < <(node "$manifest_script" list copied)
 while IFS=$'\t' read -r _source target _backup; do
   assert_read_target_parent "$agent_dir" "$target"
+done < <(node "$manifest_script" list seeded)
+while IFS=$'\t' read -r _source target _backup; do
+  assert_read_target_parent "$agent_dir" "$target"
 done < <(node "$manifest_script" list linked pi)
 while IFS=$'\t' read -r _source target _backup; do
   assert_read_target_parent "$commands_dir" "$target"
@@ -115,6 +118,13 @@ done < <(manifest list rendered)
 while IFS=$'\t' read -r source relative _backup; do
   check_copied "$source" "$relative"
 done < <(manifest list copied)
+
+while IFS=$'\t' read -r _source relative _backup; do
+  actual="$agent_dir/$relative"
+  if [[ ! -e "$actual" && ! -L "$actual" ]]; then
+    echo "missing: $relative (seeded live preference)"; found=true
+  fi
+done < <(manifest list seeded)
 
 while IFS=$'\t' read -r source relative _backup; do
   target="$agent_dir/$relative"

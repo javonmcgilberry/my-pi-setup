@@ -107,13 +107,13 @@ function normalizeLocalPackageSources(value) {
   return entries;
 }
 
-function normalizeCopied(value, repoRoot) {
-  if (!Array.isArray(value ?? [])) throw new Error("copied must be an array");
+function normalizeFileList(value, label, repoRoot) {
+  if (!Array.isArray(value ?? [])) throw new Error(`${label} must be an array`);
   return value.map((item, index) => {
-    const path = assertRelativePath(item, `copied[${index}]`);
-    assertSource(path, `copied[${index}]`, repoRoot);
+    const path = assertRelativePath(item, `${label}[${index}]`);
+    assertSource(path, `${label}[${index}]`, repoRoot);
     if (!statSync(resolve(repoRoot, path)).isFile()) {
-      throw new Error(`copied[${index}] source must be a file: ${path}`);
+      throw new Error(`${label}[${index}] source must be a file: ${path}`);
     }
     return { root: "pi", source: path, target: path, backup: backupPath("pi", path) };
   });
@@ -204,6 +204,7 @@ export function normalizeManifest(raw, { repoRoot = REPO_ROOT } = {}) {
     "rendered",
     "settingsManagedKeys",
     "copied",
+    "seeded",
     "linked",
     "commands",
     "sharedSkills",
@@ -224,7 +225,8 @@ export function normalizeManifest(raw, { repoRoot = REPO_ROOT } = {}) {
   const rendered = normalizeMap(raw.rendered, "rendered", "pi", repoRoot, { filesOnly: true });
   if (rendered.length !== 1) throw new Error("rendered must contain exactly one settings entry");
   const settingsManagedKeys = normalizeSettingKeys(raw.settingsManagedKeys);
-  const copied = normalizeCopied(raw.copied, repoRoot);
+  const copied = normalizeFileList(raw.copied, "copied", repoRoot);
+  const seeded = normalizeFileList(raw.seeded, "seeded", repoRoot);
   const linked = normalizeMap(raw.linked, "linked", "pi", repoRoot);
   const commands = normalizeMap(raw.commands, "commands", "commands", repoRoot, {
     filesOnly: true,
@@ -247,12 +249,13 @@ export function normalizeManifest(raw, { repoRoot = REPO_ROOT } = {}) {
   });
 
   assertUniqueTargets(
-    [...rendered, ...copied, ...linked, ...commands, ...sharedSkills, ...externalSharedSkills, ...macosLaunchAgents, ...retired],
+    [...rendered, ...copied, ...seeded, ...linked, ...commands, ...sharedSkills, ...externalSharedSkills, ...macosLaunchAgents, ...retired],
     "manifest",
   );
   const managedEntries = [
     ...rendered,
     ...copied,
+    ...seeded,
     ...linked,
     ...commands,
     ...sharedSkills,
@@ -284,6 +287,7 @@ export function normalizeManifest(raw, { repoRoot = REPO_ROOT } = {}) {
     rendered,
     settingsManagedKeys,
     copied,
+    seeded,
     linked,
     commands,
     sharedSkills,
@@ -322,6 +326,7 @@ export function entriesFor(manifest, category, root) {
     return manifest.settingsManagedKeys.map((target) => ({ target }));
   }
   if (category === "copied") return manifest.copied;
+  if (category === "seeded") return manifest.seeded;
   if (category === "externalLinks") return manifest.externalLinks.map((target) => ({ target }));
   if (category === "localOverrides") return manifest.localOverrides.map((target) => ({ target }));
   if (category === "runtimeExclusions") return manifest.runtimeExclusions.map((target) => ({ target }));
@@ -348,6 +353,7 @@ function main(argv) {
         version: manifest.version,
         settingsManagedKeys: manifest.settingsManagedKeys.length,
         copied: manifest.copied.length,
+        seeded: manifest.seeded.length,
         linked: manifest.linked.length,
         commands: manifest.commands.length,
         sharedSkills: manifest.sharedSkills.length,
@@ -376,7 +382,7 @@ function main(argv) {
     if (violations.length) throw new Error(`repository inventory includes runtime exclusions: ${violations.join(", ")}`);
     return;
   }
-  throw new Error("Usage: manifest.mjs validate | check-inventory | list <rendered|settingsManagedKeys|copied|linked|commands|shared|externalShared|localPackages|macosLaunchAgents|retired|externalLinks|localOverrides|runtimeExclusions> [root]");
+  throw new Error("Usage: manifest.mjs validate | check-inventory | list <rendered|settingsManagedKeys|copied|seeded|linked|commands|shared|externalShared|localPackages|macosLaunchAgents|retired|externalLinks|localOverrides|runtimeExclusions> [root]");
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

@@ -8,7 +8,7 @@ in their own repositories.
 
 | Repository | Responsibility |
 | --- | --- |
-| [`my-pi-setup`](https://github.com/javonmcgilberry/my-pi-setup) | Portable settings, config files, shared-skill links, bootstrap, drift, and restore |
+| [`my-pi-setup`](https://github.com/javonmcgilberry/my-pi-setup) | Clean-install preference seeds, package inventory, shared-skill links, bootstrap, drift, and restore |
 | [`javon-pi-extensions`](https://github.com/javonmcgilberry/javon-pi-extensions) | Personal Pi extensions, context budget, footer, dashboard, and their tests |
 | [`webflow-designer-agent-browser`](https://github.com/javonmcgilberry/webflow-designer-agent-browser) | Webflow browser skill, policy extensions, fixtures, benchmarks, and its 247-test suite |
 | [`pi-prewalk`](https://github.com/javonmcgilberry/pi-prewalk) | Prewalk package and development source |
@@ -41,7 +41,8 @@ checkout, applies settings, runs Pi's native `pi update --all`, reapplies links
 provided by installed packages, and verifies drift. It does not run product
 tests and does not create commits.
 
-To change configuration, edit this repository and land the change separately:
+To change portable bootstrap behavior or clean-install seeds, edit this
+repository and land the change separately:
 
 ```sh
 ./scripts/land.sh --message "describe the configuration change" --push
@@ -52,11 +53,16 @@ isolated setup matrix when bootstrap behavior itself changes.
 
 ## Live settings and install defaults
 
-Pi reads `~/.pi/agent/settings.json`, and that live file is authoritative for
-user preferences. Setup reads it before rendering and preserves every existing
-top-level setting except `packages`. The package list remains managed because
-setup uses it as the install inventory and swaps package locators for canonical
-local checkouts when they exist.
+Pi's live files under `~/.pi/agent` are authoritative for user preferences.
+That includes `settings.json`, extension JSON files such as `prewalk.json`, and
+global prompt or agent-policy files. Setup never replaces an existing live
+preference file. The tracked copies are used only to seed a missing file on a
+clean installation.
+
+For `settings.json`, setup preserves every existing top-level setting except
+`packages`. The package list remains managed because setup uses it as the
+install inventory and swaps package locators for canonical local checkouts when
+they exist.
 
 The tracked `settings.json` is a clean-install starting point. Its transport,
 retry, subagent, model, theme, and other values fill a new settings file, but a
@@ -72,7 +78,9 @@ preferences and setup leaves them alone.
 Secrets remain in Pi's local auth files or environment variables and are never
 copied into this repository.
 
-The installed `AGENTS.md` also sets the operating policy for delegated work.
+The seeded `AGENTS.md` sets the initial operating policy for delegated work.
+Once installed, the live copy is authoritative and setup leaves local changes
+alone.
 Ordinary runs use Pi's 30-minute timeout unless a measured task needs an
 explicit limit. Tightly scoped read-only reviews use a soft tool limit and the
 string wildcard `block: "*"` so the child must stop inspecting and return a
@@ -104,7 +112,8 @@ visible to Pi and other compatible harnesses.
 
 - `setup.sh --dry-run` previews configuration changes.
 - `scripts/drift.sh` is read-only.
-- Replaced managed files are backed up under `~/.pi/agent/backups/`.
+- Replaced infrastructure and managed settings are backed up under
+  `~/.pi/agent/backups/`; existing live preference files are not replaced.
 - `scripts/restore.sh <backup-directory>` restores a selected backup.
 - Auth, sessions, caches, browser profiles, cookies, package clones, and runtime
   databases are excluded from the managed inventory.

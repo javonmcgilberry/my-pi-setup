@@ -160,6 +160,7 @@ restore_lists="$(mktemp -d "${TMPDIR:-/tmp}/my-pi-restore.XXXXXX")"
 trap 'rm -rf "$restore_lists"' EXIT
 node "$manifest_script" list rendered > "$restore_lists/rendered"
 node "$manifest_script" list copied > "$restore_lists/copied"
+node "$manifest_script" list seeded > "$restore_lists/seeded"
 node "$manifest_script" list linked pi > "$restore_lists/linked"
 node "$manifest_script" list commands > "$restore_lists/commands"
 node "$manifest_script" list retired pi > "$restore_lists/retired"
@@ -173,6 +174,9 @@ done < "$restore_lists/rendered"
 while IFS=$'\t' read -r _source relative backup_relative; do
   restore_pi "$relative" "$backup_relative"
 done < "$restore_lists/copied"
+while IFS=$'\t' read -r _source relative backup_relative; do
+  restore_pi "$relative" "$backup_relative"
+done < "$restore_lists/seeded"
 while IFS=$'\t' read -r _source relative backup_relative; do
   restore_pi "$relative" "$backup_relative"
 done < "$restore_lists/linked"

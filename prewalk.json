@@ -1,13 +1,44 @@
 {
+  "enabled": false,
   "executor": {
     "provider": "openai-codex",
     "model": "gpt-5.6-luna",
     "reasoning": "max"
+  },
+  "handoff": {
+    "ignoreExtensions": [
+      ".md"
+    ]
+  },
+  "plannerRecovery": {
+    "maxRetries": 5
   },
   "analytics": {
     "enabled": true,
     "catalogFallbackEnabled": true,
     "recentReceiptCount": 10,
     "schemaVersion": 1
+  },
+  "children": {
+    "agents": {
+      "scout": {
+        "executor": {
+          "provider": "openai-codex",
+          "model": "gpt-5.6-luna",
+          "reasoning": "high"
+        }
+      },
+      "researcher": true,
+      "worker": true,
+      "reviewer": true,
+      "oracle": true,
+      "delegate": {
+        "executor": {
+          "provider": "openai-codex",
+          "model": "gpt-5.6-luna",
+          "reasoning": "high"
+        }
+      }
+    }
   }
 }

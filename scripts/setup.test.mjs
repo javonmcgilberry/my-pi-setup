@@ -238,6 +238,36 @@ describe("setup bootstrap", () => {
     );
   });
 
+  it("seeds global preference files once and never overwrites live changes", async () => {
+    const target = await tempTarget();
+    const prewalkFile = path.join(target.agentDir, "prewalk.json");
+    const agentsFile = path.join(target.agentDir, "AGENTS.md");
+    await mkdir(target.agentDir, { recursive: true });
+    await writeFile(prewalkFile, '{"enabled":true,"children":{"agents":{"worker":true}}}\n');
+    await writeFile(agentsFile, "live agent policy\n");
+
+    const first = await run(setupScript, [], target);
+    assert.match(first.stdout, /preserved: prewalk\.json \(live preference\)/);
+    assert.match(first.stdout, /preserved: AGENTS\.md \(live preference\)/);
+    assert.equal(
+      await readFile(prewalkFile, "utf8"),
+      '{"enabled":true,"children":{"agents":{"worker":true}}}\n',
+    );
+    assert.equal(await readFile(agentsFile, "utf8"), "live agent policy\n");
+
+    const second = await run(setupScript, [], target);
+    const drift = await run(driftScript, [], target);
+    assert.match(second.stdout, /preserved: prewalk\.json \(live preference\)/);
+    assert.match(drift.stdout, /No managed file drift detected\./);
+
+    const fresh = await tempTarget();
+    await run(setupScript, [], fresh);
+    assert.equal(
+      await readFile(path.join(fresh.agentDir, "prewalk.json"), "utf8"),
+      await readFile(path.join(repoRoot, "prewalk.json"), "utf8"),
+    );
+  });
+
   it("backs up retired paths and restores them", async () => {
     const target = await tempTarget();
     const oldExtension = path.join(target.agentDir, "extensions/warp-session-title.ts");
@@ -257,10 +287,15 @@ describe("setup bootstrap", () => {
     const backupDir = path.join(backupsRoot, backups[0]);
     assert.equal(await readFile(path.join(backupDir, "extensions/warp-session-title.ts"), "utf8"), "old extension\n");
     assert.equal(await readFile(path.join(backupDir, "packages/prewalk/marker.txt"), "utf8"), "old prewalk\n");
+    await writeFile(path.join(backupDir, "prewalk.json"), "restored live preference\n");
 
     await run(restoreScript, [backupDir], target);
     assert.equal(await readFile(oldExtension, "utf8"), "old extension\n");
     assert.equal(await readFile(oldPrewalk, "utf8"), "old prewalk\n");
+    assert.equal(
+      await readFile(path.join(target.agentDir, "prewalk.json"), "utf8"),
+      "restored live preference\n",
+    );
   });
 
   it("refuses a symlinked target root", async () => {

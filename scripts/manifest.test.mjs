@@ -14,6 +14,7 @@ const base = {
   rendered: { "settings.json": "settings.json" },
   settingsManagedKeys: ["packages"],
   copied: [],
+  seeded: [],
   linked: {},
   commands: {},
   sharedSkills: {},
@@ -38,7 +39,23 @@ describe("managed install manifest", () => {
     const manifest = loadManifest();
     assert.equal(manifest.version, 1);
     assert.deepEqual(manifest.settingsManagedKeys, ["packages"]);
-    assert.equal(manifest.copied.length, 11);
+    assert.equal(manifest.copied.length, 0);
+    assert.deepEqual(
+      manifest.seeded.map((entry) => entry.target),
+      [
+        "AGENTS.md",
+        "REALTIME-SYSTEM-PROMPT.md",
+        "agent-browser-policy.json",
+        "mcp.json",
+        "pi-autoname.json",
+        "pi-auto-trees.json",
+        "pi-codex-conversion.json",
+        "pi-smart-btw.json",
+        "prewalk.json",
+        "fzf.json",
+        "session-spend-dashboard.json",
+      ],
+    );
     assert.deepEqual(manifest.linked, [
       {
         root: "pi",
@@ -199,12 +216,20 @@ describe("managed install manifest", () => {
       () => normalizeManifest({ ...base, copied: ["does-not-exist.txt"] }),
       /source does not exist/,
     );
+    assert.throws(
+      () => normalizeManifest({ ...base, seeded: ["does-not-exist.txt"] }),
+      /source does not exist/,
+    );
   });
 
   it("rejects duplicate targets across explicit categories", () => {
     assert.throws(
       () => normalizeManifest({ ...base, copied: ["settings.json"] }),
       /duplicate managed target pi\/settings.json/,
+    );
+    assert.throws(
+      () => normalizeManifest({ ...base, copied: ["prewalk.json"], seeded: ["prewalk.json"] }),
+      /duplicate managed target pi\/prewalk.json/,
     );
     assert.throws(
       () => normalizeManifest({

@@ -16,12 +16,14 @@ configuration. It does not own product extensions or the Webflow browser skill.
 Do not copy product source back into this repository. Declare product packages
 in `settings.json` and keep their tests in their owning repositories.
 
-Pi's live `~/.pi/agent/settings.json` is authoritative for user preferences.
-Do not change tracked defaults for a routine preference update. Tracked
-settings seed a clean install, while setup manages only the `packages` key
-needed for package inventory and local-checkout selection. Trusted project
-settings in `<project>/.pi/settings.json` may override the global settings for
-that project.
+Pi's live files under `~/.pi/agent` are authoritative for user preferences,
+including `settings.json`, extension JSON configuration, and global prompt or
+agent-policy files. Do not change tracked defaults for a routine preference
+update. Tracked preference files seed a clean install only and must never
+overwrite an existing live file. Setup manages only the `packages` key inside
+`settings.json`, which is needed for package inventory and local-checkout
+selection. Trusted project settings in `<project>/.pi/settings.json` may
+override the global settings for that project.
 
 ## Workflow
 

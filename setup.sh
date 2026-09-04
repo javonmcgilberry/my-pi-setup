@@ -132,6 +132,12 @@ while IFS=$'\t' read -r source _target _backup; do
 done < <(manifest list copied)
 while IFS=$'\t' read -r source _target _backup; do
   [[ -f "${repo_dir}/${source}" ]] || {
+    echo "Missing seeded source: $source" >&2
+    exit 1
+  }
+done < <(manifest list seeded)
+while IFS=$'\t' read -r source _target _backup; do
+  [[ -f "${repo_dir}/${source}" ]] || {
     echo "Missing command source: $source" >&2
     exit 1
   }
@@ -167,6 +173,9 @@ done < <(manifest list rendered)
 while IFS=$'\t' read -r _source target _backup; do
   assert_safe_target_parent "$agent_dir" "$target"
 done < <(manifest list copied)
+while IFS=$'\t' read -r _source target _backup; do
+  assert_safe_target_parent "$agent_dir" "$target"
+done < <(manifest list seeded)
 while IFS=$'\t' read -r _source target _backup; do
   assert_safe_target_parent "$agent_dir" "$target"
 done < <(manifest list linked pi)
@@ -313,6 +322,19 @@ while IFS=$'\t' read -r source relative _backup; do
   run mkdir -p "$(dirname "$target_path")"
   run cp -p "$source_path" "$target_path"
 done < <(manifest list copied)
+
+while IFS=$'\t' read -r source relative _backup; do
+  source_path="${repo_dir}/${source}"
+  target_path="${agent_dir}/${relative}"
+
+  if [[ -e "$target_path" || -L "$target_path" ]]; then
+    echo "preserved: $relative (live preference)"
+    continue
+  fi
+
+  run mkdir -p "$(dirname "$target_path")"
+  run cp -p "$source_path" "$target_path"
+done < <(manifest list seeded)
 
 if "$manage_macos_launch_agents"; then
   while IFS=$'\t' read -r source relative backup_relative; do

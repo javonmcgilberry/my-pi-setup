@@ -6,7 +6,8 @@
   "settingsManagedKeys": [
     "packages"
   ],
-  "copied": [
+  "copied": [],
+  "seeded": [
     "AGENTS.md",
     "REALTIME-SYSTEM-PROMPT.md",
     "agent-browser-policy.json",
